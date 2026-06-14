@@ -22,18 +22,37 @@ Prefer to run the steps yourself? They're just two `skills` invocations:
 # 1. Curated subset of Matt Pocock's skills, pulled straight from his repo.
 #    Listing them with -s skips the interactive picker — no manual selection,
 #    and his other skills are never installed.
-npx skills@latest add mattpocock/skills -s caveman,write-a-skill,zoom-out,grill-with-docs,handoff -g -y
+npx skills@latest add mattpocock/skills -s caveman,write-a-skill,zoom-out,grill-with-docs,handoff -g -a claude-code -y
 
 # 2. Hoopit's own skills.
-npx skills@latest add hoopit/setup -s '*' -g -y
+npx skills@latest add hoopit/setup -s '*' -g -a claude-code -y
 ```
 
 > `hoopit/setup` is private — `skills` clones it over git, so make sure your
 > GitHub credentials work for git (`gh auth setup-git`, or SSH). The onboarding
 > skills below set this up.
 
-> Use `-p` instead of `-g` to install into the current project (`./.claude/…`)
-> rather than globally. Drop `-y` to confirm each step interactively.
+### Choosing scope and agents
+
+- **Scope:** `-g` installs globally (user-level, default). Use `-p` for the
+  current project (`./.claude/…`). `install.sh` honors `SCOPE=-p`.
+- **Agents:** the installer defaults to **`claude-code`** only. Override with
+  `AGENTS`:
+  ```bash
+  AGENTS="claude-code,universal" ./install.sh   # also the generic ~/.config/agents/skills
+  AGENTS="" ./install.sh                          # pick agents interactively (TTY only)
+  ```
+
+> **Why pin agents?** With `-y` and no `-a`, the CLI installs to **every detected
+> agent** on your machine — which can sweep in agents you don't use and emit
+> errors like *"PromptScript does not support global skill installation"* (some
+> agents have no global skills dir). Pinning `-a` avoids that. To pick from a
+> menu instead, drop **both** `-a` and `-y` — but note the interactive picker
+> needs a real terminal, so it can't run through the `curl | bash` one-liner.
+
+> **Agent-flag quirks:** `add -a` accepts a comma list (`-a claude-code,universal`).
+> `remove -a` does **not** split commas — pass repeated flags
+> (`-a junie -a pi`).
 
 ## Managing skills — `add` / `remove` / `update`
 
