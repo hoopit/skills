@@ -35,24 +35,86 @@ npx skills@latest add hoopit/setup -s '*' -g -y
 > Use `-p` instead of `-g` to install into the current project (`./.claude/…`)
 > rather than globally. Drop `-y` to confirm each step interactively.
 
-## Update & remove (the bits you asked about)
+## Managing skills — `add` / `remove` / `update`
+
+All skill management goes through the [`skills` CLI](https://skills.sh). The
+commands below assume `npx skills@latest …` (run without installing anything
+globally). Common flags:
+
+| Flag | Meaning |
+|------|---------|
+| `-g` | Global (user-level) scope — install/manage for your whole machine *(this repo's default)* |
+| `-p` | Project scope — install/manage into the current repo's `./.claude/…` instead |
+| `-y` | Skip all confirmation prompts (non-interactive) |
+| `-s <a,b,c>` | Act on these specific skills by name (`-s '*'` = all) |
+| `-a <agents>` | Target specific agents (`-a '*'` = all detected); default is auto-detect |
+| `-l` | With `add`: list a repo's available skills without installing |
+
+### `add` — install / refresh skills
 
 ```bash
-npx skills update          # refresh every installed skill to its latest upstream
-npx skills list            # show what's installed and where it came from
-npx skills remove <name>   # remove one skill
+# Install named skills from a repo (deterministic, no picker)
+npx skills@latest add mattpocock/skills -s caveman,handoff -g -y
+
+# Install every skill a repo offers
+npx skills@latest add hoopit/setup -s '*' -g -y
+
+# Preview a repo's catalog without installing
+npx skills@latest add mattpocock/skills -l
+
+# Pick interactively (omit -s and -y)
+npx skills@latest add mattpocock/skills -g
 ```
 
-- **Updating** re-clones each source repo and refreshes the skill content. The
-  Matt subset updates **directly from his repo**, automatically — no action
-  needed on Hoopit's side. Hoopit's own skills update from this repo.
-- **Removing skills we delete from the repo:** `npx skills update` detects skills
-  that are in your local `skills-lock.json` but **gone from the source repo** and
-  offers to delete the local copies. This is **interactive** — it prompts
-  *"remove the local copies of these deleted skills?"*. In non-interactive mode
-  (`-y` / piped) it warns but skips deletion, by design. So deleting a skill from
-  a source repo *propagates* to users on their next `skills update`, with a
-  confirmation.
+`add` is **additive and idempotent**:
+
+- Installing more skills **never removes** ones you already have — to grab extra
+  Matt skills later, just name the *new* ones (`-s prototype,diagnose`); you do
+  **not** re-list your existing set.
+- The interactive picker starts with **nothing pre-selected**, but that's safe:
+  it only installs what you tick — *leaving a skill unchecked does not uninstall
+  it*. So when adding more, select only the delta.
+- Re-adding a skill you already have just refreshes it (overwrite, with a
+  confirmation unless `-y`).
+
+> Personal vs. team: `add`-ing extra skills onto your machine is a **local**
+> change. To make the whole team get a skill, edit `MATT_SKILLS` in
+> [`install.sh`](install.sh) (Matt's) or add a `skills/<name>/` dir (Hoopit's)
+> and commit — see the sections below.
+
+### `update` — refresh to latest upstream
+
+```bash
+npx skills update              # update everything in your lockfile
+npx skills update caveman      # update specific skills
+npx skills update -g           # global skills only   (-p for project only)
+```
+
+Re-clones each skill's source repo and refreshes its content. The Matt subset
+updates **directly from his repo automatically** — no action needed on Hoopit's
+side; Hoopit's own skills update from this repo.
+
+**Propagating deletions:** when a skill is in your `skills-lock.json` but has been
+**removed from its source repo**, `update` detects it and **prompts**
+*"remove the local copies of these deleted skills?"*. So deleting a skill upstream
+flows to users on their next `update`, with a confirmation. In non-interactive
+mode (`-y` / piped) it warns but **skips** the deletion, by design.
+
+### `remove` — uninstall skills
+
+```bash
+npx skills remove <name>       # remove one skill
+npx skills remove a b c        # remove several
+npx skills remove -s '*' -g -y # remove all global skills
+```
+
+### `list` — see what's installed
+
+```bash
+npx skills list                # installed skills + their source repo
+npx skills list -g             # global only   (-p for project)
+npx skills list --json         # machine-readable
+```
 
 ## The curated Matt-Pocock subset
 
