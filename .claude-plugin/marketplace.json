@@ -5,7 +5,7 @@
   },
   "plugins": [
     {
-      "name": "onboarding",
+      "name": "hoopit-onboarding",
       "skills": [
         "./skills/api-onboarding",
         "./skills/flutter-onboarding",
@@ -14,7 +14,7 @@
       ]
     },
     {
-      "name": "workflows",
+      "name": "hoopit-workflows",
       "skills": [
         "./skills/handle-jira-issue",
         "./skills/fix-sentry-issue",
@@ -23,13 +23,13 @@
       ]
     },
     {
-      "name": "tools",
+      "name": "hoopit-tools",
       "skills": [
         "./skills/atlassian-cli"
       ]
     },
     {
-      "name": "misc",
+      "name": "hoopit-misc",
       "skills": [
         "./skills/setup-statusline",
         "./skills/grill-my-idea"
