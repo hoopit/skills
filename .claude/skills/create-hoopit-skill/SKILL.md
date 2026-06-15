@@ -45,17 +45,21 @@ all four (or the installer, picker, and docs drift out of sync):
 1. **`skills/<name>/SKILL.md`** — the skill folder itself (plus any bundled
    resources alongside it). Flat layout: `skills/<name>/`, one folder per skill.
 2. **`.claude-plugin/marketplace.json`** — add/remove `"./skills/<name>"` in the
-   right group's `skills` array. This is what makes it show up (grouped) in the
-   interactive `skills` picker. Validate the JSON after editing.
+   right plugin's `skills` array. This one file serves **two** consumers: the
+   `skills` CLI (group headers in its picker) and Claude Code's **plugin
+   marketplace**. Each plugin uses `"source": "./"` + `"strict": false` so its
+   `skills` array is the authoritative, exhaustive list — only listed skills are
+   exposed (nothing auto-discovered, so `.claude/skills/` stays private). Don't
+   drop `owner`, `source`, or `strict`; Claude Code refuses to parse the file
+   without them. Validate the JSON after editing.
 3. **`install.sh`** — add/remove the bare skill name in the matching `GROUP_*`
-   variable (`GROUP_ONBOARDING`, `GROUP_WORKFLOWS`, `GROUP_TOOLS`, `GROUP_MISC`).
-   The installer expands these into `-s` flags; the CLI has no native group
-   support, so this list must mirror the manifest.
-4. **`README.md`** — both the skills **table** (`| **group** | \`name\` | … |`)
-   and the **repository-layout tree** under the matching group.
+   variable (`GROUP_ONBOARDING`, `GROUP_DEV`, `GROUP_MISC`). The installer expands
+   these into `-s` flags; the CLI has no native group support, so this list must
+   mirror the manifest.
+4. **`README.md`** — the skills **table** (`| **group** | \`name\` | … |`).
 
-If you add a whole new group, also add it to `ALL_GROUPS` in `install.sh` and to
-the manifest's `plugins` list.
+If you add a whole new group, also add it to `ALL_GROUPS` in `install.sh` and add
+a new plugin entry (with `source`/`strict`/`skills`) to the manifest's `plugins`.
 
 ## Checklist
 
@@ -64,4 +68,4 @@ the manifest's `plugins` list.
 - [ ] `skills/<name>/SKILL.md` created/removed
 - [ ] `.claude-plugin/marketplace.json` updated + valid JSON
 - [ ] `install.sh` `GROUP_*` (and `ALL_GROUPS` if a new group) updated
-- [ ] `README.md` table **and** layout tree updated
+- [ ] `README.md` table updated
