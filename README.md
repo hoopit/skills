@@ -13,17 +13,22 @@ Everything here is installed and managed with the [`skills` CLI](https://skills.
 Both commands install the curated Matt subset **and** Hoopit's skills globally
 into Claude Code.
 
+> `hoopit/setup` is **private**, so the installer is fetched with `gh`
+> (authenticated) rather than a plain `curl` of the raw URL — an unauthenticated
+> raw fetch returns `404` for private repos. Make sure `gh` is installed and
+> you're logged in (`gh auth login`).
+
 **All skills:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/hoopit/setup/main/install.sh | bash
+gh api repos/hoopit/setup/contents/install.sh -H "Accept: application/vnd.github.raw" | bash
 ```
 
 **Everything except the onboarding skills** (skip api/flutter onboarding and the
 CLI installers):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/hoopit/setup/main/install.sh | EXCLUDE_GROUPS=onboarding bash
+gh api repos/hoopit/setup/contents/install.sh -H "Accept: application/vnd.github.raw" | EXCLUDE_GROUPS=onboarding bash
 ```
 
 (See [Skill groups](#skill-groups) for `SKILL_GROUPS` / `EXCLUDE_GROUPS`.)
@@ -34,7 +39,7 @@ Prefer to run the steps yourself? They're just two `skills` invocations:
 # 1. Curated subset of Matt Pocock's skills, pulled straight from his repo.
 #    Listing them with -s skips the interactive picker — no manual selection,
 #    and his other skills are never installed.
-npx skills@latest add mattpocock/skills -s caveman,write-a-skill,zoom-out,grill-with-docs,handoff -g -a claude-code -y
+npx skills@latest add mattpocock/skills -s caveman -s write-a-skill -s zoom-out -s grill-with-docs -s handoff -g -a claude-code -y
 
 # 2. Hoopit's own skills.
 npx skills@latest add hoopit/setup -s '*' -g -a claude-code -y
@@ -84,8 +89,10 @@ globally). Common flags:
 ### `add` — install / refresh skills
 
 ```bash
-# Install named skills from a repo (deterministic, no picker)
-npx skills@latest add mattpocock/skills -s caveman,handoff -g -y
+# Install named skills from a repo (deterministic, no picker).
+# Repeat -s per skill — one -s value is matched as a single skill name,
+# so a comma/space list matches nothing.
+npx skills@latest add mattpocock/skills -s caveman -s handoff -g -y
 
 # Install every skill a repo offers
 npx skills@latest add hoopit/setup -s '*' -g -y
@@ -100,7 +107,7 @@ npx skills@latest add mattpocock/skills -g
 `add` is **additive and idempotent**:
 
 - Installing more skills **never removes** ones you already have — to grab extra
-  Matt skills later, just name the *new* ones (`-s prototype,diagnose`); you do
+  Matt skills later, just name the *new* ones (`-s prototype -s diagnose`); you do
   **not** re-list your existing set.
 - The interactive picker starts with **nothing pre-selected**, but that's safe:
   it only installs what you tick — *leaving a skill unchecked does not uninstall
@@ -204,10 +211,11 @@ EXCLUDE_GROUPS="misc" ./install.sh                    # all groups except misc
 ./install.sh                                          # all groups (default)
 ```
 
-`install.sh` expands the selected groups into a `-s` skill list. (The env var is
+`install.sh` expands the selected groups into repeated `-s` flags. (The env var is
 `SKILL_GROUPS`, not `GROUPS` — the latter is a reserved bash variable.) To do the
-same with the raw CLI, just name the group's skills yourself, e.g.
-`npx skills add hoopit/setup -s api-onboarding,flutter-onboarding,install-sentry-cli,install-coderabbit-cli -g -a claude-code -y`.
+same with the raw CLI, just name the group's skills yourself — one `-s` per skill,
+e.g.
+`npx skills add hoopit/setup -s api-onboarding -s flutter-onboarding -s install-sentry-cli -s install-coderabbit-cli -g -a claude-code -y`.
 
 ## Repository layout
 

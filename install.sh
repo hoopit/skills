@@ -20,7 +20,7 @@
 #   AGENTS="claude-code,universal" ./install.sh    # also the generic ~/.config/agents/skills
 #   AGENTS="" ./install.sh                          # pick agents interactively (TTY only)
 #   SCOPE=-p ./install.sh                           # project-local instead of global
-#   curl -fsSL https://raw.githubusercontent.com/hoopit/setup/main/install.sh | bash
+#   gh api repos/hoopit/setup/contents/install.sh -H "Accept: application/vnd.github.raw" | bash  # private repo: fetch with gh, not raw curl
 #
 set -euo pipefail
 
@@ -84,14 +84,26 @@ MATT_SKILLS="caveman,write-a-skill,zoom-out,grill-with-docs,handoff"
 
 # add_skills <package> <comma,separated,skills|*>
 add_skills() {
-	local pkg="$1" skills="$2"
+	local pkg="$1" skills="$2" s
+	# The `skills` CLI matches each `-s` value as ONE skill name — a comma- or
+	# space-separated list is treated as a single literal name and matches
+	# nothing. So expand our comma list into a repeated `-s <name>` flag per
+	# skill. The "*" wildcard is passed through unchanged as a single value.
+	local sflags=()
+	if [ "$skills" = "*" ]; then
+		sflags=(-s '*')
+	else
+		for s in $(printf '%s' "$skills" | tr ',' ' '); do
+			[ -n "$s" ] && sflags+=(-s "$s")
+		done
+	fi
 	if [ -n "$AGENTS" ]; then
 		# Deterministic: fixed agents, no prompts.
-		npx -y skills@latest add "$pkg" -s "$skills" "$SCOPE" -a "$AGENTS" -y
+		npx -y skills@latest add "$pkg" "${sflags[@]}" "$SCOPE" -a "$AGENTS" -y
 	else
 		# Interactive agent selection. Scope (-g/-p) and skills (-s) stay fixed,
 		# so the only prompt is which agents to install to.
-		npx -y skills@latest add "$pkg" -s "$skills" "$SCOPE"
+		npx -y skills@latest add "$pkg" "${sflags[@]}" "$SCOPE"
 	fi
 }
 
