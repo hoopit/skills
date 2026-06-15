@@ -230,27 +230,38 @@ setup/
 ├── .claude-plugin/
 │   └── marketplace.json            # group definitions (onboarding / workflows / tools / misc)
 └── skills/                         # distribution layout — what `skills add` discovers
-    ├── api-onboarding/
-    │   ├── SKILL.md
-    │   └── ONBOARDING.md
-    ├── handle-jira-issue/SKILL.md
-    ├── setup-statusline/{SKILL.md, statusline-command.sh}
-    └── …                           # one dir per skill (flat; groups come from the manifest)
+    ├── onboarding/
+    │   ├── api-onboarding/{SKILL.md, ONBOARDING.md}
+    │   ├── flutter-onboarding/{SKILL.md, ONBOARDING.md}
+    │   ├── install-sentry-cli/SKILL.md
+    │   └── install-coderabbit-cli/SKILL.md
+    ├── workflows/
+    │   ├── handle-jira-issue/SKILL.md
+    │   ├── fix-sentry-issue/SKILL.md
+    │   └── review-github-comments/SKILL.md
+    ├── tools/
+    │   └── atlassian-cli/SKILL.md
+    └── misc/
+        ├── setup-statusline/{SKILL.md, statusline-command.sh}
+        └── grill-my-idea/{SKILL.md, CONTEXT-FORMAT.md}
 ```
 
-Skills live under `skills/<name>/SKILL.md` (a layout the `skills` CLI discovers).
-That's the *distribution* layout — distinct from the `.claude/skills/<name>/`
-*installed* layout the CLI writes into on a consumer's machine. Grouping is
-metadata-only (the manifest), so skill dirs stay flat and lockfile paths stay
-stable.
+Skills live under `skills/<group>/<name>/SKILL.md`, one folder per group so the
+on-disk layout mirrors the groups declared in the manifest. That's the
+*distribution* layout — distinct from the `.claude/skills/<name>/` *installed*
+layout the CLI writes into on a consumer's machine. The `skills` CLI discovers
+skills by name (it recurses into subfolders), so the nesting is purely
+organizational and lockfile entries stay keyed by skill name.
 
 ## Adding a Hoopit skill
 
-1. `mkdir skills/<name>` and write `skills/<name>/SKILL.md` (frontmatter `name` +
-   `description`, then the instructions). Add reference files alongside if needed.
-2. Add the skill to a group in **three** in-sync places (or it lands ungrouped):
-   - `.claude-plugin/marketplace.json` → the group's `skills` array (`skills/<name>`)
-   - `install.sh` → the matching `GROUP_*` variable
+1. `mkdir skills/<group>/<name>` (pick the group folder it belongs to) and write
+   `skills/<group>/<name>/SKILL.md` (frontmatter `name` + `description`, then the
+   instructions). Add reference files alongside if needed.
+2. Register the skill in **three** in-sync places (or it lands ungrouped):
+   - `.claude-plugin/marketplace.json` → the group's `skills` array
+     (`skills/<group>/<name>`)
+   - `install.sh` → the matching `GROUP_*` variable (skill *name* only)
    - the table above
 3. Commit and push. Users pick it up on their next `npx skills update`.
 
