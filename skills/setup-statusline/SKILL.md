@@ -1,14 +1,14 @@
 ---
 name: setup-statusline
-description: Install the team's custom Claude Code status line (directory, git status, model, effort, exact context usage, session token totals, cache-TTL timer). Use when the user asks to set up, install, or fix the Hoopit status bar / statusline.
+description: Install the team's custom Claude Code status line (directory, git status, model, effort, exact context usage, session token totals). Use when the user asks to set up, install, or fix the Hoopit status bar / statusline.
 ---
 
 # Set up the Hoopit Claude Code status line
 
-Installs a status line that shows, in order: truncated cwd, git branch + dirty/ahead/behind symbols, model name, effort level, **exact context usage**, session token totals, and time since the last request:
+Installs a status line that shows, in order: truncated cwd, git branch + dirty/ahead/behind symbols, model name, effort level, **exact context usage**, and session token totals:
 
 ```
-…/Hoopit/api master  Fable 5 [medium] (85k/1M) ↑72k ↓45k ⚡2.6M ⏱14s
+…/Hoopit/api master  Fable 5 [medium] (85k/1M) ↑72k ↓45k ↯2.6M
 ```
 
 ## Why a custom script
@@ -18,10 +18,11 @@ The `context_window` field Claude Code passes to statusline commands only counts
 - **Context used** — `input + cache_read + cache_creation` of the most recent assistant message (the real size of the last request).
 - **↑ sent** — session-cumulative *non-cached* input (`input + cache_creation`), i.e. what is billed at full/write price.
 - **↓ received** — session-cumulative output tokens.
-- **⚡ cache** — session-cumulative cache reads (billed at ~10%). Grows very fast during active turns (every API call re-reads the whole context) — values in the millions are normal, not a bug.
-- **⏱** — time since the last request. Flips to `⏱!` past 5 minutes, signalling the prompt cache TTL has likely expired and the next message will re-write the cache at full input price.
+- **↯ cache** — session-cumulative cache reads (billed at ~10%). Grows very fast during active turns (every API call re-reads the whole context) — values in the millions are normal, not a bug.
 
 Streaming writes several transcript entries per assistant message (same `message.id`, same usage), so the sums dedupe by message id.
+
+> **Glyph width matters.** Keep the RENDER glyphs single-cell. `↯` (U+21AF) is used for cache instead of `⚡` (U+26A1) because `⚡` is **double-width**: terminals draw it 2 columns wide while Claude Code counts it as 1, which desyncs the status bar's redraw and leaves stale characters on screen when a value's length changes.
 
 ## Install steps
 
@@ -45,7 +46,7 @@ Streaming writes several transcript entries per assistant message (same `message
      | bash ~/.claude/statusline-command.sh
    ```
 
-   Expect a single line ending with the `(used/max) ↑… ↓… ⚡… ⏱…` segments.
+   Expect a single line ending with the `(used/max) ↑… ↓… ↯…` segments.
 5. The status line appears on the next render — no restart needed if the session was launched after `settings.json` already had a `statusLine` entry; otherwise restart Claude Code.
 6. **Final output (required).** After the install steps succeed, end your turn by printing the explanation block below verbatim — this is the only thing the user sees that tells them what each new segment in their status bar means, so do not skip it, summarize it, or fold it into other text. Print it after any other completion notes.
 
@@ -62,11 +63,41 @@ Streaming writes several transcript entries per assistant message (same `message
    - ↑sent — session-cumulative non-cached input tokens (fresh input + cache writes).
      This is what you're billed at full/write price.
    - ↓recv — session-cumulative output tokens.
-   - ⚡cache — session-cumulative cache reads (billed at ~10%). Grows fast during active turns
+   - ↯cache — session-cumulative cache reads (billed at ~10%). Grows fast during active turns
      because every API call re-reads the whole cached context; millions are normal.
-   - ⏱age — time since the last request. Flips to ⏱! past 5 minutes, signalling the prompt
-     cache TTL has likely expired and the next message will re-write the cache at full price.
    ```
+
+## Customising the look — DATA vs RENDER
+
+`statusline-command.sh` is split into two blocks, separated by banner comments:
+
+- **DATA** — computes every value (accurate context usage, session token totals, git facts) and exports them as shell variables. This is the reason the skill exists; **keep it verbatim**.
+- **RENDER** — turns those variables into the displayed string (order, separators, colour, glyphs, truncation). Pure presentation.
+
+To restyle the status line — e.g. to mirror your shell prompt — edit **only the RENDER block**. The DATA block already hands you everything as plain variables (the full contract is in the script header):
+
+| Variable | Meaning |
+|---|---|
+| `cwd` | absolute current directory |
+| `model` / `effort` | model display name / reasoning effort (may be `""`) |
+| `ctx_used` / `ctx_max` | real context tokens of last request / context-window size |
+| `tok_sent` / `tok_recv` / `tok_cache` | session cumulative sent / received / cache-read |
+| `git_branch` | branch name / short SHA (`""` if not a repo) |
+| `git_untracked` / `git_modified` / `git_conflict` | `0`/`1` flags |
+| `git_ahead` / `git_behind` | integer commit counts |
+
+`format_k` (defined in the RENDER block) formats an integer as `26k` / `1.2M`.
+
+### Using the built-in `/statusline` agent to format
+
+Claude Code's built-in `/statusline` generates a status line that mirrors your shell prompt. You can let it own the *formatting* while this skill owns the *data*:
+
+1. Install this skill's script (Install steps above).
+2. Run `/statusline` and instruct the agent:
+
+   > Edit **only** the RENDER block of `~/.claude/statusline-command.sh` to match my shell prompt. Do not touch the DATA block. Read every value from the variables it exports (`cwd`, `git_branch`, `git_ahead`, `ctx_used`, `ctx_max`, `tok_sent`, `tok_recv`, `tok_cache`, …) — never recompute them, and never read context size from the raw payload, which is inaccurate under caching. Also render the token (`↑ ↓ ↯`) segments in a style consistent with the prompt, keeping every glyph single-cell (no double-width glyphs like `⚡`).
+
+The agent rewrites presentation only; the accurate numbers still come from the untouched DATA block. Caveat: the agent won't invent the `↑ ↓ ↯` token segments on its own — your shell prompt has no equivalent — so the instruction above tells it to. That's the one thing the built-in formatter can't infer.
 
 ## OS portability
 

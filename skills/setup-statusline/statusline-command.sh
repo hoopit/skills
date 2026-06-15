@@ -1,71 +1,87 @@
 #!/usr/bin/env bash
-# Claude Code status line — mirrors Starship config (directory + git branch + git status)
+# Claude Code status line for Hoopit.
+#
+# The script is split into two blocks:
+#
+#   DATA   — computes every value the status line needs (accurate context usage,
+#            session token totals, git facts). Owned by the
+#            skill; keep it verbatim. The built-in /statusline agent must NOT
+#            touch this block.
+#
+#   RENDER — turns those values into the displayed string (order, separators,
+#            colour, glyphs, truncation). Pure presentation. Safe to regenerate
+#            with the built-in /statusline agent to match your shell prompt; it
+#            only reads the variables the DATA block exports, never recomputes
+#            them.
+#
+# Contract — variables the DATA block guarantees for RENDER:
+#   cwd            absolute current directory (always set)
+#   model          model display name                      ("" if absent)
+#   effort         reasoning effort level                  ("" if absent)
+#   ctx_used       real context tokens of the last request ("" if no transcript)
+#   ctx_max        model context-window size               ("" if absent)
+#   tok_sent       session cumulative non-cached input     ("" if no transcript)
+#   tok_recv       session cumulative output tokens        ("" if no transcript)
+#   tok_cache      session cumulative cache-read tokens     ("" if no transcript)
+#   git_branch     branch name / short SHA                 ("" if not a repo)
+#   git_untracked  1 if untracked files present, else 0
+#   git_modified   1 if tracked files modified, else 0
+#   git_conflict   1 if merge conflicts present, else 0
+#   git_ahead      commits ahead of upstream (0 if none/unknown)
+#   git_behind     commits behind upstream  (0 if none/unknown)
 
 input=$(cat)
 
+# ============================================================================
+# DATA  — skill-owned. Do not edit when restyling; the built-in /statusline
+#         agent must leave this block untouched.
+# ============================================================================
+
 cwd=$(echo "$input" | jq -r '.workspace.current_dir // .cwd')
-
-# Truncate directory: show last 2 path segments, with …/ prefix if truncated
-truncate_dir() {
-  local dir="$1"
-  local home="$HOME"
-  # Replace home with ~
-  dir="${dir/#$home/~}"
-  # Split into parts
-  IFS='/' read -ra parts <<< "$dir"
-  local count="${#parts[@]}"
-  if [ "$count" -le 3 ]; then
-    echo "$dir"
-  else
-    # Show last 2 segments with …/ prefix
-    echo "…/${parts[$((count-2))]}/${parts[$((count-1))]}"
-  fi
-}
-
-dir=$(truncate_dir "$cwd")
-
-# Git info (non-blocking)
-git_part=""
-if git -C "$cwd" rev-parse --git-dir > /dev/null 2>&1; then
-  branch=$(git -C "$cwd" symbolic-ref --short HEAD 2>/dev/null || git -C "$cwd" rev-parse --short HEAD 2>/dev/null)
-  if [ -n "$branch" ]; then
-    # Git status symbols matching Starship config
-    status_out=$(git -C "$cwd" status --porcelain 2>/dev/null)
-    ahead_behind=$(git -C "$cwd" rev-list --count --left-right "@{upstream}...HEAD" 2>/dev/null || echo "")
-
-    sym=""
-    echo "$status_out" | grep -q "^?" && sym="$sym?"
-    echo "$status_out" | grep -qP "^.M" && sym="${sym} "
-    echo "$status_out" | grep -q "^U" && sym="${sym} "
-
-    if [ -n "$ahead_behind" ]; then
-      behind=$(echo "$ahead_behind" | awk '{print $1}')
-      ahead=$(echo "$ahead_behind" | awk '{print $2}')
-      [ "$ahead" -gt 0 ] 2>/dev/null && sym="${sym}⇡${ahead} "
-      [ "$behind" -gt 0 ] 2>/dev/null && sym="${sym}⇣${behind} "
-    fi
-
-    git_part=" $branch $sym"
-  fi
-fi
-
 model=$(echo "$input" | jq -r '.model.display_name // empty')
 effort=$(echo "$input" | jq -r '.effort.level // empty')
 ctx_max=$(echo "$input" | jq -r '.context_window.context_window_size // empty')
+transcript=$(echo "$input" | jq -r '.transcript_path // empty')
 
-# Real context usage: sum input + cache_read + cache_creation from the most
-# recent assistant message in the transcript. The .context_window field that
-# Claude Code passes only reports new (non-cached) input tokens, which makes
-# the displayed value collapse to ~0 once caching kicks in.
-# Also accumulate session totals: sent (non-cached input, i.e. fresh input +
-# cache writes), received (output), and cache reads shown separately.
-# Streaming can write several transcript entries per assistant message
-# (same message.id, same usage), so dedupe by id.
+# Git facts (non-blocking). Booleans are 0/1; counts are integers.
+git_branch=""
+git_untracked=0
+git_modified=0
+git_conflict=0
+git_ahead=0
+git_behind=0
+if git -C "$cwd" rev-parse --git-dir > /dev/null 2>&1; then
+  git_branch=$(git -C "$cwd" symbolic-ref --short HEAD 2>/dev/null || git -C "$cwd" rev-parse --short HEAD 2>/dev/null)
+  if [ -n "$git_branch" ]; then
+    status_out=$(git -C "$cwd" status --porcelain 2>/dev/null)
+    echo "$status_out" | grep -q "^?"   && git_untracked=1
+    echo "$status_out" | grep -qP "^.M" && git_modified=1
+    echo "$status_out" | grep -q "^U"   && git_conflict=1
+
+    ahead_behind=$(git -C "$cwd" rev-list --count --left-right "@{upstream}...HEAD" 2>/dev/null || echo "")
+    if [ -n "$ahead_behind" ]; then
+      git_behind=$(echo "$ahead_behind" | awk '{print $1}')
+      git_ahead=$(echo "$ahead_behind" | awk '{print $2}')
+    fi
+  fi
+fi
+
+# Real context usage + session token totals, read from the transcript.
+# The .context_window field Claude Code passes only counts new (non-cached)
+# input tokens, so the displayed value collapses to ~0 once caching kicks in —
+# hence we read transcript usage instead:
+#   ctx_used  = input + cache_read + cache_creation of the most recent
+#               assistant message (the real size of the last request).
+#   tok_sent  = session-cumulative non-cached input (input + cache_creation),
+#               i.e. what is billed at full/write price.
+#   tok_recv  = session-cumulative output tokens.
+#   tok_cache = session-cumulative cache reads (billed at ~10%).
+# Streaming writes several transcript entries per assistant message (same
+# message.id, same usage), so the session sums dedupe by id.
 ctx_used=""
 tok_sent=""
 tok_recv=""
 tok_cache=""
-transcript=$(echo "$input" | jq -r '.transcript_path // empty')
 if [ -n "$transcript" ] && [ -f "$transcript" ]; then
   ctx_used=$(tac "$transcript" 2>/dev/null \
     | jq -r 'select(.type == "assistant") | .message.usage
@@ -81,12 +97,20 @@ if [ -n "$transcript" ] && [ -f "$transcript" ]; then
     ' "$transcript" 2>/dev/null)"
 fi
 
-# Format context as e.g. 26k/200k or 1.2M/1M
+# ============================================================================
+# RENDER  — presentation only. Reads the variables above; never recomputes
+#           them. Regenerate this block with the built-in /statusline agent to
+#           match your shell prompt. Default below is the standard Hoopit look:
+#
+#             …/Hoopit/api master  Fable 5 [medium] (85k/1M) ↑72k ↓45k ↯2.6M
+# ============================================================================
+
+# format_k: integer tokens -> compact "847" / "26k" / "1.2M"
 format_k() {
   local n="$1"
   if [ -z "$n" ] || [ "$n" = "null" ]; then echo ""; return; fi
   if [ "$n" -ge 999500 ]; then
-    # Millions: show whole number if exact multiple, else 1 decimal
+    # Millions: whole number if (near-)exact, else one decimal
     local whole=$(( n / 1000000 ))
     local tenths=$(( (n % 1000000 + 50000) / 100000 ))
     if [ "$tenths" -eq 10 ]; then
@@ -105,17 +129,25 @@ format_k() {
   fi
 }
 
-ctx_part=""
-if [ -n "$ctx_used" ] && [ -n "$ctx_max" ]; then
-  ctx_part=" ($(format_k "$ctx_used")/$(format_k "$ctx_max"))"
+# Directory: home as ~, then last 2 path segments with a …/ prefix if truncated
+dir="${cwd/#$HOME/~}"
+IFS='/' read -ra _parts <<< "$dir"
+if [ "${#_parts[@]}" -gt 3 ]; then
+  dir="…/${_parts[$(( ${#_parts[@]} - 2 ))]}/${_parts[$(( ${#_parts[@]} - 1 ))]}"
 fi
 
-tok_part=""
-if [ -n "$tok_sent" ] && [ -n "$tok_recv" ]; then
-  tok_part=" ↑$(format_k "$tok_sent") ↓$(format_k "$tok_recv")"
-  if [ -n "$tok_cache" ] && [ "$tok_cache" -gt 0 ] 2>/dev/null; then
-    tok_part="${tok_part} ⚡$(format_k "$tok_cache")"
-  fi
+# Git segment: branch + status glyphs (untracked ?, modified, conflict,
+# ⇡ ahead, ⇣ behind). NOTE: the modified/conflict glyphs are currently blank
+# spaces — the original Nerd Font glyphs were lost upstream.
+git_part=""
+if [ -n "$git_branch" ]; then
+  sym=""
+  [ "$git_untracked" -eq 1 ] && sym="$sym?"
+  [ "$git_modified" -eq 1 ] && sym="${sym} "
+  [ "$git_conflict" -eq 1 ] && sym="${sym} "
+  [ "$git_ahead"  -gt 0 ] 2>/dev/null && sym="${sym}⇡${git_ahead} "
+  [ "$git_behind" -gt 0 ] 2>/dev/null && sym="${sym}⇣${git_behind} "
+  git_part=" $git_branch $sym"
 fi
 
 model_part=""
@@ -124,33 +156,22 @@ model_part=""
 effort_part=""
 [ -n "$effort" ] && effort_part=" [$effort]"
 
-# Time since last request — prompt cache TTL is ~5 min, so past that a new
-# message pays full input price again.
-age_part=""
-if [ -n "$transcript" ] && [ -f "$transcript" ]; then
-  last_ts=$(tac "$transcript" 2>/dev/null \
-    | jq -r 'select(.timestamp != null) | .timestamp' 2>/dev/null \
-    | awk 'NF { print; exit }')
-  if [ -n "$last_ts" ]; then
-    last_epoch=$(date -d "$last_ts" +%s 2>/dev/null)
-    if [ -n "$last_epoch" ]; then
-      age=$(( $(date +%s) - last_epoch ))
-      if [ "$age" -lt 60 ]; then
-        age_fmt="${age}s"
-      elif [ "$age" -lt 3600 ]; then
-        age_fmt="$(( age / 60 ))m"
-      else
-        age_fmt="$(( age / 3600 ))h"
-      fi
-      # ⏱ while the cache is presumably warm, ⏱! once past the ~5 min TTL
-      if [ "$age" -ge 300 ]; then
-        age_part=" ⏱!${age_fmt}"
-      else
-        age_part=" ⏱${age_fmt}"
-      fi
-    fi
+ctx_part=""
+if [ -n "$ctx_used" ] && [ -n "$ctx_max" ]; then
+  ctx_part=" ($(format_k "$ctx_used")/$(format_k "$ctx_max"))"
+fi
+
+# Tokens: ↑ sent, ↓ received, ↯ cache reads. Keep these glyphs width-1: a
+# double-width glyph like ⚡ (U+26A1) is drawn 2 cells wide by the terminal but
+# counted as 1 by the status bar, which desyncs the redraw and leaves stale
+# characters behind when a value's length changes. ↯ (U+21AF) is width-1.
+tok_part=""
+if [ -n "$tok_sent" ] && [ -n "$tok_recv" ]; then
+  tok_part=" ↑$(format_k "$tok_sent") ↓$(format_k "$tok_recv")"
+  if [ -n "$tok_cache" ] && [ "$tok_cache" -gt 0 ] 2>/dev/null; then
+    tok_part="${tok_part} ↯$(format_k "$tok_cache")"
   fi
 fi
 
-out="${dir}${git_part}${model_part}${effort_part}${ctx_part}${tok_part}${age_part}"
+out="${dir}${git_part}${model_part}${effort_part}${ctx_part}${tok_part}"
 printf '%s' "$out"
