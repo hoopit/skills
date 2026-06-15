@@ -55,8 +55,13 @@ Streaming writes several transcript entries per assistant message (same `message
    ```
 
    Expect a single line ending with the `(used/max) ↑… ↓… ↯…` segments.
-6. The status line appears on the next render — no restart needed if the session was launched after `settings.json` already had a `statusLine` entry; otherwise restart Claude Code.
-7. **Final output (required).** After the install steps succeed, end your turn by printing the explanation block below verbatim — this is the only thing the user sees that tells them what each new segment in their status bar means, so do not skip it, summarize it, or fold it into other text. Print it after any other completion notes.
+6. **Choose a style.** The DATA block is now in place; ask the user how they want the RENDER block (presentation only) styled, and act on their choice:
+
+   1. **Match my setup** *(default)* — mirror their shell prompt, or whatever best fits their terminal. Invoke the built-in `/statusline` agent to restyle **only** the RENDER block, following the instructions under "Using the built-in `/statusline` agent to format" below (read every value from the DATA variables, never recompute, keep glyphs single-cell, add the `↑ ↓ ↯` token segments). Leave the DATA block untouched.
+   2. **Keep the default look** — the shipped Hoopit RENDER block; make no changes.
+   3. **Specify their own** — let them describe the style they want, then edit **only** the RENDER block to match (or pass their description to `/statusline`), again leaving the DATA block untouched.
+7. The status line appears on the next render — no restart needed if the session was launched after `settings.json` already had a `statusLine` entry; otherwise restart Claude Code.
+8. **Final output (required).** After the install steps succeed, end your turn by printing the explanation block below verbatim — this is the only thing the user sees that tells them what each new segment in their status bar means, so do not skip it, summarize it, or fold it into other text. Print it after any other completion notes.
 
    ```
    Status line segments (left to right):
@@ -145,7 +150,5 @@ In both cases the home-directory tilde shortening (`${dir/#$home/~}`) and the `�
 
 ## Caveats
 
-- **Never edit `~/.claude/statusline-command.sh` in place during a live session.** The status bar re-runs it every few seconds and will execute a half-written file, flashing garbage values. Build the new version in a temp file and `mv` it into place atomically.
-- **Claude Code itself briefly paints low token values** right after a message is submitted from an idle state, before the next script render lands. This is harness-side (verified by logging every render — script output was always correct), self-corrects within seconds, and cannot be fixed in the script.
 - The git status symbols include Nerd Font glyphs (` `, ` `). If the user's terminal font lacks them, substitute plain characters like `!` and `=`.
 - The numbers measure different things and are **not** expected to satisfy `context = ↑ + ↓`. The useful invariant is roughly `context ≈ ↑ + prefix cached by an earlier session` (system prompt and project context are often cache-shared across sessions, so the first call reads tokens this session never paid to write).
