@@ -129,6 +129,29 @@ format_k() {
   fi
 }
 
+# ---------------------------------------------------------------------------
+# Glyph set. `use_nerd` is set by the installer (SKILL.md prints a sample and
+# asks whether your terminal renders Nerd Font icons, like the powerline setup).
+#   1 -> Nerd Font icons     0 -> plain width-1 fallbacks (any Unicode font)
+# Codepoints are written \uXXXX so this file stays pure ASCII — the literal git
+# glyphs were silently blanked once before; ASCII escapes can't be. Keep every
+# glyph single-cell (see the cache note below). Needs bash 4.2+ for \u / \U.
+# ---------------------------------------------------------------------------
+use_nerd=0
+if [ "$use_nerd" = "1" ]; then
+  g_branch=$'\ue0a0 '       # U+E0A0 powerline branch, then a space
+  g_model=$'\U000f06a9 '    # U+F06A9 robot, then a space
+  g_mod=$'\uf040'           # U+F040 pencil  -> modified
+  g_conf=$'\uf071'          # U+F071 warning -> conflict
+  g_cache=$'\uf0e7'         # U+F0E7 bolt    -> cache reads
+else
+  g_branch=''
+  g_model=''
+  g_mod='!'
+  g_conf='='
+  g_cache='↯'
+fi
+
 # Directory: home as ~, then last 2 path segments with a …/ prefix if truncated
 dir="${cwd/#$HOME/~}"
 IFS='/' read -ra _parts <<< "$dir"
@@ -136,22 +159,22 @@ if [ "${#_parts[@]}" -gt 3 ]; then
   dir="…/${_parts[$(( ${#_parts[@]} - 2 ))]}/${_parts[$(( ${#_parts[@]} - 1 ))]}"
 fi
 
-# Git segment: branch + status glyphs (untracked ?, modified, conflict,
-# ⇡ ahead, ⇣ behind). NOTE: the modified/conflict glyphs are currently blank
-# spaces — the original Nerd Font glyphs were lost upstream.
+# Git segment: optional branch icon, branch name, then status markers
+# (untracked ?, modified, conflict, ⇡ ahead, ⇣ behind).
 git_part=""
 if [ -n "$git_branch" ]; then
   sym=""
-  [ "$git_untracked" -eq 1 ] && sym="$sym?"
-  [ "$git_modified" -eq 1 ] && sym="${sym} "
-  [ "$git_conflict" -eq 1 ] && sym="${sym} "
-  [ "$git_ahead"  -gt 0 ] 2>/dev/null && sym="${sym}⇡${git_ahead} "
-  [ "$git_behind" -gt 0 ] 2>/dev/null && sym="${sym}⇣${git_behind} "
-  git_part=" $git_branch $sym"
+  [ "$git_untracked" -eq 1 ] && sym="${sym}?"
+  [ "$git_modified" -eq 1 ] && sym="${sym}${g_mod}"
+  [ "$git_conflict" -eq 1 ] && sym="${sym}${g_conf}"
+  [ "$git_ahead"  -gt 0 ] 2>/dev/null && sym="${sym}⇡${git_ahead}"
+  [ "$git_behind" -gt 0 ] 2>/dev/null && sym="${sym}⇣${git_behind}"
+  git_part=" ${g_branch}${git_branch}"
+  [ -n "$sym" ] && git_part="${git_part} ${sym}"
 fi
 
 model_part=""
-[ -n "$model" ] && model_part=" $model"
+[ -n "$model" ] && model_part=" ${g_model}$model"
 
 effort_part=""
 [ -n "$effort" ] && effort_part=" [$effort]"
@@ -169,7 +192,7 @@ tok_part=""
 if [ -n "$tok_sent" ] && [ -n "$tok_recv" ]; then
   tok_part=" ↑$(format_k "$tok_sent") ↓$(format_k "$tok_recv")"
   if [ -n "$tok_cache" ] && [ "$tok_cache" -gt 0 ] 2>/dev/null; then
-    tok_part="${tok_part} ↯$(format_k "$tok_cache")"
+    tok_part="${tok_part} ${g_cache}$(format_k "$tok_cache")"
   fi
 fi
 

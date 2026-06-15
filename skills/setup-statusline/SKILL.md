@@ -27,7 +27,15 @@ Streaming writes several transcript entries per assistant message (same `message
 ## Install steps
 
 1. Copy `statusline-command.sh` (in this skill's directory) to `~/.claude/statusline-command.sh` and `chmod +x` it.
-2. Merge into `~/.claude/settings.json` (preserve existing keys):
+2. **Nerd Font check.** The bar can show Nerd Font icons (branch, model, git status) or plain fallbacks. Print this sample and ask the user whether **every** glyph renders (no boxes or blanks):
+
+   ```bash
+   printf '\n  branch \ue0a0   model \U000f06a9   modified \uf040   conflict \uf071   cache \uf0e7\n\n'
+   ```
+
+   - **All visible** -> enable icons: `sed -i 's/^use_nerd=0$/use_nerd=1/' ~/.claude/statusline-command.sh`
+   - **Any missing** -> leave `use_nerd=0` (plain markers: `?` untracked, `!` modified, `=` conflict, `↯` cache).
+3. Merge into `~/.claude/settings.json` (preserve existing keys):
 
    ```json
    "statusLine": {
@@ -37,8 +45,8 @@ Streaming writes several transcript entries per assistant message (same `message
    ```
 
    Use the absolute home path, not `~`.
-3. Verify dependencies: `jq`, GNU `tac`, GNU `date -d`, and `grep -P`. The bundled script targets **Linux**; for macOS or Windows apply the adjustments under "OS portability" below.
-4. Smoke-test before telling the user it works:
+4. Verify dependencies: `jq`, GNU `tac`, GNU `date -d`, and `grep -P`. The bundled script targets **Linux**; for macOS or Windows apply the adjustments under "OS portability" below.
+5. Smoke-test before telling the user it works:
 
    ```bash
    t=$(ls -t ~/.claude/projects/*/*.jsonl | head -1)
@@ -47,15 +55,15 @@ Streaming writes several transcript entries per assistant message (same `message
    ```
 
    Expect a single line ending with the `(used/max) ↑… ↓… ↯…` segments.
-5. The status line appears on the next render — no restart needed if the session was launched after `settings.json` already had a `statusLine` entry; otherwise restart Claude Code.
-6. **Final output (required).** After the install steps succeed, end your turn by printing the explanation block below verbatim — this is the only thing the user sees that tells them what each new segment in their status bar means, so do not skip it, summarize it, or fold it into other text. Print it after any other completion notes.
+6. The status line appears on the next render — no restart needed if the session was launched after `settings.json` already had a `statusLine` entry; otherwise restart Claude Code.
+7. **Final output (required).** After the install steps succeed, end your turn by printing the explanation block below verbatim — this is the only thing the user sees that tells them what each new segment in their status bar means, so do not skip it, summarize it, or fold it into other text. Print it after any other completion notes.
 
    ```
    Status line segments (left to right):
    - …/parent/dir — current working directory, truncated to the last two path segments (home shown as ~).
-   -   branch — current git branch. Followed by status glyphs:
-       ? untracked,   modified,   merge conflict, ⇡N ahead of upstream, ⇣N behind upstream.
-   -  Model — the active Claude model's display name (e.g. Fable 5, Opus 4.8).
+   - branch — current git branch (with a Nerd branch icon if enabled). Followed by status markers:
+       ? untracked, ! modified, = conflict (or Nerd Font icons if enabled), ⇡N ahead of upstream, ⇣N behind upstream.
+   - Model — the active Claude model's display name (e.g. Fable 5, Opus 4.8); a robot icon precedes it when Nerd icons are enabled.
    - [effort] — reasoning effort level (low / medium / high / max).
    - (used/max) — real context usage of the last request: input + cache reads + cache writes,
      vs. the model's context window. Unlike Claude Code's built-in counter, this stays accurate
@@ -87,6 +95,18 @@ To restyle the status line — e.g. to mirror your shell prompt — edit **only 
 | `git_ahead` / `git_behind` | integer commit counts |
 
 `format_k` (defined in the RENDER block) formats an integer as `26k` / `1.2M`.
+
+### Nerd Font glyphs (`use_nerd`)
+
+The RENDER block defines two glyph sets, picked by a `use_nerd` toggle near its top:
+
+- `use_nerd=0` (shipped default) — plain width-1 markers that work in any Unicode font: `?` untracked, `!` modified, `=` conflict, `↯` cache, and no branch/model icons.
+- `use_nerd=1` — Nerd Font icons: branch (U+E0A0), robot for the model (U+F06A9), pencil for modified (U+F040), warning for conflict (U+F071), bolt for cache (U+F0E7).
+
+The installer sets this for you (the Nerd Font check in Install steps prints the icons and asks if they render). To flip it by hand, edit the `use_nerd=` line. Two rules when adding glyphs:
+
+- **Keep every glyph single-cell.** A double-width glyph (e.g. `⚡` U+26A1) is drawn 2 columns by the terminal but counted as 1 by the status bar, which desyncs the redraw and leaves stale characters when a value's length changes.
+- **Write codepoints as `\uXXXX`, never the literal glyph.** `bash`'s `$'\uXXXX'` expands them at render time, and the source stays pure ASCII — so the glyphs can't be silently blanked (which is how the original git markers were lost).
 
 ### Using the built-in `/statusline` agent to format
 
