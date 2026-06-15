@@ -1,9 +1,9 @@
 ---
-name: create-hoopit-setup-skill
-description: Conventions for authoring skills in the hoopit/setup repo — keep skills project-agnostic and keep the four sync points in lockstep. Use when adding, editing, or removing a skill in this repo.
+name: create-hoopit-skill
+description: Conventions for authoring skills in the hoopit/skills repo — keep skills project-agnostic and keep the four sync points in lockstep. Use when adding, editing, or removing a skill in this repo.
 ---
 
-# Authoring skills in hoopit/setup
+# Authoring skills in hoopit/skills
 
 This repo is a **distribution** of skills: one skill is installed into many
 different Hoopit repos (`api`, `flutter-app`, …) via the `skills` CLI. A skill

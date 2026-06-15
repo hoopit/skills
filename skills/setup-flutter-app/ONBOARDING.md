@@ -8,9 +8,9 @@ Most steps below are written as prompts you can paste into Claude Code — it wi
 detect your OS, run the commands, and fix problems as they come up. Commands are
 also given verbatim so you can run them by hand if you prefer.
 
-> **You are running this from the `setup` repo.** This onboarding lives in the
-> `setup` repo as a Claude Code skill. When you clone `flutter-app` (Step 2a), it
-> goes **next to** `setup` as a sibling directory (`../flutter-app`), not inside
+> **You are running this from the `skills` repo.** This onboarding lives in the
+> `skills` repo as a Claude Code skill. When you clone `flutter-app` (Step 2a), it
+> goes **next to** `skills` as a sibling directory (`../flutter-app`), not inside
 > it.
 
 > **Platforms.** The team runs **macOS, Linux, and Windows**. Each tool below is
@@ -58,7 +58,7 @@ through Claude Code.
   # Windows (PowerShell)
   irm https://claude.com/install.ps1 | iex
   ```
-- [ ] Start it from the `setup` repo and sign in:
+- [ ] Start it from the `skills` repo and sign in:
   ```bash
   claude
   ```
@@ -227,18 +227,18 @@ acli jira auth login            # follow the prompts
 
 ## Step 2 — Clone & bootstrap the project
 
-### 2a. Clone (as a sibling of the setup repo)
+### 2a. Clone (as a sibling of the skills repo)
 
-The `flutter-app` repo must sit **next to** the `setup` repo, not inside it.
-Run this from the `setup` repo root so the clone lands at `../flutter-app`:
+The `flutter-app` repo must sit **next to** the `skills` repo, not inside it.
+Run this from the `skills` repo root so the clone lands at `../flutter-app`:
 
 ▶ **Prompt:**
-> From the `setup` repo, clone `hoopit/flutter-app` with `gh` into the parent
+> From the `skills` repo, clone `hoopit/flutter-app` with `gh` into the parent
 > directory so it ends up as a sibling (`../flutter-app`), then `cd` into it.
 
 Manual:
 ```bash
-# run from the setup repo root
+# run from the skills repo root
 gh repo clone hoopit/flutter-app ../flutter-app
 cd ../flutter-app
 ```
@@ -246,7 +246,7 @@ cd ../flutter-app
 Resulting layout:
 ```
 …/
-├── setup/          # this repo (onboarding skills)
+├── skills/          # this repo (onboarding skills)
 └── flutter-app/    # the Flutter app — sibling, just cloned
 ```
 
@@ -471,7 +471,7 @@ fvm flutter run -d web-server --web-port 3000 --web-hostname localhost \
 
 - [ ] `claude` runs and is authenticated
 - [ ] `gh auth status` ✓ · `acli --version` ✓
-- [ ] `flutter-app` cloned as a sibling of `setup` (`../flutter-app`)
+- [ ] `flutter-app` cloned as a sibling of `skills` (`../flutter-app`)
 - [ ] `fvm flutter doctor` clean (Android licenses accepted)
 - [ ] `dcm --version` ✓ and license activated
 - [ ] `sentry --version` ✓ (issues/API — primary) · `sentry-cli --version` ✓ (symbol uploads)
@@ -499,7 +499,7 @@ fvm flutter run -d web-server --web-port 3000 --web-hostname localhost \
 
 > Read this ONBOARDING.md and set up this machine for the Hoopit flutter-app. Go
 > step by step, detect my OS, install each tool with whatever package manager I
-> have, clone `flutter-app` as a sibling of the `setup` repo (`../flutter-app`),
+> have, clone `flutter-app` as a sibling of the `skills` repo (`../flutter-app`),
 > pause for anything that needs my credentials (GitHub, Atlassian, Figma, DCM
 > license), and after each step run the verification command and report the
 > result. Stop and ask me before any step that needs `sudo`, admin rights, or a

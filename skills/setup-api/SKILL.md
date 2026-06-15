@@ -1,6 +1,6 @@
 ---
-name: api-onboarding
-description: Set up a brand-new machine for the Hoopit Django API — install tooling (gh, mise/Python 3.14, uv, Docker, pre-commit, Sentry CLI, acli, AWS CLI), clone hoopit/api as a sibling of the setup repo, bootstrap deps + supporting services (Postgres/Redis/stripe-mock), migrate, run the server, and run tests. Use when a developer wants to onboard to the API, set up their api/backend dev environment, or asks how to get the Django API running locally.
+name: setup-api
+description: Set up a brand-new machine for the Hoopit Django API — install tooling (gh, mise/Python 3.14, uv, Docker, pre-commit, Sentry CLI, acli, AWS CLI), clone hoopit/api as a sibling of the skills repo, bootstrap deps + supporting services (Postgres/Redis/stripe-mock), migrate, run the server, and run tests. Use when a developer wants to onboard to the API, set up their api/backend dev environment, or asks how to get the Django API running locally.
 ---
 
 # Hoopit API onboarding
@@ -23,16 +23,16 @@ follow it step by step. This file is the orchestration contract.
 
 ## Critical: where the repo goes
 
-This skill runs from inside the **`setup`** repo. Clone `api` as a **sibling of
-`setup`**, not inside it:
+This skill runs from inside the **`skills`** repo. Clone `api` as a **sibling of
+`skills`**, not inside it:
 
 ```bash
-# from the setup repo root
+# from the skills repo root
 gh repo clone hoopit/api ../api
 cd ../api
 ```
 
-This yields `…/api` next to `…/setup`. Run the rest of the bootstrap from inside
+This yields `…/api` next to `…/skills`. Run the rest of the bootstrap from inside
 `../api`.
 
 ## Sequence (see ONBOARDING.md for the detail of each)

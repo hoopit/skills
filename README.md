@@ -1,4 +1,4 @@
-# Hoopit — `setup`
+# Hoopit — `skills`
 
 Hoopit's **agent-skills distribution repo**. It carries Hoopit's own skills
 (developer onboarding, etc.) and an installer that also pulls a **curated subset
@@ -13,7 +13,7 @@ Everything here is installed and managed with the [`skills` CLI](https://skills.
 Both commands install the curated Matt subset **and** Hoopit's skills globally
 into Claude Code.
 
-> `hoopit/setup` is **private**, so the installer is fetched with `gh`
+> `hoopit/skills` is **private**, so the installer is fetched with `gh`
 > (authenticated) rather than a plain `curl` of the raw URL — an unauthenticated
 > raw fetch returns `404` for private repos. Make sure `gh` is installed and
 > you're logged in (`gh auth login`).
@@ -21,14 +21,14 @@ into Claude Code.
 **All skills:**
 
 ```bash
-gh api repos/hoopit/setup/contents/install.sh -H "Accept: application/vnd.github.raw" | bash
+gh api repos/hoopit/skills/contents/install.sh -H "Accept: application/vnd.github.raw" | bash
 ```
 
 **Everything except the onboarding skills** (skip api/flutter onboarding and the
 CLI installers):
 
 ```bash
-gh api repos/hoopit/setup/contents/install.sh -H "Accept: application/vnd.github.raw" | EXCLUDE_GROUPS=onboarding bash
+gh api repos/hoopit/skills/contents/install.sh -H "Accept: application/vnd.github.raw" | EXCLUDE_GROUPS=onboarding bash
 ```
 
 (See [Skill groups](#skill-groups) for `SKILL_GROUPS` / `EXCLUDE_GROUPS`.)
@@ -42,10 +42,10 @@ Prefer to run the steps yourself? They're just two `skills` invocations:
 npx skills@latest add mattpocock/skills -s caveman -s write-a-skill -s zoom-out -s grill-with-docs -s handoff -g -a claude-code -y
 
 # 2. Hoopit's own skills.
-npx skills@latest add hoopit/setup -s '*' -g -a claude-code -y
+npx skills@latest add hoopit/skills -s '*' -g -a claude-code -y
 ```
 
-> `hoopit/setup` is private — `skills` clones it over git, so make sure your
+> `hoopit/skills` is private — `skills` clones it over git, so make sure your
 > GitHub credentials work for git (`gh auth setup-git`, or SSH). The onboarding
 > skills below set this up.
 
@@ -100,7 +100,7 @@ globally). Common flags:
 npx skills@latest add mattpocock/skills -s caveman -s handoff -g -y
 
 # Install every skill a repo offers
-npx skills@latest add hoopit/setup -s '*' -g -y
+npx skills@latest add hoopit/skills -s '*' -g -y
 
 # Preview a repo's catalog without installing
 npx skills@latest add mattpocock/skills -l
@@ -175,7 +175,7 @@ command above).
 
 Why a fixed list instead of a "pre-checked" picker: the `skills` CLI can't
 control another repo's interactive default selection, and there's no
-transitive-dependency mechanism (installing `hoopit/setup` can't pull skills from
+transitive-dependency mechanism (installing `hoopit/skills` can't pull skills from
 Matt's repo for you). Naming the subset with `-s` is the deterministic,
 scriptable way to get exactly these and nothing else.
 
@@ -185,8 +185,8 @@ Distributed from this repo, organized into **groups** (see [Skill groups](#skill
 
 | Group | Skill | What it does |
 |-------|-------|--------------|
-| **onboarding** | `api-onboarding` | Take a fresh machine to a working `hoopit/api` checkout |
-| **onboarding** | `flutter-onboarding` | Take a fresh machine to a working `hoopit/flutter-app` checkout |
+| **onboarding** | `setup-api` | Take a fresh machine to a working `hoopit/api` checkout |
+| **onboarding** | `setup-flutter-app` | Take a fresh machine to a working `hoopit/flutter-app` checkout |
 | **onboarding** | `install-sentry-cli` | Install + authenticate the `sentry` CLI |
 | **onboarding** | `install-coderabbit-cli` | Install + authenticate CodeRabbit + its Claude Code plugin |
 | **workflows** | `handle-jira-issue` | Handle a Jira issue end-to-end (branch → fix → PR) |
@@ -205,7 +205,7 @@ run them (`../flutter-app`, `../api`).
 
 Groups are declared in [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json).
 They show up as headers in the **interactive** `skills` picker (run
-`npx skills add hoopit/setup` with no `-s`/`-y` and toggle by group).
+`npx skills add hoopit/skills` with no `-s`/`-y` and toggle by group).
 
 **The `skills` CLI has no native group flags** — there is no `--group` and no
 `--exclude`; `-s` matches skill *names* only. So non-interactively you either
@@ -222,10 +222,10 @@ EXCLUDE_GROUPS="misc" ./install.sh                    # all groups except misc
 `SKILL_GROUPS`, not `GROUPS` — the latter is a reserved bash variable.) To do the
 same with the raw CLI, just name the group's skills yourself — one `-s` per skill,
 e.g.
-`npx skills add hoopit/setup -s api-onboarding -s flutter-onboarding -s install-sentry-cli -s install-coderabbit-cli -g -a claude-code -y`.
+`npx skills add hoopit/skills -s setup-api -s setup-flutter-app -s install-sentry-cli -s install-coderabbit-cli -g -a claude-code -y`.
 
 > **Adding or removing a Hoopit skill?** When working in this repo, Claude has a
-> project-local `create-hoopit-setup-skill` skill (under `.claude/skills/`) that
+> project-local `create-hoopit-skill` skill (under `.claude/skills/`) that
 > documents the procedure and the files to keep in sync.
 
 ## Changing the Matt-Pocock subset

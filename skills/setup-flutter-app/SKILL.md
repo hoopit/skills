@@ -1,6 +1,6 @@
 ---
-name: flutter-onboarding
-description: Set up a brand-new machine for the Hoopit flutter-app — install tooling (gh, mise/Python, FVM, DCM, Sentry CLIs, acli), clone hoopit/flutter-app as a sibling of the setup repo, bootstrap deps/codegen/l10n/pre-commit, wire up Figma MCP, and run the app. Use when a developer wants to onboard to the Flutter app, set up their flutter-app dev environment, or asks how to get flutter-app building/running locally.
+name: setup-flutter-app
+description: Set up a brand-new machine for the Hoopit flutter-app — install tooling (gh, mise/Python, FVM, DCM, Sentry CLIs, acli), clone hoopit/flutter-app as a sibling of the skills repo, bootstrap deps/codegen/l10n/pre-commit, wire up Figma MCP, and run the app. Use when a developer wants to onboard to the Flutter app, set up their flutter-app dev environment, or asks how to get flutter-app building/running locally.
 ---
 
 # Hoopit flutter-app onboarding
@@ -23,16 +23,16 @@ follow it step by step. This file is the orchestration contract.
 
 ## Critical: where the repo goes
 
-This skill runs from inside the **`setup`** repo. Clone `flutter-app` as a
-**sibling of `setup`**, not inside it:
+This skill runs from inside the **`skills`** repo. Clone `flutter-app` as a
+**sibling of `skills`**, not inside it:
 
 ```bash
-# from the setup repo root
+# from the skills repo root
 gh repo clone hoopit/flutter-app ../flutter-app
 cd ../flutter-app
 ```
 
-This yields `…/flutter-app` next to `…/setup`. Run the rest of the bootstrap
+This yields `…/flutter-app` next to `…/skills`. Run the rest of the bootstrap
 (Step 2c onward in ONBOARDING.md) from inside `../flutter-app`.
 
 ## Sequence (see ONBOARDING.md for the detail of each)

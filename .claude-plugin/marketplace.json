@@ -7,8 +7,8 @@
     {
       "name": "hoopit-onboarding",
       "skills": [
-        "./skills/api-onboarding",
-        "./skills/flutter-onboarding",
+        "./skills/setup-api",
+        "./skills/setup-flutter-app",
         "./skills/install-sentry-cli",
         "./skills/install-coderabbit-cli"
       ]

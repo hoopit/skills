@@ -8,9 +8,9 @@ Most steps below are written as prompts you can paste into Claude Code — it wi
 detect your OS, run the commands, and fix problems as they come up. Commands are
 also given verbatim so you can run them by hand if you prefer.
 
-> **You are running this from the `setup` repo.** This onboarding lives in the
-> `setup` repo as a Claude Code skill. When you clone `api` (Step 2a), it goes
-> **next to** `setup` as a sibling directory (`../api`), not inside it.
+> **You are running this from the `skills` repo.** This onboarding lives in the
+> `skills` repo as a Claude Code skill. When you clone `api` (Step 2a), it goes
+> **next to** `skills` as a sibling directory (`../api`), not inside it.
 
 > **Platforms.** The team runs **macOS, Linux, and Windows**. Each tool below is
 > available on all three; pick the install command that matches your machine, or
@@ -58,7 +58,7 @@ through Claude Code.
   # Windows (PowerShell)
   irm https://claude.com/install.ps1 | iex
   ```
-- [ ] Start it from the `setup` repo and sign in:
+- [ ] Start it from the `skills` repo and sign in:
   ```bash
   claude
   ```
@@ -203,18 +203,18 @@ at startup, which requires a valid AWS session for the
 
 ## Step 2 — Clone & bootstrap the project
 
-### 2a. Clone (as a sibling of the setup repo)
+### 2a. Clone (as a sibling of the skills repo)
 
-The `api` repo must sit **next to** the `setup` repo, not inside it. Run this
-from the `setup` repo root so the clone lands at `../api`:
+The `api` repo must sit **next to** the `skills` repo, not inside it. Run this
+from the `skills` repo root so the clone lands at `../api`:
 
 ▶ **Prompt:**
-> From the `setup` repo, clone `hoopit/api` with `gh` into the parent directory so
+> From the `skills` repo, clone `hoopit/api` with `gh` into the parent directory so
 > it ends up as a sibling (`../api`), then `cd` into it.
 
 Manual:
 ```bash
-# run from the setup repo root
+# run from the skills repo root
 gh repo clone hoopit/api ../api
 cd ../api
 ```
@@ -222,7 +222,7 @@ cd ../api
 Resulting layout:
 ```
 …/
-├── setup/    # this repo (onboarding skills)
+├── skills/    # this repo (onboarding skills)
 └── api/      # the Django API — sibling, just cloned
 ```
 
@@ -361,7 +361,7 @@ uv run pytest users/tests
 - [ ] `claude` runs and is authenticated
 - [ ] `gh auth status` ✓ · `acli --version` ✓ · `sentry --version` ✓
 - [ ] `python3 --version` reports 3.14 via mise · `uv --version` ✓
-- [ ] `api` cloned as a sibling of `setup` (`../api`)
+- [ ] `api` cloned as a sibling of `skills` (`../api`)
 - [ ] `uv sync` completed; `.venv/` present
 - [ ] `pre-commit` hooks installed (pre-commit, pre-push, post-checkout) and `--all-files` passes
 - [ ] Postgres reachable at the `local.env` host/port (default `127.0.0.1:5435`)
@@ -393,7 +393,7 @@ uv run pytest users/tests
 
 > Read this ONBOARDING.md and set up this machine for the Hoopit API. Go step by
 > step, detect my OS, install each tool with whatever package manager I have,
-> clone `api` as a sibling of the `setup` repo (`../api`), start a local Postgres
+> clone `api` as a sibling of the `skills` repo (`../api`), start a local Postgres
 > on the port `local.env` expects, run migrations and the dev server, then run a
 > scoped pytest. Pause for anything that needs my credentials (GitHub, Atlassian,
 > AWS) or `sudo`/admin rights, and after each step run the verification command

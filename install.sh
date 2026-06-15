@@ -8,7 +8,7 @@
 #   1. A curated subset of mattpocock/skills — pulled straight from his repo, so
 #      `npx skills update` keeps them current automatically. His other skills are
 #      intentionally NOT installed (no manual picker — the subset is fixed below).
-#   2. Hoopit's own skills from hoopit/setup, organized into groups (see below).
+#   2. Hoopit's own skills from hoopit/skills, organized into groups (see below).
 #
 # Re-run any time; it is safe to repeat. To update later: `npx skills update`.
 #
@@ -20,7 +20,7 @@
 #   AGENTS="claude-code,universal" ./install.sh    # also the generic ~/.config/agents/skills
 #   AGENTS="" ./install.sh                          # pick agents interactively (TTY only)
 #   SCOPE=-p ./install.sh                           # project-local instead of global
-#   gh api repos/hoopit/setup/contents/install.sh -H "Accept: application/vnd.github.raw" | bash  # private repo: fetch with gh, not raw curl
+#   gh api repos/hoopit/skills/contents/install.sh -H "Accept: application/vnd.github.raw" | bash  # private repo: fetch with gh, not raw curl
 #
 set -euo pipefail
 
@@ -46,7 +46,7 @@ AGENTS="${AGENTS-claude-code,universal}"
 # the groups show up in the `skills` interactive picker). Keep the two in sync.
 # The `skills` CLI has no native --group / --exclude flags, so this installer
 # expands groups into a `-s` skill list itself.
-GROUP_ONBOARDING="api-onboarding flutter-onboarding install-sentry-cli install-coderabbit-cli"
+GROUP_ONBOARDING="setup-api setup-flutter-app install-sentry-cli install-coderabbit-cli"
 GROUP_WORKFLOWS="handle-jira-issue fix-sentry-issue review-github-comments write-pull-request"
 GROUP_TOOLS="atlassian-cli"
 GROUP_MISC="setup-statusline grill-my-idea"
@@ -121,10 +121,10 @@ echo "==> Installing curated mattpocock skills: ${MATT_SKILLS}"
 add_skills mattpocock/skills "$MATT_SKILLS"
 
 if [ -z "$HOOPIT_SKILLS" ]; then
-	echo "==> No Hoopit groups selected (GROUPS='${SKILL_GROUPS}', EXCLUDE_GROUPS='${EXCLUDE_GROUPS}') — skipping hoopit/setup"
+	echo "==> No Hoopit groups selected (GROUPS='${SKILL_GROUPS}', EXCLUDE_GROUPS='${EXCLUDE_GROUPS}') — skipping hoopit/skills"
 else
 	echo "==> Installing Hoopit skills: ${HOOPIT_SKILLS}"
-	add_skills hoopit/setup "$HOOPIT_SKILLS"
+	add_skills hoopit/skills "$HOOPIT_SKILLS"
 fi
 
 echo
