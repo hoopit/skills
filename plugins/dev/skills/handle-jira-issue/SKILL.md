@@ -62,7 +62,7 @@ Variables used throughout this skill:
 
 > **PR/Jira link hygiene:** when naming the branch (Step 3), writing commit
 > messages (Steps 6–7), or authoring the PR (Step 9), load the
-> `write-pull-request` skill and follow it. For this workflow the work items the
+> `create-pull-request` skill and follow it. For this workflow the work items the
 > PR may link are `JIRA_KEY` and — only when an ITSM ticket is linked —
 > `ITSM_ISSUE_KEY`; keep every other Jira key out of those surfaces.
 

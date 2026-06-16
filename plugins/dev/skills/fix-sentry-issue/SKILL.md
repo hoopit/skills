@@ -26,7 +26,7 @@ Wherever the steps below show `BAC`, `hoopit`, `https://hoopit.atlassian.net`, o
 CLAUDE.md — not from the Sentry ID prefix.
 
 > **PR/Jira link hygiene:** when naming the branch, writing commit messages, or
-> authoring the PR, load the `write-pull-request` skill and follow it. For this
+> authoring the PR, load the `create-pull-request` skill and follow it. For this
 > workflow the only work item the PR may link is `JIRA_KEY`; the Sentry short ID
 > (e.g. `BAC-QCB`) is safe (no digits after the dash). Keep every other Jira key
 > out of those surfaces.
