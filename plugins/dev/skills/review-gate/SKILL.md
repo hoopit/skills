@@ -8,7 +8,9 @@ description: Run multiple independent code reviewers (opus + CodeRabbit + Codex)
 Runs up to three **independent** reviewers on the current branch's changes vs the repo's default
 branch, then gates PR creation. The opus review always runs; **CodeRabbit and Codex run only if
 available locally** (skipped, not failed, when absent). Diversity is the point — CodeRabbit and Codex
-are separate engines; the opus pass is structured review with fresh, skeptical eyes.
+are separate engines; the opus pass runs as a **fresh independent subagent when the runner can spawn
+one** (genuinely independent eyes), and falls back to inline self-review when it can't (e.g. when the
+gate is itself running inside a subagent).
 
 ## Contract
 
@@ -31,10 +33,18 @@ Call after the fix is committed on the branch, **before** push/PR. Return exactl
    ```
    It prints `coderabbit=<ran|error|unavailable>[:file]` and `codex=<…>`. Read each `:file` for that
    reviewer's findings. Treat `error`/`unavailable` as **skipped** — note it, never fail the gate on it.
-3. **Opus review (always).** Review `git diff "$DEFAULT_BRANCH"...HEAD` yourself with fresh, skeptical
-   eyes — correctness/logic bugs, security, data-integrity/regressions, missed edge cases, and repo
-   conventions (read the relevant `$REPO/.claude/skills/*` for the area you touched). Emit findings with
-   a severity each (Critical / High / Medium / Low).
+3. **Opus review (always).** Prefer an *independent* reviewer over grading your own work:
+   - **If the subagent-spawning tool (Agent/Task) is available to you** — i.e. you're running as a
+     primary agent, not yourself a subagent — spawn a fresh `general-purpose` opus subagent to review
+     the change **cold**: give it only the repo path and `git diff "$DEFAULT_BRANCH"...HEAD` (withhold
+     your implementation reasoning and the triage hypothesis). It returns findings + severities; *you*
+     do any fixing in step 5.
+   - **If that tool is NOT available** (you are a subagent — e.g. the auto-fix implementer), review the
+     diff yourself inline instead.
+   Either way look for: correctness/logic bugs, security, data-integrity/regressions, missed edge cases,
+   and repo conventions (read the relevant `$REPO/.claude/skills/*` for the area you touched). Emit
+   findings with a severity each (Critical / High / Medium / Low). Note in the PR which mode was used
+   (independent reviewer vs self-review).
 4. **Aggregate + de-dup.** Merge findings from every reviewer that ran; collapse duplicates (same
    location + same issue → one finding, keep the highest severity and note which reviewers raised it).
 5. **Triage each finding (judgment on all):**
