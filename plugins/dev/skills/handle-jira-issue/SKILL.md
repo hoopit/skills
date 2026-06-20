@@ -315,45 +315,22 @@ resulted in Dintero receiving a JSON string instead of a JSON object.
 Refs ITSM-1234
 ```
 
-## Step 7 — Code review with CodeRabbit
+## Step 7 — Review gate (opus + CodeRabbit + Codex)
 
-Read `TARGET_REPO/.claude/skills/code-review/SKILL.md` and follow its instructions (all three repos have this skill).
+From inside the worktree, run the **`review-gate`** skill. It runs three independent reviewers — the
+opus review always, plus CodeRabbit and Codex when installed locally — against `$DEFAULT_BRANCH`,
+aggregates + de-dups their findings, fixes the valid ones (committing each per its own convention),
+tracks the skipped ones, and returns a verdict:
 
-Run a review against the repo's default branch from the worktree:
+- **`PASS`** → keep the gate's notes block (which reviewers ran, findings fixed, findings
+  skipped-with-reason) for the PR body, and continue to **Step 8**.
+- **`BLOCK: <reason>`** → there is a *disputed* Critical/High finding (or a valid one that isn't safe
+  to fix in this change). **Do not push and do not open a PR.** Surface the blocking findings. When
+  running unattended (e.g. via `auto-fix-next-bug`), take the escape hatch instead: add a Jira comment
+  on the issue with the blocking findings, transition it to **Escalated**, and stop — never open a
+  low-confidence PR.
 
-```bash
-cd "$WORKTREE_DIR"
-coderabbit review --prompt-only --base "$DEFAULT_BRANCH"
-```
-
-(Use `main` instead of `master` if that is the repo's default branch.)
-
-Group findings by severity (Critical → Warning → Info). For each finding, decide whether to fix or skip it:
-
-- Fix all **Critical** and **Warning** findings.
-- Use your judgment on **Info**-level items — skip if trivial or out of scope.
-
-**Commit each fix as a separate commit.** The commit message must not include the Jira key (CodeRabbit findings are not tied to a Jira issue). Instead, write a complete commit message that includes:
-- A short subject line summarising the fix (imperative mood)
-- A body with the full CodeRabbit finding as reported, and a description of the solution applied
-
-```bash
-cd "$WORKTREE_DIR"
-git add <affected files>
-git commit -m "<short imperative subject line>
-
-CodeRabbit finding (<severity>):
-<paste the full finding text as reported by CodeRabbit>
-
-Solution:
-<describe exactly what was changed and why>"
-```
-
-**Track every finding you choose NOT to fix** — you will need this list for the PR. For each skipped finding, note:
-- The finding (severity + short description)
-- Why it was skipped (e.g. out of scope, false positive, acceptable pattern in this codebase)
-
-Re-run the review after fixing. Repeat until only Info-level findings remain (or the review is clean).
+The gate owns the fix-commit convention and the skipped-findings list, so they live there, not here.
 
 ## Step 8 — Push the branch
 
@@ -388,13 +365,14 @@ gh pr create \
 ## Testing
 - <describe the test(s) added, or state explicitly that no automated regression test was feasible and why>
 
-## Code review notes
+## Code review (review-gate)
+Reviewers run: <opus, CodeRabbit, Codex — note any skipped as unavailable/error>
 
 ### Findings addressed
-- <severity>: <finding> — <what was done>
+- <reviewer> · <severity>: <finding> — <what was done>
 
 ### Findings not addressed
-- <severity>: <finding> — <reason for skipping>" \
+- <reviewer> · <severity>: <finding> — <reason for skipping>" \
   --base "$DEFAULT_BRANCH"
 ```
 
