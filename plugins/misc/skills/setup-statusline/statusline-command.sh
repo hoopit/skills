@@ -70,23 +70,53 @@ fi
 # The .context_window field Claude Code passes only counts new (non-cached)
 # input tokens, so the displayed value collapses to ~0 once caching kicks in —
 # hence we read transcript usage instead:
-#   ctx_used  = input + cache_read + cache_creation of the most recent
-#               assistant message (the real size of the last request).
+#   ctx_used  = input + cache_read + cache_creation of the active request
+#               (the real size of the context window right now).
 #   tok_sent  = session-cumulative non-cached input (input + cache_creation),
 #               i.e. what is billed at full/write price.
 #   tok_recv  = session-cumulative output tokens.
 #   tok_cache = session-cumulative cache reads (billed at ~10%).
 # Streaming writes several transcript entries per assistant message (same
 # message.id, same usage), so the session sums dedupe by id.
+#
+# /rewind branches the transcript: the abandoned branch stays physically last
+# in the append-only file, so the naive "last assistant line" reports a stale
+# (usually larger) context until the next turn appends. Claude Code records the
+# active branch tip as a `leafUuid` entry, so for ctx_used we walk from the most
+# recent leafUuid to its nearest assistant ancestor's usage. Sessions that never
+# rewound (and brand-new ones that haven't written a leaf yet) fall back to the
+# physical-last assistant — identical result, no regression. The session sums
+# below stay cumulative over every branch on purpose: tokens spent on a branch
+# you later rewound away were still billed.
 ctx_used=""
 tok_sent=""
 tok_recv=""
 tok_cache=""
 if [ -n "$transcript" ] && [ -f "$transcript" ]; then
-  ctx_used=$(tac "$transcript" 2>/dev/null \
-    | jq -r 'select(.type == "assistant") | .message.usage
-        | ((.input_tokens // 0) + (.cache_read_input_tokens // 0) + (.cache_creation_input_tokens // 0))' 2>/dev/null \
+  ctx_leaf=$(tac "$transcript" 2>/dev/null \
+    | jq -r 'select(.leafUuid) | .leafUuid' 2>/dev/null \
     | awk 'NF { print; exit }')
+  if [ -n "$ctx_leaf" ]; then
+    ctx_used=$(jq -rs --arg L "$ctx_leaf" '
+      (reduce .[] as $e ({};
+         if $e.uuid then .[$e.uuid] = {p: $e.parentUuid, t: $e.type, u: $e.message.usage}
+         else . end)) as $m
+      | def walk($id):
+          if $id == null or ($m[$id] | not) then empty
+          else $m[$id] as $n
+            | if ($n.t == "assistant" and $n.u != null)
+              then ((($n.u.input_tokens // 0) + ($n.u.cache_read_input_tokens // 0) + ($n.u.cache_creation_input_tokens // 0)))
+              else walk($n.p) end
+          end;
+      walk($L)' "$transcript" 2>/dev/null \
+      | awk 'NF { print; exit }')
+  fi
+  if [ -z "$ctx_used" ]; then
+    ctx_used=$(tac "$transcript" 2>/dev/null \
+      | jq -r 'select(.type == "assistant") | .message.usage
+          | ((.input_tokens // 0) + (.cache_read_input_tokens // 0) + (.cache_creation_input_tokens // 0))' 2>/dev/null \
+      | awk 'NF { print; exit }')
+  fi
 
   read -r tok_sent tok_recv tok_cache <<< "$(jq -rs '
     [.[] | select(.type == "assistant" and .message.usage != null)
