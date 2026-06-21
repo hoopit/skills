@@ -21,7 +21,12 @@
     {
       "name": "hoopit-misc",
       "source": "./plugins/misc",
-      "description": "Odds and ends: status line, idea stress-testing."
+      "description": "Odds and ends: status line."
+    },
+    {
+      "name": "hoopit-product",
+      "source": "./plugins/product",
+      "description": "Product work: stress-test plans and ideas against the domain model, sharpen terminology, and produce a PRD."
     },
     {
       "name": "hoopit-matt-picks",

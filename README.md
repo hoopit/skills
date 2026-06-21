@@ -44,7 +44,8 @@ claude plugin update hoopit-misc@hoopit-skills
 |--------|--------------|
 | `hoopit-onboarding` | Take a fresh machine to a working `hoopit/api` or `hoopit/flutter-app` checkout, plus the supporting CLIs |
 | `hoopit-dev` | Day-to-day dev workflows and CLIs: Jira/Sentry issues, PR review, Atlassian, CircleCI |
-| `hoopit-misc` | Odds and ends: status line, idea stress-testing |
+| `hoopit-misc` | Odds and ends: status line |
+| `hoopit-product` | Product work: stress-test plans and ideas against the domain model, sharpen terminology, and produce a PRD |
 | `hoopit-matt-picks` | A curated set of [mattpocock/skills](https://github.com/mattpocock/skills), tracking upstream |
 
 For the exact skills inside each plugin, browse its
