@@ -1,6 +1,6 @@
 ---
 name: fix-sentry-issue
-description: Fix a Sentry issue end-to-end — fetch details, create or link a Jira ticket, branch, fix, test, review, and open a PR. Use then the user links to a sentry issue.
+description: Fix a Sentry issue end-to-end — fetch details, create or link a Jira ticket (with a native bidirectional Sentry↔Jira link), branch, fix, test, review, and open a PR. Use then the user links to a sentry issue.
 ---
 
 # Fix Sentry Issue Workflow
@@ -19,6 +19,7 @@ need is missing (or marked TODO), **stop and ask the user to add it** to CLAUDE.
 - `SENTRY_ORG` — the **Sentry org** (e.g. `hoopit`).
 - `SENTRY_PROJECT` — the **Sentry project** slug.
 - `DEFAULT_BRANCH` — the repo's **default branch** (e.g. `master`).
+- `SENTRY_JIRA_INTEGRATION_ID` — the numeric id of the Sentry↔Jira integration, used to create the native two-way issue link (e.g. `12493`). If it's missing from CLAUDE.md, derive it once with the command in Step 2c and add it.
 
 Wherever the steps below show `BAC`, `hoopit`, `https://hoopit.atlassian.net`, or
 `master`, substitute `$JIRA_PROJECT`, `$SENTRY_ORG`, `$JIRA_BASE_URL`, and
@@ -62,6 +63,7 @@ sentry issue explain <SENTRY_ID>
 
 Extract and note:
 - **Sentry Issue ID** (e.g. `BAC-QCB`) — used in commit message
+- **Numeric Sentry group ID** — the `id` field in the JSON (e.g. `7271613592`); required for the native Jira link in Step 2c. This is **not** the short ID.
 - **Error type and message**
 - **Most relevant stack frame** — file, line number
 - **Full stacktrace**
@@ -116,7 +118,30 @@ acli jira workitem create \
 
 Note the new Jira issue key printed by the command (e.g. `BAC-6934`).
 
-### 2c — Add a comment linking back to Sentry
+### 2c — Create the bidirectional Sentry↔Jira link
+
+Create the **native** two-way integration link — the same one as the Sentry UI's "Link Jira Issue", not a
+plain text reference. With Sentry's Jira integration `issue-sync` enabled this is bidirectional: the Sentry
+issue shows the linked Jira issue and the Jira issue shows the Sentry one, and status/assignee sync across.
+Use the **numeric group ID** from Step 1 (not the short ID) and `SENTRY_JIRA_INTEGRATION_ID` from CLAUDE.md:
+
+```bash
+sentry api groups/<NUMERIC_ID>/integrations/$SENTRY_JIRA_INTEGRATION_ID/ -X PUT -d '{"externalIssue":"<JIRA_KEY>"}'
+```
+
+The response echoes the linked issue (key + url) on success. (Preview the resolved request without sending
+it with `-n`/`--dry-run`.) This works the same whether `<JIRA_KEY>` was just created (2b) or an existing
+issue found in 2a.
+
+If `SENTRY_JIRA_INTEGRATION_ID` is not yet in CLAUDE.md, derive it once (then add it to the config block):
+
+```bash
+sentry api "organizations/$SENTRY_ORG/integrations/?provider_key=jira"   # use the integration "id" field
+```
+
+**Fallback:** a plain text reference does **not** create the native link — only the `groups/.../integrations/...`
+PUT does. If that call fails (wrong integration id, missing scope, etc.), don't lose the trail — add a
+cross-reference comment instead and tell the user the native link degraded:
 
 ```bash
 acli jira workitem comment create \
