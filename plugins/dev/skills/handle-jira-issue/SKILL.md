@@ -112,38 +112,17 @@ Extract and note:
 - **Reporter and any additional context**
 - **Attachments** — note any attached files, especially HAR (`.har`) files, screenshots, or logs
 
-### Review attached HAR files (if present)
+### Review attachments (HAR files, screenshots, logs)
 
-If the issue has attached HAR files, download and review them to get a deeper understanding of the endpoints and payloads involved. HAR files capture the full browser network activity at the time of the bug and often reveal the exact request URLs, headers, request bodies, and response payloads that reproduce the problem.
+If `DETAILS_KEY` has attachments, **download and analyze them yourself using the
+`review-jira-attachments` skill** — don't ask the reporter to describe them. HAR files capture the full
+browser network activity at the time of the bug and often reveal the exact request URLs, bodies, and
+error responses that reproduce the problem; screenshots pin the affected screen/state.
 
-`acli` **cannot download attachments** (its `attachment` subcommand only supports `list`/`delete`), so
-use the Jira REST API. This needs a **Jira API token** (Basic auth): set `JIRA_API_TOKEN` and
-`JIRA_EMAIL` (e.g. `set -a; . ~/.config/hoopit/jira.env; set +a`). `$JIRA_BASE_URL` comes from CLAUDE.md.
-
-```bash
-A=(-u "$JIRA_EMAIL:$JIRA_API_TOKEN")
-# 1. List attachments (id | filename | mimeType | size)
-curl -s "${A[@]}" -H 'Accept: application/json' "$JIRA_BASE_URL/rest/api/3/issue/<DETAILS_KEY>?fields=attachment" \
-  | python3 -c "import json,sys;[print(x['id'],x['filename'],x['mimeType'],x['size']) for x in json.load(sys.stdin)['fields'].get('attachment',[])]"
-# 2. Download one by id (-L follows the redirect to media storage)
-curl -sL "${A[@]}" "$JIRA_BASE_URL/rest/api/3/attachment/content/<ID>" -o /tmp/<DETAILS_KEY>-<filename>
-```
-
-HAR files are often 5–15 MB — **don't read one whole into context**. Extract just the failing requests
-(status 0 or ≥ 400) with a script and inspect those:
-
-```bash
-python3 - /tmp/<DETAILS_KEY>-file.har <<'PY'
-import json, sys
-for e in json.load(open(sys.argv[1]))["log"]["entries"]:
-    req, resp = e["request"], e["response"]
-    if resp["status"] == 0 or resp["status"] >= 400:
-        print(req["method"], resp["status"], req["url"])
-        if req.get("postData", {}).get("text"): print("  req:", req["postData"]["text"][:500])
-        body = (resp.get("content", {}).get("text", "") or "")[:800]
-        if body: print("  resp:", body)
-PY
-```
+`acli` cannot download attachments, so that skill uses the Jira REST API (needs `JIRA_API_TOKEN` +
+`JIRA_EMAIL`, e.g. `set -a; . ~/.config/hoopit/jira.env; set +a`, with `$JIRA_BASE_URL` from CLAUDE.md).
+Pass it `DETAILS_KEY`. Key reminder it enforces: HARs are 5–15 MB — never read one whole; extract just
+the failing requests (status `0` or `>= 400`) and inspect those.
 
 Focus on:
 - **Failing requests** (non-2xx responses, or responses whose body contains error messages matching the reported symptom)
