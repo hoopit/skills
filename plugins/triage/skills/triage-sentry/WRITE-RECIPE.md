@@ -12,8 +12,8 @@
   `/api/0/`); `sentry issue archive|resolve` are first-class status commands.
 - **Jira** — reads/comments/transitions/create via `acli` (OAuth; `acli auth status`). Custom-field /
   label / priority writes via the Jira REST API with `JIRA_EMAIL` + `JIRA_API_TOKEN` (from
-  `~/.config/hoopit/jira.env`). AI: field ids live in [`scripts/field_map.json`](scripts/field_map.json)
-  (copied from triage-itsm; global contexts shared with BAC).
+  `~/.config/hoopit/jira.env`). AI: field ids live in the central `.claude/triage-config.json`
+  (managed by `setup-triage`; global Jira contexts shared with BAC/WEB/FA).
 
 ## Sentry status changes (first-class commands)
 
@@ -38,7 +38,7 @@ sentry api groups/<numericId>/integrations/12493/ -X PUT -d '{"externalIssue":"B
 ```
 
 - `numericId` is the Sentry group id (`id` from `sentry issue view --json`), **not** the short id.
-- **Jira integration id = `12493`** (cached in `field_map.json`; re-derive with
+- **Jira integration id = `12493`** (in `.claude/triage-config.json`; re-derive with
   `sentry api 'organizations/hoopit/integrations/?provider_key=jira'`). The integration has `issue-sync`
   enabled, so the native link is two-way.
 - Use `sentry api ... --dry-run` (`-n`) to preview the resolved request without sending it.
@@ -130,7 +130,7 @@ re-review supersedes an older one). The only local file is `…/.claude/local/tr
 - **`team:ai-triage`** exists **and has the `bac` project** — it's the "reviewed" marker, the dedup filter,
   **and** promote's work-list. Load-bearing: `assigned:#ai-triage` search only matches issues in the team's
   projects, so without `POST projects/hoopit/bac/teams/ai-triage/` the assignment lands but the work-list
-  query returns nothing. Keep `triage_assignee` in `field_map.json` (`team:ai-triage`) matching the slug.
+  query returns nothing. Keep `triage_assignee` in the config (`team:ai-triage`) matching the slug.
   (Required Sentry token scopes are just assign/comment/archive/resolve/link/priority — all confirmed; the
   skill never deletes comments or unlinks, so it needs no admin/delete scope.)
 - An **`Escalated`** BAC status is optional — the escalate transition is best-effort.

@@ -2,6 +2,8 @@
 
 > **STATUS: LIVE** — fields created 2026-06-20 in Jira (global contexts). The REST field-write needs
 > the numeric **field id** and, for select fields, the numeric **option id** (labels are not accepted).
+> The values the scripts actually use live in **`.claude/triage-config.json`** (managed by `setup-triage`);
+> this file is the human-readable reference.
 
 ## Fields
 

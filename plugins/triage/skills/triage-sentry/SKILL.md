@@ -39,17 +39,17 @@ their own (`review` / `promote`).
   Develop/Silence: assign `ai-triage` + post the verdict as a comment).
 - `scripts/promote_pending.py` — the **promote** step (budget → query Sentry `ai-triage` work-list → read
   verdict comment → BAC bug + AI fields + native link).
-- `scripts/field_map.json` — AI: field/option ids + Sentry/BAC config (org, project, integration id, cap).
+- Config: `.claude/triage-config.json` in the triage repo (org-level ids + per-project Sentry/Jira blocks), created by `setup-triage`. The writers read it by default; pick a project with `--project <key>` (default `api`).
 
 ## Config (read, never hardcode)
 
-`SENTRY_ORG` (`hoopit`) and `JIRA_BASE_URL` (`https://hoopit.atlassian.net`) are org-wide — read them
-from any sibling repo's `CLAUDE.md` under `$HOOPIT_ROOT` → *Workflow skills config*. The **per-project**
-values live in `scripts/field_map.json` and the scripts read them from there: `sentry_project` /
-`sentry_project_id` (the Sentry project) and `jira_project` (the Jira key). It is configured for the
-**bac** Sentry project → `BAC` Jira today (so `AI: Area = API`, component `Backend`); pointing it at
-`web-admin` / `flutter-app` means adding that project's Sentry slug + numeric id and Jira key to
-`field_map.json` (not wired up yet).
+All config comes from the central **`.claude/triage-config.json`** in this triage repo, created by the
+`setup-triage` skill (run it first if missing). Org-level keys: `sentry_org` (`hoopit`), `jira_base_url`,
+the `AI:` `fields`/`options`, labels, budget. **Per-project** values live under `projects.<key>`
+(`sentry_project`, `sentry_project_id`, `jira_project`, `default_area`, `default_component`); the writers
+take `--project <key>` (default `api`) and merge that block over the org-level keys. Today only `api`
+(→ Sentry `bac`, Jira `BAC`) has its Sentry ids filled; `web-admin` / `flutter-app` need their Sentry slug
++ numeric id added (via `setup-triage`) before they can be triaged here.
 
 ## Prerequisites
 
@@ -59,7 +59,7 @@ values live in `scripts/field_map.json` and the scripts read them from there: `s
 3. The **`ai-triage`** Sentry team exists **and has the `bac` project** (`POST projects/hoopit/bac/teams/
    ai-triage/`). This is load-bearing: Sentry's `assigned:#ai-triage` search only matches issues in the
    team's projects, so without the project link `promote`'s work-list query returns nothing even though the
-   assignment succeeds. Keep `triage_assignee` in `field_map.json` (`team:ai-triage`) matching its slug.
+   assignment succeeds. Keep `triage_assignee` in the config (`team:ai-triage`) matching its slug.
 4. The `AI:` fields exist in Jira (they do — shared with triage-itsm).
 
 Analysis runs against a read-only **base worktree** of `api` (latest default branch), refreshed by the
@@ -95,7 +95,7 @@ Sentry MCP `search_issues` (org `hoopit`, project `bac`):
 is:unresolved is:for_review environment:production !assigned:#ai-triage      (sort: date — last seen, limit N)
 ```
 
-The `environment` filter and sort order are config in `field_map.json` (`sentry_environment` = `production`,
+The `environment` filter and sort order are config in `.claude/triage-config.json` (`sentry_environment` = `production`,
 `discover_sort` = `date`). **Scope is production only**, and we **sort by `date` (last seen), not frequency**:
 actively-occurring issues are reviewed first and stale/dormant ones aren't pulled ahead of them — high-volume
 issues are usually also recently-seen, so they still surface quickly under a `--limit`.
@@ -104,7 +104,7 @@ Dedup is **purely Sentry-side, no local state:** `review` assigns every Develop/
 the `ai-triage` team (which always exists), and Archive/Resolve leave `is:unresolved` — so
 `!assigned:#ai-triage` excludes everything already handled, even across machines and after a wiped
 checkout, and even when an issue stays in For Review post-assignment (ownership rules don't clear it). The
-team slug comes from `triage_assignee` in `field_map.json` (`team:ai-triage` → `#ai-triage`). An issue
+team slug comes from `triage_assignee` in the config (`team:ai-triage` → `#ai-triage`). An issue
 Sentry now flags `is:regressed`/`is:escalating` is allowed back in (a previously archived error that comes
 back gets re-triaged) — Archive/Resolve issues aren't assigned to the team, so the filter doesn't block
 their return. Capture each issue's **short id + numeric id** (search results include both).

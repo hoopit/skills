@@ -1,6 +1,6 @@
 ---
 name: auto-fix-next-bug
-description: Pick the next open, unassigned, agent-ready bug from the current repo's Jira project and fix it end-to-end (branch → fix → tests → multi-reviewer gate → PR) via a dedicated opus implementer agent. Reports the PR link plus any Critical/High review items and key decisions. Processes EXACTLY ONE bug per run; drive the 30-minute cadence with /loop. Use when the user wants to auto-burn-down agent-ready bugs unattended.
+description: Pick the next open, unassigned, agent-ready bug from the triage repo's configured project boards (all boards, or one via --project) and fix it end-to-end (branch → fix → tests → multi-reviewer gate → PR) via a dedicated opus implementer agent. Reports the PR link plus any Critical/High review items and key decisions. Processes EXACTLY ONE bug per run; drive the 30-minute cadence with /loop. Use when the user wants to auto-burn-down agent-ready bugs unattended.
 ---
 
 # Auto-fix the next open bug
@@ -15,18 +15,13 @@ small **selector script** — zero LLM tokens, deterministic, and it prints one 
 the loop's context stays flat. The only sub-agent is the **opus implementer** that runs
 the `handle-jira-issue` skill on the claimed bug.
 
-## Config (read from this repo's CLAUDE.md → "Workflow skills config")
+## Config — central triage config
 
-This skill is **project-agnostic** — it auto-fixes bugs in whatever Hoopit repo it
-is invoked in. Read every **per-project** value from the current repo's `CLAUDE.md`
-(`## Agent skills` → `### Workflow skills config`); never hardcode it:
-
-- **Jira project key** (e.g. `BAC` for api, `WEB` for web-admin, `FA` for flutter-app)
-  — the project the selector pulls bugs from.
-- **GitHub repo** and **Default branch** — consumed by the implementer (`handle-jira-issue`).
-
-`JIRA_BASE_URL` (`https://hoopit.atlassian.net`) is Hoopit-wide and the same in every
-repo. If any **per-project** value is missing from CLAUDE.md, **stop and ask** — don't guess.
+Reads the central **`.claude/triage-config.json`** (created by the `setup-triage` skill — run it first if
+the file is missing). The selector uses the config's **`projects`** map: each entry names a `jira_project`
+board and corresponds to a sibling repo (the project key) under `$HOOPIT_ROOT`, where that bug's branch /
+PR live. `JIRA_BASE_URL` and the `AI:` fields are org-level keys in the same file. Nothing is hardcoded —
+if the config is missing, the selector exits with an error telling you to run `setup-triage`.
 
 ## Eligibility gate
 
@@ -52,21 +47,22 @@ primary dedup is the Jira status transition (a claimed bug leaves `status = Open
 
 Selection has no judgment in it, so the orchestrator runs it as a script — no LLM
 tokens, deterministic, testable, and it prints a single line so the loop's context
-stays flat. Pass the repo's Jira project key (from CLAUDE.md) via `--project`. The
-script path is relative to this skill; run it from inside the target repo (it finds
-the repo root via git):
+stays flat. The script reads `.claude/triage-config.json`: with **no `--project` it ranks agent-ready
+bugs across every board** in the config and claims the top one; with `--project <key>` (a `projects` key
+like `api`) it scopes to one board. Run it from the triage repo; the path is relative to this skill:
 
 ```bash
-python3 scripts/select_next_bug.py --project "<JIRA_PROJECT_KEY>"
+python3 scripts/select_next_bug.py                 # all boards (central)
+python3 scripts/select_next_bug.py --project api   # one board
 ```
 
-The script reads the dispatch log, runs the eligibility JQL (`project = <KEY> AND
+The script reads the dispatch log, runs the eligibility JQL (`project IN (<in-scope boards>) AND
 type = Bug AND status = Open AND assignee IS EMPTY AND "AI: Agent Suitability" =
 "Agent-ready"`, ordered by `AI: Priority Score` DESC then `created ASC`), picks the
 first candidate that isn't already dispatched, branched (`<KEY>/*`), or has an open
-PR, transitions it to **In Progress**, appends a `dispatched` line to the log, and
-prints exactly one line. (`--project` is **required** — read it from CLAUDE.md;
-`--dry-run` shows the pick without claiming — use it to verify, never in the loop.)
+PR **in that bug's repo**, transitions it to **In Progress**, appends a `dispatched` line to the log, and
+prints exactly one line. (Omit `--project` to span all boards, or pass a `projects` key like `api` to
+scope to one; `--dry-run` shows the pick without claiming — use it to verify, never in the loop.)
 
 Parse that single stdout line:
 

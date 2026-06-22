@@ -21,26 +21,28 @@ human-readable triage comment. Feeds the phase-2 fixer (`handle-jira-issue`), wh
 - [RUBRIC.md](RUBRIC.md) — the classification taxonomy, scoring rubric, per-bucket behavior, and comment templates.
 - [ATTACHMENTS.md](ATTACHMENTS.md) — how to download + analyze HAR files and screenshots (REST, not acli). Most ITSM tickets have these.
 - [WRITE-RECIPE.md](WRITE-RECIPE.md) — `acli` read commands, auth, idempotency, and one-time field-creation recipe.
-- [FIELD-MAP.md](FIELD-MAP.md) — human-readable `AI: <field>` → `customfield_XXXXX` → option-id map.
+- [FIELD-MAP.md](FIELD-MAP.md) — human-readable `AI: <field>` → `customfield_XXXXX` → option-id reference (the live ids the scripts use are in `.claude/triage-config.json`).
 - `workflow.js` — the **analyze-only** batch Workflow script (fans out one read-only agent per ticket → verdicts).
 - `scripts/apply_verdicts.py` — the **deterministic writer**: takes a verdicts JSON file, sets the `AI:` fields
   (REST) + posts the comment (`acli`) + computes the score + stamps `Last Reviewed`. Supports `--dry-run`.
-- `scripts/field_map.json` — machine-readable field/option ids (source of truth the writer reads).
+- Config: `.claude/triage-config.json` in the triage repo (org-level field/option ids + per-project blocks), created by the `setup-triage` skill — `apply_verdicts.py` reads it by default.
 - `scripts/prepare_base_worktrees.sh` — fetch + refresh the read-only **base worktrees** the analysis
   runs against (pinned to each repo's latest default branch, fixed location, updated in place).
 
 ## Prerequisites
 
-1. The `AI:` custom fields exist in Jira and `FIELD-MAP.md` is filled in. If `FIELD-MAP.md` still has
-   placeholders, stop and run field setup first (see WRITE-RECIPE.md → *Field creation*).
+1. The central config exists — run **`setup-triage`** if `.claude/triage-config.json` is missing. (The
+   `AI:` custom fields must already exist in Jira; see WRITE-RECIPE.md → *Field creation* for first-time setup.)
 2. `JIRA_API_TOKEN` + `JIRA_EMAIL` are available (sourced from `~/.config/hoopit/jira.env`). Needed only
    for the REST field writes. Reads/comments use `acli` (verify `acli auth status`).
 
 ## Config (read, never hardcode)
 
-Read the Hoopit-wide config from any sibling repo's `CLAUDE.md` under `$HOOPIT_ROOT` →
-*Workflow skills config* (identical org-wide): `JIRA_BASE_URL` (`https://hoopit.atlassian.net`),
-`ITSM_PROJECT` (`ITSM`). `AI: Area` → repo: `API`→api, `Web Admin`→web-admin, `Flutter App`→flutter-app.
+All config comes from the central **`.claude/triage-config.json`** in this triage repo, created by the
+`setup-triage` skill (run it first if the file is missing); `apply_verdicts.py` reads it directly. The
+org-level keys used here: `jira_base_url` (`https://hoopit.atlassian.net`), `itsm_project` (`ITSM`), the
+`AI:` `fields`/`options` ids, `valid_components`, and `status_map`. `AI: Area` → repo: `API`→api,
+`Web Admin`→web-admin, `Flutter App`→flutter-app (these are also the keys of the config's `projects` map).
 
 **Analysis runs against base worktrees, not the live repos.** The developer's checkouts may be on a
 feature branch or dirty, which would skew root-cause analysis. So triage analyzes each repo at its

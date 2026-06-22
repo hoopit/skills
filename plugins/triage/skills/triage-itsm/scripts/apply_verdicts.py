@@ -31,6 +31,16 @@ import argparse, base64, datetime, json, os, re, subprocess, sys, tempfile, urll
 
 RANK = {"High": 3, "Medium": 2, "Low": 1}
 
+
+def repo_root():
+    cp = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    return cp.stdout.strip() if cp.returncode == 0 else os.getcwd()
+
+
+def default_config_path():
+    """Central triage config, committed in the triage repo: <repo-root>/.claude/triage-config.json."""
+    return os.path.join(repo_root(), ".claude", "triage-config.json")
+
 # Durable-brief enforcement: agents occasionally leak volatile refs despite the prompt.
 # Strip line numbers and file:line suffixes deterministically (keep symbol/method names).
 _VOLATILE = [
@@ -80,7 +90,7 @@ def resolve_target(v, status_map):
 
 def resolve_components(v, fmap):
     """Valid component names from the verdict (any unknown names are dropped)."""
-    valid = set(fmap.get("components", []))
+    valid = set(fmap.get("valid_components", []))
     return [c for c in (v.get("components") or []) if c in valid]
 
 
@@ -146,7 +156,8 @@ def main():
     ap.add_argument("verdicts")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--keep-score", action="store_true", help="trust verdict.priorityScore instead of recomputing")
-    ap.add_argument("--field-map", default=os.path.join(os.path.dirname(__file__), "field_map.json"))
+    ap.add_argument("--field-map", default=default_config_path(),
+                    help="central triage config (default: <repo-root>/.claude/triage-config.json)")
     ap.add_argument("--jira-env", default="~/.config/hoopit/jira.env")
     ap.add_argument("--no-transition", action="store_true", help="set fields/comment but do not change workflow status")
     args = ap.parse_args()

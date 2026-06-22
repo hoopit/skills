@@ -91,6 +91,31 @@ def load_field_map(path):
     return json.load(open(path))
 
 
+def repo_root():
+    """Git toplevel of the CWD (the triage repo); falls back to CWD."""
+    cp = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    return cp.stdout.strip() if cp.returncode == 0 else os.getcwd()
+
+
+def default_config_path():
+    """Central triage config, committed in the triage repo: <repo-root>/.claude/triage-config.json."""
+    return os.path.join(repo_root(), ".claude", "triage-config.json")
+
+
+def resolve_project(cfg, project_key):
+    """Flatten the config for one project: org-level keys overlaid with cfg['projects'][project_key].
+
+    Lets the writers keep reading flat keys (sentry_project_id, jira_project, default_area, components,
+    …) while the file keeps per-project values under 'projects'."""
+    projects = cfg.get("projects") or {}
+    block = projects.get(project_key)
+    if block is None:
+        sys.exit(f"FATAL: project {project_key!r} not in config 'projects' (have: {sorted(projects)}). Run setup-triage.")
+    merged = {k: v for k, v in cfg.items() if k != "projects"}
+    merged.update(block)
+    return merged
+
+
 # ---------------------------------------------------------------------------- Jira REST + acli
 
 def _jira_request(base, auth, path, method="GET", body=None):
