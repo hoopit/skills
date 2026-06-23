@@ -20,6 +20,21 @@ Usage:
 import argparse, json, sys
 from urllib.parse import urlsplit
 
+# Hoopit API sets these response headers on every request — high-signal for triage:
+#   View-Id          the exact Django URL name that served the request (which view to read)
+#   Content-Version  the exact API version that ran
+#   Current-User-Id  the id of the user who actually made the request
+HOOPIT_HEADERS = ("View-Id", "Content-Version", "Current-User-Id")
+
+
+def header_map(resp):
+    return {h.get("name", ""): h.get("value", "") for h in (resp.get("headers") or [])}
+
+
+def hoopit_headers(resp):
+    lower = {k.lower(): v for k, v in header_map(resp).items()}
+    return {name: lower[name.lower()] for name in HOOPIT_HEADERS if name.lower() in lower}
+
 
 def main():
     ap = argparse.ArgumentParser(description="Extract full detail of HAR requests by method/path.")
@@ -27,6 +42,7 @@ def main():
     ap.add_argument("--path", help="case-insensitive substring match on the URL path")
     ap.add_argument("--method", help="exact method match (case-insensitive)")
     ap.add_argument("--json", action="store_true", help="emit a JSON list instead of formatted text")
+    ap.add_argument("--all-headers", action="store_true", help="include all response headers (not just the Hoopit ones)")
     ap.add_argument("--max-body", type=int, default=2000, help="truncate bodies to this many chars")
     args = ap.parse_args()
 
@@ -51,6 +67,7 @@ def main():
             "method": req["method"],
             "url": req["url"],
             "status": resp["status"],
+            "headers": header_map(resp) if args.all_headers else hoopit_headers(resp),
             "queryString": req.get("queryString") or [],
             "requestBody": ((req.get("postData") or {}).get("text") or "")[:args.max_body],
             "responseBody": ((resp.get("content") or {}).get("text") or "")[:args.max_body],
@@ -68,6 +85,12 @@ def main():
         if n:
             print("\n" + "-" * 60)
         print(f"#{i}  {req['method']} {resp['status']}  {req['url']}")
+        if args.all_headers:
+            for k, v in header_map(resp).items():
+                print(f"  header: {k}: {v}")
+        else:
+            for k, v in hoopit_headers(resp).items():
+                print(f"  {k}: {v}")
         for p in req.get("queryString") or []:
             print(f"  query: {p.get('name')}={p.get('value')}")
         body = (req.get("postData") or {}).get("text")

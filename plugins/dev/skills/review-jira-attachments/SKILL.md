@@ -64,6 +64,16 @@ the reporter never typed into the ticket are usually right there in a request pa
 query string (`?member=456`), or a response body — `har_summary.py --detail N` or `har_extract.py` print
 all three. Look there before asking anyone for an ID.
 
+**Hoopit response headers pin the request exactly.** The API stamps three headers on every response,
+which `--detail` / `har_extract.py` surface automatically (use `--all-headers` for the rest):
+
+- **`View-Id`** — the exact Django URL name that served the request, i.e. precisely which view to read.
+- **`Content-Version`** — the exact API version that ran (drives which serializer/deserializer applies).
+- **`Current-User-Id`** — the id of the user who actually made the request.
+
+So you usually don't have to guess the view, version, or acting user — read them off the failing entry's
+headers.
+
 ## Screenshots / images
 
 Download as above, then use the **Read tool** on the file path — it renders images visually. Use them to
