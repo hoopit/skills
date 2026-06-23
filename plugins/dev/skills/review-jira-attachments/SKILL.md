@@ -31,31 +31,38 @@ curl -sL "${A[@]}" "$JIRA_BASE_URL/rest/api/3/attachment/content/<ID>" -o /tmp/<
 
 ## HAR files — parse, don't read
 
-HARs are often **5–15 MB**. Never read one into context whole — it will blow your context window.
-Extract just the failing requests (status `0` = no response / network error, or `>= 400`) with a script
-and inspect only those:
+HARs are often **5–15 MB**. Never read one into context whole — it will blow your context window. Use
+the bundled `scripts/har_summary.py` to scan it (one compact line per request: `# METHOD STATUS PATH?query`),
+then drill into only the entries that matter:
 
 ```bash
-python3 - /tmp/<KEY>-file.har <<'PY'
-import json, sys
-d = json.load(open(sys.argv[1]))
-for e in d["log"]["entries"]:
-    req, resp = e["request"], e["response"]
-    st = resp["status"]
-    if st == 0 or st >= 400:                       # failures
-        print(f"{req['method']} {st} {req['url']}")
-        if req.get("postData", {}).get("text"):
-            print("  req body:", req["postData"]["text"][:500])
-        body = (resp.get("content", {}).get("text", "") or "")[:800]
-        if body:
-            print("  resp body:", body)
-PY
+HAR=$(find ~/.claude/plugins -path '*review-jira-attachments/scripts/har_summary.py' | head -1)
+python3 "$HAR" /tmp/<KEY>-file.har               # full scan — spot the request(s) of interest
+python3 "$HAR" /tmp/<KEY>-file.har --failures    # only status 0 (network error) or >= 400
+python3 "$HAR" /tmp/<KEY>-file.har --grep clubs  # only URLs containing a substring
+python3 "$HAR" /tmp/<KEY>-file.har --detail 7    # full request/response for entry #7: query params + bodies
 ```
 
-From the failing entries, read off the **endpoint, method, request payload shape, and error response
+From the entry of interest read off the **endpoint, method, request payload shape, and error response
 body** — that usually identifies the exact view/serializer/component to investigate. Note the request
-that fired immediately before the failure (timing/sequence often matters). If nothing is `>= 400`, scan
+that fired immediately before a failure (timing/sequence often matters). If nothing is `>= 400`, scan
 2xx responses whose body contains an error message matching the reported symptom.
+
+When a scan points you at an endpoint and you want **every** call to it (the same endpoint usually fires
+many times), use `scripts/har_extract.py` — it matches by method + path substring and returns all matches
+in full (query params + request/response bodies), with `--json` for structured output:
+
+```bash
+EXT=$(find ~/.claude/plugins -path '*review-jira-attachments/scripts/har_extract.py' | head -1)
+python3 "$EXT" /tmp/<KEY>-file.har --path /v3/payments              # every payments request, full detail
+python3 "$EXT" /tmp/<KEY>-file.har --path /clubs --method GET       # narrow by method
+python3 "$EXT" /tmp/<KEY>-file.har --path /clubs --json             # structured list
+```
+
+**The HAR is also the first place to find prod entity IDs.** Club / member / event / order / payment ids
+the reporter never typed into the ticket are usually right there in a request path (`/clubs/123/…`), the
+query string (`?member=456`), or a response body — `har_summary.py --detail N` or `har_extract.py` print
+all three. Look there before asking anyone for an ID.
 
 ## Screenshots / images
 
