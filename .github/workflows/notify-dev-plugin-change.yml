@@ -27,22 +27,25 @@ jobs:
           if [ -z "$BEFORE" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
             BEFORE="$AFTER^"
           fi
-          files=$(git diff --name-only "$BEFORE" "$AFTER" -- 'plugins/dev/**' | sed 's/^/• /')
+          all=$(git diff --name-only "$BEFORE" "$AFTER" -- 'plugins/dev/**')
+          count=$(printf '%s\n' "$all" | grep -c . || true)
+          # Plugin-relative paths, capped at 5 to stay short; collapse the rest into "+N more".
+          files=$(printf '%s\n' "$all" | sed 's#^plugins/dev/##' | head -5 | sed 's/^/• /')
+          more=$((count - 5))
+          if [ "$more" -gt 0 ]; then files="$files"$'\n'"• …+$more more"; fi
           {
-            echo 'files<<EOF'
-            echo "$files"
-            echo 'EOF'
+            echo 'files<<EOF'; echo "$files"; echo 'EOF'
           } >> "$GITHUB_OUTPUT"
 
       - name: Post to Slack
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_DEVELOPMENT_TEAM_WEBHOOK }}
           FILES: ${{ steps.changes.outputs.files }}
-          PUSHER: ${{ github.actor }}
           COMMIT_MSG: ${{ github.event.head_commit.message }}
           COMPARE_URL: ${{ github.event.compare }}
         run: |
-          text=$(printf '*dev* plugin changed in `%s`\nPushed by *%s*\n\n*Changed files:*\n%s\n\n_%s_\n<%s|View changes>' \
-            "$GITHUB_REPOSITORY" "$PUSHER" "$FILES" "${COMMIT_MSG%%$'\n'*}" "$COMPARE_URL")
+          # Compact, low-spam: linked header + subject, capped file list, update command.
+          text=$(printf '🛠 <%s|*hoopit-dev* updated> — _%s_\n%s\n↻ `claude plugin update hoopit-dev@hoopit-skills`' \
+            "$COMPARE_URL" "${COMMIT_MSG%%$'\n'*}" "$FILES")
           jq -n --arg text "$text" '{text: $text}' \
             | curl -sf -X POST -H 'Content-type: application/json' --data @- "$SLACK_WEBHOOK_URL"
