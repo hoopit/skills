@@ -1,8 +1,8 @@
 name: Notify Slack on dev plugin change
 
 # Posts to Slack whenever a push to main touches the "dev" plugin.
-# Requires repo secret SLACK_WEBHOOK_URL (a Slack incoming webhook, which is
-# locked to a single channel at creation time).
+# Requires the SLACK_DEVELOPMENT_TEAM_WEBHOOK secret (a Slack incoming webhook
+# for #development-team, locked to that one channel at creation time).
 
 on:
   push:
@@ -36,7 +36,7 @@ jobs:
 
       - name: Post to Slack
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_DEVELOPMENT_TEAM_WEBHOOK }}
           FILES: ${{ steps.changes.outputs.files }}
           PUSHER: ${{ github.actor }}
           COMMIT_MSG: ${{ github.event.head_commit.message }}
