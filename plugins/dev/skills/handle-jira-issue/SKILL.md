@@ -323,7 +323,9 @@ git push -u origin <branch-name>
 
 ## Step 9 — Create a Pull Request
 
-Create a PR using the GitHub CLI. Include the `## ITSM` section **only when an ITSM ticket is linked** — omit it for a project issue with no ITSM link:
+Create a PR using the GitHub CLI. Include the `## ITSM` section **only when an ITSM ticket is linked** — omit it for a project issue with no ITSM link.
+
+**Required PR labels.** If you were invoked by an orchestrator (or instructed) to put specific labels on the PR, create it *with* them rather than adding them afterward — append `--label <name>` to this command for each required label (e.g. `--label ai --label preview`), so the PR is born labelled and never has an unlabelled window for `pull_request`-triggered automation to miss. Omit when no labels are required (the default for a human-driven run). The labels must already exist in the repo; if `gh pr create` rejects one, create the PR without it and backfill with `gh pr edit <pr> --add-label <name>`.
 
 ```bash
 cd "$WORKTREE_DIR"
