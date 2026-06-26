@@ -300,13 +300,12 @@ git push -u origin <branch-name>
 
 ## Step 9 — Create a Pull Request
 
-Create a PR using the GitHub CLI:
+Follow the **`create-pull-request`** skill for the `gh pr create` recipe, the
+required-labels-at-creation rule, and Jira-link hygiene. This workflow's body
+adds a `## Sentry` section and the code-review notes from Step 7:
 
-```bash
-cd "$WORKTREE_DIR"
-gh pr create \
-  --title "<branch-name>" \
-  --body "## Summary
+```
+## Summary
 <description of the fix>
 
 ## Jira
@@ -327,8 +326,5 @@ gh pr create \
 - <severity>: <finding> — <what was done>
 
 ### Findings not addressed
-- <severity>: <finding> — <reason for skipping>" \
-  --base "$DEFAULT_BRANCH"
+- <severity>: <finding> — <reason for skipping>
 ```
-
-Report the PR URL to the user.
