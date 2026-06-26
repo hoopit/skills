@@ -184,25 +184,17 @@ acli jira workitem create \
 
 Note the new `TARGET_KEY` printed by the command (e.g. `BAC-6934`, `WEB-1234`, `FA-987`).
 
-Create an **"is caused by"** link from the ITSM ticket to the new issue (i.e. the ITSM issue *is caused by* the target bug).
-
-If unsure of the exact link-type name, list available types first:
-
-```bash
-acli jira workitem link type
-```
-
-Then create the link:
+Create a **"Problem/Incident"** link from the ITSM ticket to the new issue (i.e. the ITSM issue *is caused by* the target bug).
 
 ```bash
 acli jira workitem link create \
   --out '<ITSM_ISSUE_KEY>' \
   --in '<TARGET_KEY>' \
-  --type 'Causes' \
+  --type 'Problem/Incident' \
   --yes
 ```
 
-> **Note:** The direction matters — `--out` is the outward issue (the effect: ITSM ticket) and `--in` is the inward issue (the cause: target bug). Verify direction with `acli jira workitem link type` if needed.
+> **Note:** The direction matters — `--out` is the outward issue (the effect: ITSM ticket) and `--in` is the inward issue (the cause: target bug).
 
 `TARGET_KEY` is the `JIRA_KEY` used for all subsequent steps.
 
