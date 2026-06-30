@@ -15,6 +15,15 @@ on:
         description: Repo path of the plugin, e.g. plugins/dev
         required: true
         type: string
+      skills_from_marketplace:
+        description: >-
+          When true, report the added/removed entries in this plugin's skills[]
+          list in .claude-plugin/marketplace.json instead of diffing files under
+          plugin_path. For plugins with no plugins/<group>/ dir (e.g. picks of a
+          remote repo). Posts nothing if the list is unchanged.
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   notify:
@@ -24,10 +33,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Collect changed files
+      - name: Collect changes
         id: changes
         env:
           PLUGIN_PATH: ${{ inputs.plugin_path }}
+          PLUGIN: ${{ inputs.plugin_name }}
+          FROM_MARKETPLACE: ${{ inputs.skills_from_marketplace }}
         run: |
           BEFORE='${{ github.event.before }}'
           AFTER='${{ github.sha }}'
@@ -35,10 +46,32 @@ jobs:
           if [ -z "$BEFORE" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
             BEFORE="$AFTER^"
           fi
-          all=$(git diff --name-only "$BEFORE" "$AFTER" -- "$PLUGIN_PATH/**")
+
+          if [ "$FROM_MARKETPLACE" = "true" ]; then
+            # Diff this plugin's curated skills[] list between the two commits.
+            mf=.claude-plugin/marketplace.json
+            sel='.plugins[]|select(.name==$n).skills[]?'
+            old=$(git show "$BEFORE:$mf" 2>/dev/null | jq -r --arg n "$PLUGIN" "$sel" 2>/dev/null | sort || true)
+            new=$(git show "$AFTER:$mf" | jq -r --arg n "$PLUGIN" "$sel" | sort)
+            added=$(comm -13 <(printf '%s\n' "$old") <(printf '%s\n' "$new") | grep . || true)
+            removed=$(comm -23 <(printf '%s\n' "$old") <(printf '%s\n' "$new") | grep . || true)
+            # Strip the ./skills/ prefix; mark adds with ＋ and removes with －.
+            all=$(
+              { [ -n "$added" ]   && printf '%s\n' "$added"   | sed 's#^\./skills/##; s/^/＋ /'
+                [ -n "$removed" ] && printf '%s\n' "$removed" | sed 's#^\./skills/##; s/^/－ /'; } || true
+            )
+          else
+            # Plugin-relative paths of files changed under plugin_path.
+            all=$(git diff --name-only "$BEFORE" "$AFTER" -- "$PLUGIN_PATH/**" \
+                  | grep . | sed "s#^$PLUGIN_PATH/##; s/^/• /" || true)
+          fi
+
           count=$(printf '%s\n' "$all" | grep -c . || true)
-          # Plugin-relative paths, capped at 5 to stay short; collapse the rest into "+N more".
-          files=$(printf '%s\n' "$all" | sed "s#^$PLUGIN_PATH/##" | head -5 | sed 's/^/• /')
+          # Nothing relevant changed (e.g. a marketplace.json edit that didn't touch
+          # this plugin's skills) — skip the Slack post entirely.
+          if [ "$count" -eq 0 ]; then echo 'skip=true' >> "$GITHUB_OUTPUT"; exit 0; fi
+          # Capped at 5 to stay short; collapse the rest into "+N more".
+          files=$(printf '%s\n' "$all" | head -5)
           more=$((count - 5))
           if [ "$more" -gt 0 ]; then files="$files"$'\n'"• …+$more more"; fi
           {
@@ -46,6 +79,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Post to Slack
+        if: steps.changes.outputs.skip != 'true'
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_DEVELOPMENT_TEAM_WEBHOOK }}
           PLUGIN: ${{ inputs.plugin_name }}

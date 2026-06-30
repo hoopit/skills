@@ -2,8 +2,8 @@ name: Notify matt-picks plugin change
 
 # Unlike the other plugins, hoopit-matt-picks has no plugins/<group>/ directory —
 # it's defined entirely by its `skills` list in .claude-plugin/marketplace.json,
-# so we watch that file. plugin_path points at .claude-plugin so the reusable
-# workflow's diff/strip surface "marketplace.json" as the changed file.
+# so we watch that file and report the added/removed skills (skills_from_marketplace).
+# An unrelated marketplace.json edit leaves the list unchanged, so nothing is posted.
 
 on:
   push:
@@ -17,4 +17,5 @@ jobs:
     with:
       plugin_name: hoopit-matt-picks
       plugin_path: .claude-plugin
+      skills_from_marketplace: true
     secrets: inherit
