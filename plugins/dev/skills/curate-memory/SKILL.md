@@ -1,6 +1,7 @@
 ---
 name: curate-memory
 description: Review, prune, and promote Claude Code agent memories — delete stale/shipped ones, and move durable team-relevant knowledge into the right shared home (a path-scoped rule, a directory CLAUDE.md, root CLAUDE.md, or leave it a skill). Use when the user wants to evaluate/clean up/prune memories, asks whether memories are redundant or should be shared with the team, or wants memories moved into CLAUDE.md / rules / specific directories.
+disable-model-invocation: true
 ---
 
 # Curate memory
