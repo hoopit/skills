@@ -75,8 +75,8 @@ whose status you must verify.
 - **Keep**: personal, live-ops, in-flight, or not-team-material.
 
 ### 5. Confirm before outward/irreversible actions
-Promotion commits content into the **shared repo** (outward-facing) and deletion is
-**irreversible** (memory isn't git-tracked). Present the classified plan and get a
+Promotion puts content up for the **shared repo** (outward-facing — it ships as a
+PR in step 8) and deletion is **irreversible** (memory isn't git-tracked). Present the classified plan and get a
 green light on (a) which sets to promote and where, and (b) deletion scope —
 `AskUserQuestion` with a question per axis works well. Pure "this is stale, remove
 it" is within a "prune my memory" request; borderline calls (historical logs, things
@@ -101,11 +101,23 @@ grep -oP '\]\(\K[^)]+\.md' MEMORY.md | while read f; do [ -f "$f" ] || echo "MIS
 for f in $(ls *.md|grep -vx MEMORY.md); do grep -q "($f)" MEMORY.md || echo "ORPHAN $f"; done
 ```
 
-### 8. Commit the team-doc changes
+### 8. Open a PR with the promoted knowledge
+The promoted team-doc changes ship as a **pull request**, not a direct push —
+knowledge entering shared docs should get team review. Finish the curation by
+opening it; don't wait to be asked.
+
+- Resolve the repo's default branch: `DEFAULT_BRANCH` from the repo CLAUDE.md
+  **Workflow skills config** block if present, else
+  `git symbolic-ref refs/remotes/origin/HEAD`.
+- Create a branch off it for the changes, e.g. `chore/curate-memory-<yyyy-mm-dd>`.
 - Stage **only the files you changed** — never sweep up the user's unrelated
   in-progress work. Check `git status` and `git add` explicit paths.
 - One focused commit per logical move reads best (e.g. "promote X to cdk/CLAUDE.md",
-  "move test skills to a path-scoped rule"). Commit/push only when the user asks.
+  "move test skills to a path-scoped rule").
+- Push and open the PR following the **`create-pull-request`** skill's recipe.
+  There's usually no tracked work item — say so in the body. Structure the body by
+  destination: which memories were promoted where, and (for reviewer context) what
+  was deleted or kept private. Report the PR URL when done.
 
 ## Path-scoped rules — the format
 
@@ -140,4 +152,6 @@ a skill loads by *model invocation* (description-gated), optionally narrowed by 
 - Per-directory `CLAUDE.md` copies for something that lives in many sibling dirs — use
   one path-scoped rule instead of N copies.
 - Deleting the source memory before writing the promoted copy.
+- Committing promoted docs straight to the default branch — they always go up as a
+  PR (step 8).
 - Leaving `MEMORY.md` out of sync with the files on disk.
