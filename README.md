@@ -75,7 +75,7 @@ _Generated from each `SKILL.md` frontmatter and `marketplace.json` by [`scripts/
 **`hoopit-matt-picks`** — Curated picks from mattpocock/skills, tracking upstream.
 - Invoked namespaced as `mattpocock-skills:<name>`; descriptions live [upstream](https://github.com/mattpocock/skills).
 - _Engineering:_ `ask-matt`, `codebase-design`, `diagnosing-bugs`, `domain-modeling`, `grill-with-docs`, `implement`, `improve-codebase-architecture`, `prototype`, `resolving-merge-conflicts`, `setup-matt-pocock-skills`, `tdd`, `to-issues`, `to-prd`, `triage`
-- _In progress:_ `decision-mapping`, `loop-me`, `review`
+- _In progress:_ `claude-handoff`, `decision-mapping`, `loop-me`, `review`, `wayfinder`, `wizard`
 - _Productivity:_ `handoff`, `teach`, `writing-great-skills`
 <!-- END generated skills -->
 

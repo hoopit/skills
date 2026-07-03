@@ -51,9 +51,12 @@
         "./skills/engineering/to-issues",
         "./skills/engineering/to-prd",
         "./skills/engineering/triage",
+        "./skills/in-progress/claude-handoff",
         "./skills/in-progress/decision-mapping",
         "./skills/in-progress/loop-me",
         "./skills/in-progress/review",
+        "./skills/in-progress/wayfinder",
+        "./skills/in-progress/wizard",
         "./skills/productivity/handoff",
         "./skills/productivity/teach",
         "./skills/productivity/writing-great-skills"
