@@ -1,11 +1,13 @@
 ---
 name: fix-sentry-issue
-description: Fix a Sentry issue end-to-end — fetch details, create or link a Jira ticket (with a native bidirectional Sentry↔Jira link), branch, fix, test, review, and open a PR. Use then the user links to a sentry issue.
+description: Fix a Sentry issue end-to-end — fetch details, create or link a Jira ticket (with a native bidirectional Sentry↔Jira link), then ship the fix (branch, fix, test, review, PR) via implement-and-ship-fix. Use when the user links to a sentry issue.
 ---
 
 # Fix Sentry Issue Workflow
 
 Triggered when the user says something like "fix this sentry issue" and provides a Sentry URL or issue ID (e.g. `BAC-QCB` or `https://hoopit.sentry.io/issues/...`).
+
+This skill owns the Sentry-specific work — fetch the issue, create or link a Jira ticket with a native two-way link — then hands off to the **`implement-and-ship-fix`** skill for the generic branch → fix → test → review → PR flow.
 
 ## Configuration — read from CLAUDE.md, never hardcode
 
@@ -25,12 +27,6 @@ Wherever the steps below show `BAC`, `hoopit`, `https://hoopit.atlassian.net`, o
 `master`, substitute `$JIRA_PROJECT`, `$SENTRY_ORG`, `$JIRA_BASE_URL`, and
 `$DEFAULT_BRANCH`. Resolve the repo from where you are invoked (cwd) and its
 CLAUDE.md — not from the Sentry ID prefix.
-
-> **PR/Jira link hygiene:** when naming the branch, writing commit messages, or
-> authoring the PR, load the `create-pull-request` skill and follow it. For this
-> workflow the only work item the PR may link is `JIRA_KEY`; the Sentry short ID
-> (e.g. `BAC-QCB`) is safe (no digits after the dash). Keep every other Jira key
-> out of those surfaces.
 
 ## Step 1 — Fetch Sentry issue details
 
@@ -62,7 +58,7 @@ sentry issue explain <SENTRY_ID>
 ```
 
 Extract and note:
-- **Sentry Issue ID** (e.g. `BAC-QCB`) — used in commit message
+- **Sentry Issue ID** (e.g. `BAC-QCB`) — used in the commit footer
 - **Numeric Sentry group ID** — the `id` field in the JSON (e.g. `7271613592`); required for the native Jira link in Step 2c. This is **not** the short ID.
 - **Error type and message**
 - **Most relevant stack frame** — file, line number
@@ -152,137 +148,19 @@ acli jira workitem comment create \
 - **Users impacted:** N'
 ```
 
-## Step 3 — Create a Git branch as a worktree
+## Step 3 — Ship the fix
 
-Defer to the repo's own worktree conventions:
+Hand off to the **`implement-and-ship-fix`** skill, which owns the generic
+branch → fix → regression test → review gate → push → PR flow (including branch
+naming, commit footer, and PR link hygiene). Pass it:
 
-1. If `.claude/skills/create-worktree/SKILL.md` exists in this repo, read and follow it (it covers any per-repo venv/`.envrc`, isolated test DB, or `.envs` caveats).
-2. Otherwise create a plain worktree off the repo's default branch:
+- `TARGET_REPO` — the repo you were invoked in (resolved from cwd + its CLAUDE.md).
+- `JIRA_KEY` — the Jira issue from Step 2.
+- `DETAILS_KEY` — the Sentry issue (Step 1's source of the error, stacktrace, and event context).
+- `SENTRY_ID` — the short id (e.g. `BAC-QCB`), and `SENTRY_URL` — its Sentry issue URL.
+  These drive the `Fixes <SENTRY_ID>` commit footer and the PR `## Sentry` section.
+- `JIRA_BASE_URL`, `DEFAULT_BRANCH` — from `TARGET_REPO`'s CLAUDE.md.
 
-   ```bash
-   git fetch origin
-   BRANCH="<JIRA_KEY>/bug/<short-description>"
-   git worktree add -b "$BRANCH" ".worktrees/$(echo "$BRANCH" | tr '/' '-')" "origin/$DEFAULT_BRANCH"
-   ```
-
-Branch naming convention: `<JIRA_KEY>/bug/<short-kebab-description>`
-
-Examples:
-- `BAC-6934/bug/dintero-payment-data-double-serialized`
-- `BAC-123/bug/invalid-access-token`
-
-The worktree lands at `.worktrees/<branch-name>` with `/` in the branch name replaced by `-` for the directory name, e.g. `.worktrees/BAC-6934-bug-dintero-payment-data-double-serialized`. Note this path as `$WORKTREE_DIR`.
-
-All subsequent steps (4–9) run from `$WORKTREE_DIR` unless stated otherwise.
-
-## Step 4 — Implement the fix
-
-- Navigate to the relevant file(s) in `$WORKTREE_DIR` identified in the Sentry stacktrace.
-- Apply the minimal, targeted fix.
-- Follow existing code conventions. Read any relevant skills in this repo's `.claude/skills/` that apply to the area you're touching (e.g. `models`, `views`, `urls`, `migrations` in the api repo; the web-admin and flutter-app repos have their own). Skip skills that don't exist.
-- Do **not** refactor unrelated code.
-
-## Step 5 — Write tests
-
-Defer to the repo's testing conventions: if `.claude/skills/writing-tests/SKILL.md` exists, read and follow it before writing tests; if `.claude/skills/running-tests/SKILL.md` exists, use it to run them.
-
-- Write at least **1 test** that reproduces the bug and verifies the fix.
-- Place the test alongside the code being fixed, following the surrounding test layout.
-- Include a docstring/comment referencing the Jira issue, e.g.:
-
-```python
-def test_payment_data_not_double_serialized(self):
-    """
-    Regression test for BAC-6934.
-    payment_data must be passed as a dict, not a JSON string,
-    when calling the Dintero Google Pay endpoint.
-    """
-    ...
-```
-
-Run the new test (and related tests) to confirm they pass, using the repo's test runner (per its `running-tests` skill). If the repo provides no realistic way to add an automated regression test for this kind of bug, say so explicitly in the PR description instead of skipping silently.
-
-If tests fail, fix the issues before proceeding.
-
-## Step 6 — Commit changes
-
-Stage and commit all changes from within the worktree:
-
-```bash
-cd "$WORKTREE_DIR"
-git add -A
-git commit -m "<JIRA_KEY>: <short description>
-
-<Optional longer description of what was changed and why.>
-
-Fixes <SENTRY_ID>"
-```
-
-Example:
-```
-BAC-6934: Fix double-serialization of payment_data in Dintero Google/Apple Pay
-
-payment_data was being passed through json.dumps() before being added
-to the request dict. Since _request() already uses json=data, this
-resulted in Dintero receiving a JSON string instead of a JSON object.
-
-Fixes BAC-QCB
-```
-
-## Step 7 — Review gate (independent review + CodeRabbit + Codex)
-
-From inside the worktree, run the **`review-gate`** skill. It runs three independent reviewers — an
-independent review always (the matt-picks `mattpocock-skills:code-review` skill, else a cold subagent /
-self-review), plus CodeRabbit and Codex when installed locally — against `$DEFAULT_BRANCH`,
-aggregates + de-dups their findings, fixes the valid ones (committing each per its own convention),
-tracks the skipped ones, and returns a verdict:
-
-- **`PASS`** → keep the gate's notes block (which reviewers ran, findings fixed, findings
-  skipped-with-reason) for the PR body, and continue to **Step 8**.
-- **`BLOCK: <reason>`** → there is a *disputed* Critical/High finding (or a valid one that isn't safe
-  to fix in this change). **Do not push and do not open a PR.** Surface the blocking findings. When
-  running unattended, take the escape hatch instead: add a comment on the Jira issue (Step 2) with the
-  blocking findings, transition it to **Escalated**, and stop — never open a low-confidence PR.
-
-The gate owns the fix-commit convention and the skipped-findings list, so they live there, not here.
-
-## Step 8 — Push the branch
-
-Push the normal way — see the *Pushing from a worktree* section of the `create-worktree` skill for why no workaround is needed (the pre-push hooks resolve the main repo's `.venv` themselves):
-
-```bash
-cd "$WORKTREE_DIR"
-git push -u origin <branch-name>
-```
-
-## Step 9 — Create a Pull Request
-
-Follow the **`create-pull-request`** skill for the `gh pr create` recipe, the
-required-labels-at-creation rule, and Jira-link hygiene. This workflow's body
-adds a `## Sentry` section and the review-gate notes block from Step 7:
-
-```
-## Summary
-<description of the fix>
-
-## Jira
-[<JIRA_KEY>]($JIRA_BASE_URL/browse/<JIRA_KEY>)
-
-## Sentry
-[<SENTRY_ID>](<SENTRY_URL>)
-
-## Changes
-- <bullet point summary of changes>
-
-## Testing
-- <describe the test(s) added>
-
-## Code review (review-gate)
-Reviewers run: <independent review (mattpocock-skills:code-review / subagent / self-review), CodeRabbit, Codex — note any skipped as unavailable/error>
-
-### Findings addressed
-- <reviewer> · <severity>: <finding> — <what was done>
-
-### Findings not addressed
-- <reviewer> · <severity>: <finding> — <reason for skipping>
-```
+You've done the Sentry-specific work (fetched the issue + event in Step 1, created or
+linked the Jira issue and its native Sentry↔Jira link in Step 2);
+`implement-and-ship-fix` takes it from the branch through the open PR.
