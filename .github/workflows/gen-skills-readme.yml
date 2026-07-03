@@ -1,0 +1,49 @@
+name: Regenerate README skills block
+
+# Keeps the "Skills by plugin" block in README.md in sync with the source of truth
+# (each plugin's SKILL.md frontmatter + the picks in marketplace.json). Regenerates
+# and commits README back to main when it drifts.
+#
+# No loop: the trigger paths below intentionally exclude README.md, so the README-only
+# commit this makes can't retrigger the workflow (and GITHUB_TOKEN pushes don't spawn
+# new workflow runs regardless).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'plugins/**/SKILL.md'
+      - '.claude-plugin/marketplace.json'
+      - 'scripts/gen-skills-readme.sh'
+
+permissions:
+  contents: write
+
+# Serialize runs so concurrent pushes can't race on the README commit.
+concurrency:
+  group: gen-skills-readme
+  cancel-in-progress: false
+
+jobs:
+  regen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Regenerate the skills block
+        run: bash scripts/gen-skills-readme.sh
+
+      - name: Commit if it changed
+        run: |
+          if git diff --quiet -- README.md; then
+            echo "README already in sync — nothing to do."
+            exit 0
+          fi
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md
+          git commit -m 'docs: regenerate README skills block [skip ci]'
+          git pull --rebase origin main   # land on top of any concurrent push
+          git push origin HEAD:main
