@@ -53,15 +53,15 @@ gen() {
     if jq -e ".plugins[$i].source | type == \"string\"" "$MARKETPLACE" >/dev/null; then
       # Local plugin: one table row per SKILL.md, alphabetically.
       local dir="$src"
-      printf '| Skill | Invocation | Description |\n'
-      printf '|-------|------------|-------------|\n'
+      printf '| Skill | Invoke | Description |\n'
+      printf '|-------|--------|-------------|\n'
       for skill in "$dir"/skills/*/SKILL.md; do
         [ -f "$skill" ] || continue
         local sname sdesc invocation
         sname=$(frontmatter_field "$skill" name)
         sdesc=$(first_sentence "$(frontmatter_field "$skill" description)")
-        invocation="Automatic"
-        [ "$(frontmatter_field "$skill" disable-model-invocation)" = "true" ] && invocation="User-invoked only"
+        invocation="Auto"
+        [ "$(frontmatter_field "$skill" disable-model-invocation)" = "true" ] && invocation="Manual"
         printf -- '| `%s` | %s | %s |\n' "$sname" "$invocation" "$sdesc"
       done
     else
@@ -70,13 +70,13 @@ gen() {
       # the upstream group (2nd path segment of ./skills/<group>/<name>).
       local repo; repo=$(jq -r ".plugins[$i].source.repo" "$MARKETPLACE")
       printf 'Invoked namespaced as `mattpocock-skills:<name>`; descriptions live [upstream](https://github.com/%s).\n\n' "$repo"
-      printf '| Skill | Invocation | Group |\n'
-      printf '|-------|------------|-------|\n'
+      printf '| Skill | Invoke | Group |\n'
+      printf '|-------|--------|-------|\n'
       jq -r ".plugins[$i].skills[] | split(\"/\") | .[3] + \"\t\" + .[2]" "$MARKETPLACE" \
         | while IFS=$'\t' read -r sname group; do
             local label
             label=$(printf '%s' "$group" | sed 's/-/ /g; s/./\U&/')   # in-progress -> In progress
-            printf -- '| `mattpocock-skills:%s` | Automatic | %s |\n' "$sname" "$label"
+            printf -- '| `mattpocock-skills:%s` | Auto | %s |\n' "$sname" "$label"
           done
     fi
     printf '\n'
