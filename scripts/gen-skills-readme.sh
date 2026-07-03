@@ -48,7 +48,7 @@ gen() {
     desc=$(jq -r ".plugins[$i].description // \"\"" "$MARKETPLACE")
     src=$(jq -r ".plugins[$i].source" "$MARKETPLACE")   # string path, or "[object Object]"-ish for github
 
-    printf '**`%s`** — %s\n\n' "$name" "$desc"
+    printf '#### `%s`\n\n%s\n\n' "$name" "$desc"
 
     if jq -e ".plugins[$i].source | type == \"string\"" "$MARKETPLACE" >/dev/null; then
       # Local plugin: one table row per SKILL.md, alphabetically.

@@ -49,7 +49,9 @@ claude plugin update hoopit-dev@hoopit-skills
 _Generated from each `SKILL.md` frontmatter and `marketplace.json` by [`scripts/gen-skills-readme.sh`](scripts/gen-skills-readme.sh) — don't edit between the markers by hand._
 
 <!-- BEGIN generated skills: scripts/gen-skills-readme.sh — do not edit between these markers -->
-**`hoopit-onboarding`** — Take a fresh machine to a working hoopit/api or hoopit/flutter-app checkout, plus the supporting CLIs.
+#### `hoopit-onboarding`
+
+Take a fresh machine to a working hoopit/api or hoopit/flutter-app checkout, plus the supporting CLIs.
 
 | Skill | Invoke | Description |
 |-------|--------|-------------|
@@ -58,7 +60,9 @@ _Generated from each `SKILL.md` frontmatter and `marketplace.json` by [`scripts/
 | `setup-api` | Auto | Set up a brand-new machine for the Hoopit Django API — install tooling (gh, mise/Python 3.14, uv, Docker, pre-commit, Sentry CLI, acli, AWS CLI), clone hoopit/api as a sibling of the skills repo, bootstrap deps + supporting services (Postgres/Redis/stripe-mock), migrate, run the server, and run tests. |
 | `setup-flutter-app` | Auto | Set up a brand-new machine for the Hoopit flutter-app — install tooling (gh, mise/Python, FVM, DCM, Sentry CLIs, acli), clone hoopit/flutter-app as a sibling of the skills repo, bootstrap deps/codegen/l10n/pre-commit, wire up Figma MCP, and run the app. |
 
-**`hoopit-dev`** — Day-to-day dev workflows and CLIs: Jira/Sentry issues, PR review, Atlassian, CircleCI.
+#### `hoopit-dev`
+
+Day-to-day dev workflows and CLIs: Jira/Sentry issues, PR review, Atlassian, CircleCI.
 
 | Skill | Invoke | Description |
 |-------|--------|-------------|
@@ -72,19 +76,25 @@ _Generated from each `SKILL.md` frontmatter and `marketplace.json` by [`scripts/
 | `review-github-comments` | Auto | Review and resolve all review comments on a GitHub PR — fetch comments, evaluate each one, apply fixes where needed, and reply to resolve them. |
 | `review-jira-attachments` | Auto | Download and analyze the files attached to a Jira issue — HAR network captures, screenshots, logs, PDFs — via the Jira REST API, because acli cannot download attachments. |
 
-**`hoopit-misc`** — Odds and ends: status line.
+#### `hoopit-misc`
+
+Odds and ends: status line.
 
 | Skill | Invoke | Description |
 |-------|--------|-------------|
 | `setup-statusline` | Auto | Install the team's custom Claude Code status line (directory, git status, model, effort, exact context usage, session token totals). |
 
-**`hoopit-product`** — Product work: stress-test plans and ideas against the domain model, sharpen terminology, and produce a PRD.
+#### `hoopit-product`
+
+Product work: stress-test plans and ideas against the domain model, sharpen terminology, and produce a PRD.
 
 | Skill | Invoke | Description |
 |-------|--------|-------------|
 | `grill-my-idea` | Auto | Grilling session that challenges your plan against the existing domain model and sharpens terminology. |
 
-**`hoopit-matt-picks`** — Curated picks from mattpocock/skills, tracking upstream.
+#### `hoopit-matt-picks`
+
+Curated picks from mattpocock/skills, tracking upstream.
 
 Invoked namespaced as `mattpocock-skills:<name>`; descriptions live [upstream](https://github.com/mattpocock/skills).
 
