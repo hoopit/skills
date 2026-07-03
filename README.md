@@ -50,33 +50,69 @@ _Generated from each `SKILL.md` frontmatter and `marketplace.json` by [`scripts/
 
 <!-- BEGIN generated skills: scripts/gen-skills-readme.sh — do not edit between these markers -->
 **`hoopit-onboarding`** — Take a fresh machine to a working hoopit/api or hoopit/flutter-app checkout, plus the supporting CLIs.
-- `install-coderabbit-cli` — Install the CodeRabbit CLI, authenticate it, and wire up its Claude Code plugin (the `/coderabbit:review` slash command). Use when a developer needs to install CodeRabbit, set up `coderabbit` for the first time, run `coderabbit auth login`, or enable CodeRabbit reviews inside Claude Code. This is the install/auth bootstrap — for running reviews once it's set up, use the `code-review` skill.
-- `install-sentry-cli` — Install the Sentry CLI (the `sentry` binary from cli.sentry.dev) and authenticate it. Use when a developer needs to install the Sentry CLI, set up `sentry` for the first time, run `sentry auth login`, or fix a missing/unauthenticated `sentry` command. This is the install/auth bootstrap — for using the CLI once it's set up, see the `sentry-cli` skill.
-- `setup-api` — Set up a brand-new machine for the Hoopit Django API — install tooling (gh, mise/Python 3.14, uv, Docker, pre-commit, Sentry CLI, acli, AWS CLI), clone hoopit/api as a sibling of the skills repo, bootstrap deps + supporting services (Postgres/Redis/stripe-mock), migrate, run the server, and run tests. Use when a developer wants to onboard to the API, set up their api/backend dev environment, or asks how to get the Django API running locally.
-- `setup-flutter-app` — Set up a brand-new machine for the Hoopit flutter-app — install tooling (gh, mise/Python, FVM, DCM, Sentry CLIs, acli), clone hoopit/flutter-app as a sibling of the skills repo, bootstrap deps/codegen/l10n/pre-commit, wire up Figma MCP, and run the app. Use when a developer wants to onboard to the Flutter app, set up their flutter-app dev environment, or asks how to get flutter-app building/running locally.
+
+| Skill | Invocation | Description |
+|-------|------------|-------------|
+| `install-coderabbit-cli` | Automatic | Install the CodeRabbit CLI, authenticate it, and wire up its Claude Code plugin (the `/coderabbit:review` slash command). |
+| `install-sentry-cli` | Automatic | Install the Sentry CLI (the `sentry` binary from cli.sentry.dev) and authenticate it. |
+| `setup-api` | Automatic | Set up a brand-new machine for the Hoopit Django API — install tooling (gh, mise/Python 3.14, uv, Docker, pre-commit, Sentry CLI, acli, AWS CLI), clone hoopit/api as a sibling of the skills repo, bootstrap deps + supporting services (Postgres/Redis/stripe-mock), migrate, run the server, and run tests. |
+| `setup-flutter-app` | Automatic | Set up a brand-new machine for the Hoopit flutter-app — install tooling (gh, mise/Python, FVM, DCM, Sentry CLIs, acli), clone hoopit/flutter-app as a sibling of the skills repo, bootstrap deps/codegen/l10n/pre-commit, wire up Figma MCP, and run the app. |
 
 **`hoopit-dev`** — Day-to-day dev workflows and CLIs: Jira/Sentry issues, PR review, Atlassian, CircleCI.
-- `atlassian-cli` — Use when working with Jira or Confluence from command line, including authentication, searching issues with JQL, bulk operations, sprint reports, or creating/updating work items using acli
-- `circleci-tests` — Fetch failing tests from a CircleCI job URL. Use when user asks you to retrieve data from CircleCI.
-- `create-pull-request` — Create GitHub PRs that always link the work item they implement (Jira/Sentry/etc.) and keep Jira links clean — emit only the keys this PR delivers so GitHub-for-Jira doesn't attach it to unrelated tickets. Use when naming a branch or writing commit messages / a PR title or body in a Jira-connected repo.
-- `curate-memory` — Review, prune, and promote Claude Code agent memories — delete stale/shipped ones, and move durable team-relevant knowledge into the right shared home (a path-scoped rule, a directory CLAUDE.md, root CLAUDE.md, or leave it a skill). Use when the user wants to evaluate/clean up/prune memories, asks whether memories are redundant or should be shared with the team, or wants memories moved into CLAUDE.md / rules / specific directories. _(user-invoked only)_
-- `fix-sentry-issue` — Fix a Sentry issue end-to-end — fetch details, create or link a Jira ticket (with a native bidirectional Sentry↔Jira link), branch, fix, test, review, and open a PR. Use then the user links to a sentry issue.
-- `handle-jira-issue` — Handle any Jira issue end-to-end — an ITSM ticket or a project issue (BAC/WEB/FA). Fetch details (from the linked ITSM ticket when one exists), link or create a project issue only when needed, branch, fix, test, review, and open a PR. Use whenever the user links to or names a Jira issue to fix.
-- `review-gate` — Run multiple independent code reviewers (the matt-picks two-axis /review + CodeRabbit + Codex) on the committed branch changes before a PR, aggregate and de-dup findings, fix what is valid, and BLOCK the PR (with notes) on any disputed Critical/High finding. Use right before opening a PR; handle-jira-issue Step 7 calls it. CodeRabbit/Codex are skipped if not installed locally; an independent review always runs (matt-picks /review, else a cold subagent, else inline self-review).
-- `review-github-comments` — Review and resolve all review comments on a GitHub PR — fetch comments, evaluate each one, apply fixes where needed, and reply to resolve them.
-- `review-jira-attachments` — Download and analyze the files attached to a Jira issue — HAR network captures, screenshots, logs, PDFs — via the Jira REST API, because acli cannot download attachments. Use whenever a Jira issue/ticket has attached files you need to inspect to understand or reproduce a bug: parse a HAR for the failing request, view a screenshot, or grep a log. Don't ask the reporter to "review the HAR" — read it yourself.
+
+| Skill | Invocation | Description |
+|-------|------------|-------------|
+| `atlassian-cli` | Automatic | Use when working with Jira or Confluence from command line, including authentication, searching issues with JQL, bulk operations, sprint reports, or creating/updating work items using acli |
+| `circleci-tests` | Automatic | Fetch failing tests from a CircleCI job URL. |
+| `create-pull-request` | Automatic | Create GitHub PRs that always link the work item they implement (Jira/Sentry/etc.) and keep Jira links clean — emit only the keys this PR delivers so GitHub-for-Jira doesn't attach it to unrelated tickets. |
+| `curate-memory` | User-invoked only | Review, prune, and promote Claude Code agent memories — delete stale/shipped ones, and move durable team-relevant knowledge into the right shared home (a path-scoped rule, a directory CLAUDE.md, root CLAUDE.md, or leave it a skill). |
+| `fix-sentry-issue` | Automatic | Fix a Sentry issue end-to-end — fetch details, create or link a Jira ticket (with a native bidirectional Sentry↔Jira link), branch, fix, test, review, and open a PR. |
+| `handle-jira-issue` | Automatic | Handle any Jira issue end-to-end — an ITSM ticket or a project issue (BAC/WEB/FA). |
+| `review-gate` | Automatic | Run multiple independent code reviewers (the matt-picks two-axis /review + CodeRabbit + Codex) on the committed branch changes before a PR, aggregate and de-dup findings, fix what is valid, and BLOCK the PR (with notes) on any disputed Critical/High finding. |
+| `review-github-comments` | Automatic | Review and resolve all review comments on a GitHub PR — fetch comments, evaluate each one, apply fixes where needed, and reply to resolve them. |
+| `review-jira-attachments` | Automatic | Download and analyze the files attached to a Jira issue — HAR network captures, screenshots, logs, PDFs — via the Jira REST API, because acli cannot download attachments. |
 
 **`hoopit-misc`** — Odds and ends: status line.
-- `setup-statusline` — Install the team's custom Claude Code status line (directory, git status, model, effort, exact context usage, session token totals). Use when the user asks to set up, install, or fix the Hoopit status bar / statusline.
+
+| Skill | Invocation | Description |
+|-------|------------|-------------|
+| `setup-statusline` | Automatic | Install the team's custom Claude Code status line (directory, git status, model, effort, exact context usage, session token totals). |
 
 **`hoopit-product`** — Product work: stress-test plans and ideas against the domain model, sharpen terminology, and produce a PRD.
-- `grill-my-idea` — Grilling session that challenges your plan against the existing domain model and sharpens terminology. Use when user wants to stress-test a plan against their project's language and documented decisions.
+
+| Skill | Invocation | Description |
+|-------|------------|-------------|
+| `grill-my-idea` | Automatic | Grilling session that challenges your plan against the existing domain model and sharpens terminology. |
 
 **`hoopit-matt-picks`** — Curated picks from mattpocock/skills, tracking upstream.
-- Invoked namespaced as `mattpocock-skills:<name>`; descriptions live [upstream](https://github.com/mattpocock/skills).
-- _Engineering:_ `ask-matt`, `codebase-design`, `diagnosing-bugs`, `domain-modeling`, `grill-with-docs`, `implement`, `improve-codebase-architecture`, `prototype`, `resolving-merge-conflicts`, `setup-matt-pocock-skills`, `tdd`, `to-issues`, `to-prd`, `triage`
-- _In progress:_ `claude-handoff`, `decision-mapping`, `loop-me`, `review`, `wayfinder`, `wizard`
-- _Productivity:_ `handoff`, `teach`, `writing-great-skills`
+
+Invoked namespaced as `mattpocock-skills:<name>`; descriptions live [upstream](https://github.com/mattpocock/skills).
+
+| Skill | Invocation | Group |
+|-------|------------|-------|
+| `mattpocock-skills:ask-matt` | Automatic | Engineering |
+| `mattpocock-skills:codebase-design` | Automatic | Engineering |
+| `mattpocock-skills:diagnosing-bugs` | Automatic | Engineering |
+| `mattpocock-skills:domain-modeling` | Automatic | Engineering |
+| `mattpocock-skills:grill-with-docs` | Automatic | Engineering |
+| `mattpocock-skills:implement` | Automatic | Engineering |
+| `mattpocock-skills:improve-codebase-architecture` | Automatic | Engineering |
+| `mattpocock-skills:prototype` | Automatic | Engineering |
+| `mattpocock-skills:resolving-merge-conflicts` | Automatic | Engineering |
+| `mattpocock-skills:setup-matt-pocock-skills` | Automatic | Engineering |
+| `mattpocock-skills:tdd` | Automatic | Engineering |
+| `mattpocock-skills:to-issues` | Automatic | Engineering |
+| `mattpocock-skills:to-prd` | Automatic | Engineering |
+| `mattpocock-skills:triage` | Automatic | Engineering |
+| `mattpocock-skills:claude-handoff` | Automatic | In progress |
+| `mattpocock-skills:decision-mapping` | Automatic | In progress |
+| `mattpocock-skills:loop-me` | Automatic | In progress |
+| `mattpocock-skills:review` | Automatic | In progress |
+| `mattpocock-skills:wayfinder` | Automatic | In progress |
+| `mattpocock-skills:wizard` | Automatic | In progress |
+| `mattpocock-skills:handoff` | Automatic | Productivity |
+| `mattpocock-skills:teach` | Automatic | Productivity |
+| `mattpocock-skills:writing-great-skills` | Automatic | Productivity |
 <!-- END generated skills -->
 
 The onboarding skills clone their project repo as a **sibling** of wherever you run

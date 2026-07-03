@@ -25,6 +25,21 @@ frontmatter_field() {
   ' "$1"
 }
 
+# First sentence of a string: up to and including the first period that is
+# followed by whitespace or end-of-string (so "Python 3.14" isn't split).
+first_sentence() {
+  printf '%s' "$1" | awk '{
+    n = length($0)
+    for (i = 1; i <= n; i++) {
+      if (substr($0, i, 1) == ".") {
+        nx = substr($0, i + 1, 1)
+        if (nx == "" || nx == " ") { print substr($0, 1, i); exit }
+      }
+    }
+    print $0
+  }'
+}
+
 gen() {
   local count=$(jq '.plugins | length' "$MARKETPLACE")
   for i in $(seq 0 $((count - 1))); do
@@ -33,30 +48,36 @@ gen() {
     desc=$(jq -r ".plugins[$i].description // \"\"" "$MARKETPLACE")
     src=$(jq -r ".plugins[$i].source" "$MARKETPLACE")   # string path, or "[object Object]"-ish for github
 
-    printf '**`%s`** — %s\n' "$name" "$desc"
+    printf '**`%s`** — %s\n\n' "$name" "$desc"
 
     if jq -e ".plugins[$i].source | type == \"string\"" "$MARKETPLACE" >/dev/null; then
-      # Local plugin: list its SKILL.md files alphabetically.
+      # Local plugin: one table row per SKILL.md, alphabetically.
       local dir="$src"
+      printf '| Skill | Invocation | Description |\n'
+      printf '|-------|------------|-------------|\n'
       for skill in "$dir"/skills/*/SKILL.md; do
         [ -f "$skill" ] || continue
-        local sname sdesc guard=""
+        local sname sdesc invocation
         sname=$(frontmatter_field "$skill" name)
-        sdesc=$(frontmatter_field "$skill" description)
-        [ "$(frontmatter_field "$skill" disable-model-invocation)" = "true" ] && guard=" _(user-invoked only)_"
-        printf -- '- `%s` — %s%s\n' "$sname" "$sdesc" "$guard"
+        sdesc=$(first_sentence "$(frontmatter_field "$skill" description)")
+        invocation="Automatic"
+        [ "$(frontmatter_field "$skill" disable-model-invocation)" = "true" ] && invocation="User-invoked only"
+        printf -- '| `%s` | %s | %s |\n' "$sname" "$invocation" "$sdesc"
       done
     else
-      # Remote (github) pick: names only, grouped by upstream folder.
+      # Remote (github) pick: one table row per skill. Descriptions live upstream,
+      # so the local marketplace only gives us the name (invoked namespaced) and
+      # the upstream group (2nd path segment of ./skills/<group>/<name>).
       local repo; repo=$(jq -r ".plugins[$i].source.repo" "$MARKETPLACE")
-      printf -- '- Invoked namespaced as `mattpocock-skills:<name>`; descriptions live [upstream](https://github.com/%s).\n' "$repo"
-      # For each distinct group (2nd path segment of ./skills/<group>/<name>), list the names, comma-joined.
-      for group in $(jq -r ".plugins[$i].skills[] | split(\"/\")[2]" "$MARKETPLACE" | awk '!seen[$0]++'); do
-        local label names
-        label=$(printf '%s' "$group" | sed 's/-/ /g; s/./\U&/')   # in-progress -> In progress
-        names=$(jq -r "[.plugins[$i].skills[] | select(split(\"/\")[2] == \"$group\") | \"\`\" + split(\"/\")[3] + \"\`\"] | join(\", \")" "$MARKETPLACE")
-        printf -- '- _%s:_ %s\n' "$label" "$names"
-      done
+      printf 'Invoked namespaced as `mattpocock-skills:<name>`; descriptions live [upstream](https://github.com/%s).\n\n' "$repo"
+      printf '| Skill | Invocation | Group |\n'
+      printf '|-------|------------|-------|\n'
+      jq -r ".plugins[$i].skills[] | split(\"/\") | .[3] + \"\t\" + .[2]" "$MARKETPLACE" \
+        | while IFS=$'\t' read -r sname group; do
+            local label
+            label=$(printf '%s' "$group" | sed 's/-/ /g; s/./\U&/')   # in-progress -> In progress
+            printf -- '| `mattpocock-skills:%s` | Automatic | %s |\n' "$sname" "$label"
+          done
     fi
     printf '\n'
   done
