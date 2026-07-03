@@ -232,7 +232,7 @@ Fixes BAC-QCB
 ## Step 7 — Review gate (independent review + CodeRabbit + Codex)
 
 From inside the worktree, run the **`review-gate`** skill. It runs three independent reviewers — an
-independent review always (the matt-picks `mattpocock-skills:review` skill, else a cold subagent /
+independent review always (the matt-picks `mattpocock-skills:code-review` skill, else a cold subagent /
 self-review), plus CodeRabbit and Codex when installed locally — against `$DEFAULT_BRANCH`,
 aggregates + de-dups their findings, fixes the valid ones (committing each per its own convention),
 tracks the skipped ones, and returns a verdict:
@@ -278,7 +278,7 @@ adds a `## Sentry` section and the review-gate notes block from Step 7:
 - <describe the test(s) added>
 
 ## Code review (review-gate)
-Reviewers run: <independent review (mattpocock-skills:review / subagent / self-review), CodeRabbit, Codex — note any skipped as unavailable/error>
+Reviewers run: <independent review (mattpocock-skills:code-review / subagent / self-review), CodeRabbit, Codex — note any skipped as unavailable/error>
 
 ### Findings addressed
 - <reviewer> · <severity>: <finding> — <what was done>

@@ -14,6 +14,7 @@ on:
     paths:
       - 'plugins/**/SKILL.md'
       - '.claude-plugin/marketplace.json'
+      - 'matt-picks-lock.json'
       - 'scripts/gen-skills-readme.sh'
 
 permissions:

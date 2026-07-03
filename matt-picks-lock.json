@@ -1,0 +1,117 @@
+{
+  "version": 1,
+  "repo": "mattpocock/skills",
+  "ref": "main",
+  "skills": {
+    "./skills/engineering/ask-matt": {
+      "name": "ask-matt",
+      "invoke": "Manual",
+      "description": "Ask which skill or flow fits your situation. A router over the skills in this repo."
+    },
+    "./skills/engineering/code-review": {
+      "name": "code-review",
+      "invoke": "Auto",
+      "description": "Review the changes since a fixed point (commit, branch, tag, or merge-base) along two axes — Standards (does the code follow this repo's documented coding standards?) and Spec (does the code match what the originating issue/PRD asked for?). Runs both reviews in parallel sub-agents and reports them side by side. Use when the user wants to review a branch, a PR, work-in-progress changes, or asks to \"review since X\"."
+    },
+    "./skills/engineering/codebase-design": {
+      "name": "codebase-design",
+      "invoke": "Auto",
+      "description": "Shared vocabulary for designing deep modules. Use when the user wants to design or improve a module's interface, find deepening opportunities, decide where a seam goes, make code more testable or AI-navigable, or when another skill needs the deep-module vocabulary."
+    },
+    "./skills/engineering/diagnosing-bugs": {
+      "name": "diagnosing-bugs",
+      "invoke": "Auto",
+      "description": "Diagnosis loop for hard bugs and performance regressions. Use when the user says \"diagnose\"/\"debug this\", or reports something broken/throwing/failing/slow."
+    },
+    "./skills/engineering/domain-modeling": {
+      "name": "domain-modeling",
+      "invoke": "Auto",
+      "description": "Build and sharpen a project's domain model. Use when the user wants to pin down domain terminology or a ubiquitous language, record an architectural decision, or when another skill needs to maintain the domain model."
+    },
+    "./skills/engineering/grill-with-docs": {
+      "name": "grill-with-docs",
+      "invoke": "Manual",
+      "description": "A relentless interview to sharpen a plan or design, which also creates docs (ADR's and glossary) as we go."
+    },
+    "./skills/engineering/implement": {
+      "name": "implement",
+      "invoke": "Manual",
+      "description": "Implement a piece of work based on a PRD or set of issues."
+    },
+    "./skills/engineering/improve-codebase-architecture": {
+      "name": "improve-codebase-architecture",
+      "invoke": "Manual",
+      "description": "Scan a codebase for deepening opportunities, present them as a visual HTML report, then grill through whichever one you pick."
+    },
+    "./skills/engineering/prototype": {
+      "name": "prototype",
+      "invoke": "Auto",
+      "description": "Build a throwaway prototype to answer a design question. Use when the user wants to sanity-check whether a state model or logic feels right, or explore what a UI should look like."
+    },
+    "./skills/engineering/resolving-merge-conflicts": {
+      "name": "resolving-merge-conflicts",
+      "invoke": "Auto",
+      "description": "Use when you need to resolve an in-progress git merge/rebase conflict."
+    },
+    "./skills/engineering/setup-matt-pocock-skills": {
+      "name": "setup-matt-pocock-skills",
+      "invoke": "Manual",
+      "description": "Configure this repo for the engineering skills — set up its issue tracker, triage label vocabulary, and domain doc layout. Run once before first use of the other engineering skills."
+    },
+    "./skills/engineering/tdd": {
+      "name": "tdd",
+      "invoke": "Auto",
+      "description": "Test-driven development. Use when the user wants to build features or fix bugs test-first, mentions \"red-green-refactor\", or wants integration tests."
+    },
+    "./skills/engineering/to-issues": {
+      "name": "to-issues",
+      "invoke": "Manual",
+      "description": "Break a plan, spec, or PRD into independently-grabbable issues on the project issue tracker using tracer-bullet vertical slices."
+    },
+    "./skills/engineering/to-prd": {
+      "name": "to-prd",
+      "invoke": "Manual",
+      "description": "Turn the current conversation into a PRD and publish it to the project issue tracker — no interview, just synthesis of what you've already discussed."
+    },
+    "./skills/engineering/triage": {
+      "name": "triage",
+      "invoke": "Manual",
+      "description": "Move issues and external PRs through a state machine of triage roles — categorise, verify, grill if needed, and write agent-ready briefs."
+    },
+    "./skills/in-progress/claude-handoff": {
+      "name": "claude-handoff",
+      "invoke": "Manual",
+      "description": "Hand the current conversation off to a fresh background agent that picks up the work immediately."
+    },
+    "./skills/in-progress/loop-me": {
+      "name": "loop-me",
+      "invoke": "Manual",
+      "description": "Grill me about specs for the workflows I want to build, within this workspace."
+    },
+    "./skills/in-progress/wayfinder": {
+      "name": "wayfinder",
+      "invoke": "Auto",
+      "description": "Plan a huge chunk of work — more than one agent session can hold — as a shared map of investigation tickets on your issue tracker, and resolve them one at a time until the way to the goal is clear."
+    },
+    "./skills/in-progress/wizard": {
+      "name": "wizard",
+      "invoke": "Manual",
+      "description": "Generate an interactive bash wizard that walks a human through a manual procedure — third-party setup, a one-off migration, an A→B state transition — opening URLs, capturing values, confirming each step, and writing .env files and GitHub Actions secrets."
+    },
+    "./skills/productivity/handoff": {
+      "name": "handoff",
+      "invoke": "Manual",
+      "description": "Compact the current conversation into a handoff document for another agent to pick up."
+    },
+    "./skills/productivity/teach": {
+      "name": "teach",
+      "invoke": "Manual",
+      "description": "Teach the user a new skill or concept, within this workspace."
+    },
+    "./skills/productivity/writing-great-skills": {
+      "name": "writing-great-skills",
+      "invoke": "Manual",
+      "description": "Reference for writing and editing skills well — the vocabulary and principles that make a skill predictable."
+    }
+  }
+}
