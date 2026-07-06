@@ -117,7 +117,7 @@ Invoked namespaced as `mattpocock-skills:<name>`. Descriptions cached from [matt
 | `mattpocock-skills:triage` | Manual | Move issues and external PRs through a state machine of triage roles — categorise, verify, grill if needed, and write agent-ready briefs. |
 | `mattpocock-skills:claude-handoff` | Manual | Hand the current conversation off to a fresh background agent that picks up the work immediately. |
 | `mattpocock-skills:loop-me` | Manual | Grill me about specs for the workflows I want to build, within this workspace. |
-| `mattpocock-skills:wayfinder` | Auto | Plan a huge chunk of work — more than one agent session can hold — as a shared map of investigation tickets on your issue tracker, and resolve them one at a time until the way to the goal is clear. |
+| `mattpocock-skills:wayfinder` | Auto | Plan a huge chunk of work — more than one agent session can hold — as a shared map of investigation tickets on your issue tracker, and resolve them one at a time until the way to the destination is clear. |
 | `mattpocock-skills:wizard` | Manual | Generate an interactive bash wizard that walks a human through a manual procedure — third-party setup, a one-off migration, an A→B state transition — opening URLs, capturing values, confirming each step, and writing .env files and GitHub Actions secrets. |
 | `mattpocock-skills:handoff` | Manual | Compact the current conversation into a handoff document for another agent to pick up. |
 | `mattpocock-skills:teach` | Manual | Teach the user a new skill or concept, within this workspace. |
