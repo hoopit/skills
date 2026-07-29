@@ -36,7 +36,7 @@
     "./skills/engineering/implement": {
       "name": "implement",
       "invoke": "Manual",
-      "description": "Implement a piece of work based on a PRD or set of issues."
+      "description": "Implement a piece of work based on a spec or set of tickets."
     },
     "./skills/engineering/improve-codebase-architecture": {
       "name": "improve-codebase-architecture",
@@ -63,20 +63,25 @@
       "invoke": "Auto",
       "description": "Test-driven development. Use when the user wants to build features or fix bugs test-first, mentions \"red-green-refactor\", or wants integration tests."
     },
-    "./skills/engineering/to-issues": {
-      "name": "to-issues",
+    "./skills/engineering/to-spec": {
+      "name": "to-spec",
       "invoke": "Manual",
-      "description": "Break a plan, spec, or PRD into independently-grabbable issues on the project issue tracker using tracer-bullet vertical slices."
+      "description": "Turn the current conversation into a spec and publish it to the project issue tracker — no interview, just synthesis of what you've already discussed."
     },
-    "./skills/engineering/to-prd": {
-      "name": "to-prd",
+    "./skills/engineering/to-tickets": {
+      "name": "to-tickets",
       "invoke": "Manual",
-      "description": "Turn the current conversation into a PRD and publish it to the project issue tracker — no interview, just synthesis of what you've already discussed."
+      "description": "Break a plan, spec, or the current conversation into a set of tracer-bullet tickets, each declaring its blocking edges, published to the configured tracker — edges as text in one file per ticket locally, or native blocking links on a real tracker."
     },
     "./skills/engineering/triage": {
       "name": "triage",
       "invoke": "Manual",
       "description": "Move issues and external PRs through a state machine of triage roles — categorise, verify, grill if needed, and write agent-ready briefs."
+    },
+    "./skills/engineering/wayfinder": {
+      "name": "wayfinder",
+      "invoke": "Manual",
+      "description": "Plan a huge chunk of work — more than one agent session can hold — as a shared map of decision tickets on your issue tracker, and resolve them one at a time until the way to the destination is clear."
     },
     "./skills/in-progress/claude-handoff": {
       "name": "claude-handoff",
@@ -87,11 +92,6 @@
       "name": "loop-me",
       "invoke": "Manual",
       "description": "Grill me about specs for the workflows I want to build, within this workspace."
-    },
-    "./skills/in-progress/wayfinder": {
-      "name": "wayfinder",
-      "invoke": "Auto",
-      "description": "Plan a huge chunk of work — more than one agent session can hold — as a shared map of investigation tickets on your issue tracker, and resolve them one at a time until the way to the destination is clear."
     },
     "./skills/in-progress/wizard": {
       "name": "wizard",

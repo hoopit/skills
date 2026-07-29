@@ -108,18 +108,18 @@ Invoked namespaced as `mattpocock-skills:<name>`. Descriptions cached from [matt
 | `mattpocock-skills:diagnosing-bugs` | Auto | Diagnosis loop for hard bugs and performance regressions. |
 | `mattpocock-skills:domain-modeling` | Auto | Build and sharpen a project's domain model. |
 | `mattpocock-skills:grill-with-docs` | Manual | A relentless interview to sharpen a plan or design, which also creates docs (ADR's and glossary) as we go. |
-| `mattpocock-skills:implement` | Manual | Implement a piece of work based on a PRD or set of issues. |
+| `mattpocock-skills:implement` | Manual | Implement a piece of work based on a spec or set of tickets. |
 | `mattpocock-skills:improve-codebase-architecture` | Manual | Scan a codebase for deepening opportunities, present them as a visual HTML report, then grill through whichever one you pick. |
 | `mattpocock-skills:prototype` | Auto | Build a throwaway prototype to answer a design question. |
 | `mattpocock-skills:resolving-merge-conflicts` | Auto | Use when you need to resolve an in-progress git merge/rebase conflict. |
 | `mattpocock-skills:setup-matt-pocock-skills` | Manual | Configure this repo for the engineering skills — set up its issue tracker, triage label vocabulary, and domain doc layout. |
 | `mattpocock-skills:tdd` | Auto | Test-driven development. |
-| `mattpocock-skills:to-issues` | Manual | Break a plan, spec, or PRD into independently-grabbable issues on the project issue tracker using tracer-bullet vertical slices. |
-| `mattpocock-skills:to-prd` | Manual | Turn the current conversation into a PRD and publish it to the project issue tracker — no interview, just synthesis of what you've already discussed. |
+| `mattpocock-skills:to-spec` | Manual | Turn the current conversation into a spec and publish it to the project issue tracker — no interview, just synthesis of what you've already discussed. |
+| `mattpocock-skills:to-tickets` | Manual | Break a plan, spec, or the current conversation into a set of tracer-bullet tickets, each declaring its blocking edges, published to the configured tracker — edges as text in one file per ticket locally, or native blocking links on a real tracker. |
 | `mattpocock-skills:triage` | Manual | Move issues and external PRs through a state machine of triage roles — categorise, verify, grill if needed, and write agent-ready briefs. |
+| `mattpocock-skills:wayfinder` | Manual | Plan a huge chunk of work — more than one agent session can hold — as a shared map of decision tickets on your issue tracker, and resolve them one at a time until the way to the destination is clear. |
 | `mattpocock-skills:claude-handoff` | Manual | Hand the current conversation off to a fresh background agent that picks up the work immediately. |
 | `mattpocock-skills:loop-me` | Manual | Grill me about specs for the workflows I want to build, within this workspace. |
-| `mattpocock-skills:wayfinder` | Auto | Plan a huge chunk of work — more than one agent session can hold — as a shared map of investigation tickets on your issue tracker, and resolve them one at a time until the way to the destination is clear. |
 | `mattpocock-skills:wizard` | Manual | Generate an interactive bash wizard that walks a human through a manual procedure — third-party setup, a one-off migration, an A→B state transition — opening URLs, capturing values, confirming each step, and writing .env files and GitHub Actions secrets. |
 | `mattpocock-skills:handoff` | Manual | Compact the current conversation into a handoff document for another agent to pick up. |
 | `mattpocock-skills:teach` | Manual | Teach the user a new skill or concept, within this workspace. |
