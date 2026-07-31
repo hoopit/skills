@@ -152,23 +152,36 @@ When in doubt, report. An unattended pass must never guess at semantics.
    report why. Don't stash the user's work.
 
 2. **Merge the default branch in** — merge, **never rebase**. The branch is already
-   pushed; rebasing it would require a force-push.
+   pushed; rebasing it would require a force-push. **Save the PR head first**: every
+   later "back it out" step needs a SHA to return to, and a detached HEAD leaves you
+   no branch name to fall back on.
 
    ```bash
+   PR_HEAD_SHA=$(git -C "$WORKTREE_DIR" rev-parse HEAD)
    git -C "$WORKTREE_DIR" merge "origin/$DEFAULT_BRANCH"
    ```
 
 3. **Resolve the conflicts.** Use the `mattpocock-skills:resolving-merge-conflicts`
    skill when it's installed; otherwise resolve them directly. Apply the confidence
    rule per conflict. If **any** conflict in the PR needs judgment, abandon the whole
-   resolution rather than pushing a half-merge:
+   resolution rather than pushing a half-merge — and **back out on the merge's actual
+   state, not on the assumption that it's still in progress.** `git merge --abort`
+   only works while `MERGE_HEAD` exists; a resolution skill (or a merge that turned
+   out to be clean) may already have committed, which removes `MERGE_HEAD` and makes
+   `--abort` fail with *"There is no merge to abort"*:
 
    ```bash
-   git -C "$WORKTREE_DIR" merge --abort
+   # restore the PR head, whether or not the merge is still in progress
+   if git -C "$WORKTREE_DIR" rev-parse -q --verify MERGE_HEAD >/dev/null; then
+     git -C "$WORKTREE_DIR" merge --abort
+   else
+     git -C "$WORKTREE_DIR" reset --hard "$PR_HEAD_SHA"
+   fi
    ```
 
-   and report the PR as needing a human, naming the files and what the two sides
-   disagree about.
+   Then report the PR as needing a human, naming the files and what the two sides
+   disagree about. Every later step that says *abort* means this same two-branch
+   restore, never a bare `merge --abort`.
 
 4. **Verify** — run the tests covering the conflicted files, per the repo's
    `CLAUDE.md` / its `running-tests` skill. If they fail, **classify the failure
@@ -177,7 +190,13 @@ When in doubt, report. An unattended pass must never guess at semantics.
 
    ```bash
    git -C "$WORKTREE_DIR" stash list   # expect empty; the merge is committed or in progress
-   git -C "$WORKTREE_DIR" merge --abort    # back to the PR head, un-merged
+   # back to the PR head, un-merged — same restore as step 3, because by now the
+   # merge may well be committed and `merge --abort` would fail
+   if git -C "$WORKTREE_DIR" rev-parse -q --verify MERGE_HEAD >/dev/null; then
+     git -C "$WORKTREE_DIR" merge --abort
+   else
+     git -C "$WORKTREE_DIR" reset --hard "$PR_HEAD_SHA"
+   fi
    # …re-run the same tests here, then redo the merge if you need to
    ```
 
@@ -186,9 +205,9 @@ When in doubt, report. An unattended pass must never guess at semantics.
      test DB, missing credentials) → the resolution isn't implicated. Redo the merge,
      push it, and report the red tests separately as pre-existing/infra so nobody
      reads the ✅ as "tests green".
-   - **Only fails with the merge applied** → the resolution is wrong:
-     `git -C "$WORKTREE_DIR" merge --abort` and report, naming the failing tests.
-   - **Can't tell** → abort and report. That's the confidence rule; don't push a
+   - **Only fails with the merge applied** → the resolution is wrong: run the restore
+     above and report, naming the failing tests.
+   - **Can't tell** → restore and report. That's the confidence rule; don't push a
      merge you couldn't verify.
 
 5. **Commit and push.** Because the worktree is on a detached HEAD, a bare
@@ -230,6 +249,21 @@ When in doubt, report. An unattended pass must never guess at semantics.
 
 1. **Identify the failing checks** with the `bucket == "fail"` query from Step 3,
    keeping each one's `name` and `link`.
+
+   **If the conflict procedure pushed for this PR, Step 3's results are stale** — they
+   describe the pre-merge commit. Re-run the query before you act on them, or you'll
+   spend a fix on a failure the merge already resolved (or miss one it introduced):
+
+   ```bash
+   gh pr checks <pr_number> --json name,bucket,state,link \
+     --jq '[.[] | select(.bucket == "fail")]'
+   ```
+
+   A fresh push re-queues CI, so the honest answer here is usually `pending`, not a
+   new list of failures. Don't wait it out — waiting blocks every other PR in the
+   pass. Report the PR as *conflicts fixed, CI re-running* and let the next pass pick
+   up the checks. Only remediate failures you observed on the **current** head, with
+   no push in between.
 
 2. **Get the failure detail**, routing on the `link` host:
    - **CircleCI** (`circleci.com` / `app.circleci.com`) → invoke the
@@ -292,6 +326,7 @@ One line per PR: what you found, what you did, what a human still needs to do.
 #421 Refactor booking serializer — CONFLICTING → ⚠️ needs a human: both sides rewrote `BookingSerializer.validate`
 #425 Bump deps — 2 unresolved review threads → ran review-github-comments, 1 left open for discussion
 #430 Spike: new calendar — draft, mergeable UNKNOWN → undetermined, will recheck next pass
+#433 Tighten rate limits — CONFLICTING + CI failing → conflicts fixed and pushed, CI re-running on the new head, checks deferred to next pass
 ```
 
 Finish with a one-line count (e.g. `5 PRs: 2 fixed, 1 needs a human, 1 partially
