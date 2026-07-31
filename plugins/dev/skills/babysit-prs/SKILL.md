@@ -222,13 +222,29 @@ When in doubt, report. An unattended pass must never guess at semantics.
    redoing the merge with them still in place fails on paths the merge wants to
    write.
 
-   - **Fails the same way without the merge** (pre-existing on the PR head or on
-     `origin/$DEFAULT_BRANCH`), or fails for infrastructure reasons (no network, no
-     test DB, missing credentials) → the resolution isn't implicated. Redo the merge,
-     push it, and report the red tests separately as pre-existing/infra so nobody
-     reads the ✅ as "tests green".
-   - **Only fails with the merge applied** → the resolution is wrong: run the restore
-     above and report, naming the failing tests.
+   - **Fails the same way without the merge** → pre-existing on the PR head, or an
+     infrastructure failure (no network, no test DB, missing credentials); either way
+     the resolution isn't implicated. Redo the merge, push it, and report the red tests
+     separately as pre-existing/infra so nobody reads the ✅ as "tests green".
+   - **Only fails with the merge applied** → **two** causes fit and the rerun above
+     can't separate them: your resolution, or commits the default branch brought in.
+     Measure the incoming side before blaming yourself — check out the merge's other
+     parent, re-run there, then come back to the PR head:
+
+     ```bash
+     git -C "$WORKTREE_DIR" clean -fd   # the rerun's droppings, before switching trees
+     git -C "$WORKTREE_DIR" checkout --detach "origin/$DEFAULT_BRANCH"
+     # …re-run the same tests here…
+     git -C "$WORKTREE_DIR" clean -fd
+     git -C "$WORKTREE_DIR" checkout --detach "$PR_HEAD_SHA"
+     ```
+
+     Red on the default branch too → it's already broken; treat it like the first
+     bullet (redo the merge, push, report the failure as inherited, not yours). Green
+     there → the resolution really is wrong: restore and report, naming the failing
+     tests. A baseline you **can't** run — no network, a tree the default branch can't
+     even build — leaves the cause **indeterminate**: restore and report it as that,
+     never as a bad resolution you didn't demonstrate.
    - **Can't tell** → restore and report. That's the confidence rule; don't push a
      merge you couldn't verify.
 
@@ -336,16 +352,25 @@ When in doubt, report. An unattended pass must never guess at semantics.
    you could have learned locally:
 
    ```bash
-   git -C "$WORKTREE_DIR" commit -am "fix: <what you fixed>"
+   git -C "$WORKTREE_DIR" add -A   # not `commit -am`: that skips files the fix added
+   git -C "$WORKTREE_DIR" commit -m "fix: <what you fixed>"
+   git -C "$WORKTREE_DIR" show --stat HEAD   # every file you touched, or you pushed a half-fix
    git -C "$WORKTREE_DIR" push origin HEAD:<headRefName>
    git -C "$WORKTREE_DIR" clean -fd   # test artifacts, or `worktree remove` refuses
    git worktree remove "$WORKTREE_DIR"
    ```
 
+   `add -A` before the commit is what makes a fix that *creates* a file (a missing
+   migration, a new snapshot or fixture) land: `-am` stages only tracked paths, so the
+   push would carry an incomplete fix, CI would fail the same way, and the `clean` two
+   lines later would delete the missing piece — leaving nothing to explain the miss.
+   Check `show --stat` against what you actually edited before pushing. If `add -A`
+   sweeps in a stray artifact, delete that file rather than falling back to `-am`.
+
    If the local run still fails, you misread the cause — don't push. Drop the fix and
-   report the check. Note that `commit -am` and `checkout .` both only cover
-   **tracked** files, so a fix that *added* a file needs the `clean` to disappear —
-   and without it `git worktree remove` refuses and leaves the worktree behind:
+   report the check. Note that `checkout .` only covers **tracked** files, so a fix
+   that added a file needs the `clean` to disappear — and without it
+   `git worktree remove` refuses and leaves the worktree behind:
 
    ```bash
    git -C "$WORKTREE_DIR" checkout .   # revert edits to tracked files
