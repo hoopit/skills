@@ -177,11 +177,27 @@ When in doubt, report. An unattended pass must never guess at semantics.
    else
      git -C "$WORKTREE_DIR" reset --hard "$PR_HEAD_SHA"
    fi
+   git -C "$WORKTREE_DIR" clean -fd   # neither branch above removes untracked files
    ```
 
+   **The `clean` is what makes the restore an actual restore.** Both branches rewind
+   only *tracked* state, so a conflict-resolution leftover — or a file a test run
+   dropped — survives and breaks the two things that come next: a redone merge dies
+   with *"The following untracked working tree files would be overwritten by
+   merge"*, and step 7's `git worktree remove` refuses with *"contains modified or
+   untracked files"*.
+
+   A blanket `clean` is safe here precisely because step 1 built this worktree fresh
+   from a remote ref — it started with zero untracked files, so anything `clean`
+   finds is something this procedure created. That reasoning holds **only** inside
+   the skill's own worktree; never run it in the user's checkout. And no `-x`:
+   ignored paths (dependency dirs, `.pytest_cache`, coverage output) block neither a
+   re-merge nor `worktree remove`, so deleting them only makes the next pass
+   re-download them.
+
    Then report the PR as needing a human, naming the files and what the two sides
-   disagree about. Every later step that says *abort* means this same two-branch
-   restore, never a bare `merge --abort`.
+   disagree about. Every later step that says *abort* means this same restore —
+   guarded rewind **plus** the `clean` — never a bare `merge --abort`.
 
 4. **Verify** — run the tests covering the conflicted files, per the repo's
    `CLAUDE.md` / its `running-tests` skill. If they fail, **classify the failure
@@ -197,8 +213,14 @@ When in doubt, report. An unattended pass must never guess at semantics.
    else
      git -C "$WORKTREE_DIR" reset --hard "$PR_HEAD_SHA"
    fi
+   git -C "$WORKTREE_DIR" clean -fd   # test-run droppings too, not just merge leftovers
    # …re-run the same tests here, then redo the merge if you need to
    ```
+
+   The `clean` matters most on **this** path, because it's the one that goes back to
+   the merge afterwards: the tests you just ran created the untracked files, and
+   redoing the merge with them still in place fails on paths the merge wants to
+   write.
 
    - **Fails the same way without the merge** (pre-existing on the PR head or on
      `origin/$DEFAULT_BRANCH`), or fails for infrastructure reasons (no network, no
@@ -239,11 +261,18 @@ When in doubt, report. An unattended pass must never guess at semantics.
    skill's own convention):
 
    ```bash
+   git -C "$WORKTREE_DIR" clean -fd   # the success path never ran a restore
    git worktree remove "$WORKTREE_DIR"
    ```
 
-   This refuses if the tree still has changes — which means something didn't finish.
-   Investigate and report it; don't reach for `--force` to make the error go away.
+   The `clean` is here for the path where **nothing went wrong**: a merge that
+   resolved cleanly, passed its tests and pushed never hits a restore step, so the
+   artifacts the test run left behind are still sitting there — and `git worktree
+   remove` refuses on untracked files exactly as it does on modified ones.
+
+   With that out of the way, a refusal means what it should: *tracked* state you
+   didn't finish dealing with. Investigate and report it; don't reach for `--force`
+   to make the error go away.
 
 ### CI procedure
 
@@ -309,11 +338,21 @@ When in doubt, report. An unattended pass must never guess at semantics.
    ```bash
    git -C "$WORKTREE_DIR" commit -am "fix: <what you fixed>"
    git -C "$WORKTREE_DIR" push origin HEAD:<headRefName>
+   git -C "$WORKTREE_DIR" clean -fd   # test artifacts, or `worktree remove` refuses
    git worktree remove "$WORKTREE_DIR"
    ```
 
-   If the local run still fails, you misread the cause — don't push. Drop the fix
-   (`git -C "$WORKTREE_DIR" checkout .`), remove the worktree, and report the check.
+   If the local run still fails, you misread the cause — don't push. Drop the fix and
+   report the check. Note that `commit -am` and `checkout .` both only cover
+   **tracked** files, so a fix that *added* a file needs the `clean` to disappear —
+   and without it `git worktree remove` refuses and leaves the worktree behind:
+
+   ```bash
+   git -C "$WORKTREE_DIR" checkout .   # revert edits to tracked files
+   git -C "$WORKTREE_DIR" clean -fd    # …and remove any file the fix added
+   git worktree remove "$WORKTREE_DIR"
+   ```
+
    Report the re-run as *pushed, CI pending*; don't wait for the new run to finish.
 
 ## Step 4 — Report
@@ -341,6 +380,11 @@ handled, 1 undetermined`). Then **end the pass** — don't start another sweep.
   staying put.
 - **Never resolve a conflict by taking one side wholesale** (`--ours` / `--theirs`
   over a whole file) unless the file is a generated artifact you then regenerate.
+- **Only ever `git clean` inside a worktree this pass created.** It's safe there
+  because that worktree started empty of untracked files, so there's nothing to
+  destroy that this pass didn't make. In the user's checkout that guarantee is gone
+  and `clean -fd` deletes unsaved work — always target it with
+  `git -C "$WORKTREE_DIR"`, never a bare `git clean`, and never with `-x`.
 - **Never resolve a review thread you didn't act on** — that's
   `review-github-comments`' rule, and it holds here.
 - **Don't touch PRs you don't own.** The sweep is `--author "@me"` on purpose.
