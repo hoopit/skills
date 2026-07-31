@@ -34,9 +34,13 @@ current repo's `CLAUDE.md` (see its *Workflow skills config* section if it has o
 ## Step 2 — Sweep the open PRs
 
 ```bash
-gh pr list --author "@me" --state open \
-  --json number,title,headRefName,isDraft,mergeable,mergeStateStatus,url
+gh pr list --author "@me" --state open --limit 100 \
+  --json number,title,headRefName,isCrossRepository,isDraft,mergeable,mergeStateStatus,url
 ```
+
+`--limit` is required: `gh pr list` defaults to **30** and silently truncates at
+whatever limit you give it. If the result count comes back *equal* to the limit,
+you can't tell a full sweep from a truncated one — raise the limit and re-run.
 
 - **`mergeable: "UNKNOWN"`** means GitHub is still computing the merge — it is *not*
   a conflict. Set that PR aside, handle the others first, then re-check it once at
@@ -46,8 +50,16 @@ gh pr list --author "@me" --state open \
   gh pr view <pr_number> --json mergeable,mergeStateStatus
   ```
 
-  If it is still `UNKNOWN`, report it as *undetermined* and move on; the next pass
-  will pick it up. Don't block the pass waiting on it.
+  - Still `UNKNOWN` → report it as *undetermined* and move on; the next pass will
+    pick it up. Don't block the pass waiting on it.
+  - Now `CONFLICTING` or `MERGEABLE` → it's a normal PR again. Run the **full Step 3
+    triage** on it (all three axes), or, if you're out of pass budget, report it
+    explicitly as *deferred to the next pass* — never as handled.
+- **`isCrossRepository: true`** (the head branch lives in a fork) → report it and
+  move on. Every fix here fetches and pushes `origin`, which is the *base* repo:
+  `origin/<headRefName>` either doesn't exist or points at an unrelated branch of
+  the same name, and the push would target a repo the PR author may not own.
+  Fork-backed PRs are out of scope for this skill.
 - Draft PRs still get conflicts fixed, but don't chase their CI — note them as draft.
 - No open PRs → say so and end the pass.
 
@@ -81,15 +93,25 @@ Checks still `pending` are not a failure — leave that PR for the next pass.
 Detect unresolved threads with the same GraphQL query `review-github-comments` uses:
 
 ```bash
-gh api graphql -f query='
-{
-  repository(owner: "<owner>", name: "<repo>") {
-    pullRequest(number: <pr_number>) {
-      reviewThreads(first: 50) { nodes { isResolved } }
+gh api graphql --paginate \
+  -f query='
+query($owner: String!, $repo: String!, $pr: Int!, $endCursor: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $pr) {
+      reviewThreads(first: 100, after: $endCursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes { isResolved }
+      }
     }
   }
-}' --jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false)] | length'
+}' -F owner=<owner> -F repo=<repo> -F pr=<pr_number> \
+  --jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false)] | length'
 ```
+
+`reviewThreads` is paginated, so a bare `first: 50` can miss unresolved threads on a
+busy PR — every unresolved one could sit past the first page. `--paginate` needs the
+`$endCursor` variable and the `pageInfo` block to walk the pages; it then emits one
+result per page, so sum the counts rather than reading only the first line.
 
 Order matters: **resolve conflicts first**, then CI, then review comments — a
 conflicted branch can't be meaningfully tested, and the comment pass pushes its own
@@ -149,8 +171,25 @@ When in doubt, report. An unattended pass must never guess at semantics.
    disagree about.
 
 4. **Verify** — run the tests covering the conflicted files, per the repo's
-   `CLAUDE.md` / its `running-tests` skill. Tests failing after your resolution means
-   the resolution was wrong: `git -C "$WORKTREE_DIR" merge --abort` and report.
+   `CLAUDE.md` / its `running-tests` skill. If they fail, **classify the failure
+   before reacting** — a red test is not automatically proof your resolution is
+   wrong. Re-run the same tests on the pre-merge tip to find out:
+
+   ```bash
+   git -C "$WORKTREE_DIR" stash list   # expect empty; the merge is committed or in progress
+   git -C "$WORKTREE_DIR" merge --abort    # back to the PR head, un-merged
+   # …re-run the same tests here, then redo the merge if you need to
+   ```
+
+   - **Fails the same way without the merge** (pre-existing on the PR head or on
+     `origin/$DEFAULT_BRANCH`), or fails for infrastructure reasons (no network, no
+     test DB, missing credentials) → the resolution isn't implicated. Redo the merge,
+     push it, and report the red tests separately as pre-existing/infra so nobody
+     reads the ✅ as "tests green".
+   - **Only fails with the merge applied** → the resolution is wrong:
+     `git -C "$WORKTREE_DIR" merge --abort` and report, naming the failing tests.
+   - **Can't tell** → abort and report. That's the confidence rule; don't push a
+     merge you couldn't verify.
 
 5. **Commit and push.** Because the worktree is on a detached HEAD, a bare
    `git push` **fails** (`git push origin HEAD:<name-of-remote-branch>`) — push the
@@ -162,12 +201,20 @@ When in doubt, report. An unattended pass must never guess at semantics.
    ```
 
 6. **Confirm** it took. GitHub recomputes mergeability asynchronously, so poll rather
-   than checking once:
+   than checking once — but **bound the poll**, or one stuck PR hangs the whole pass:
 
    ```bash
-   until [ "$(gh pr view <pr_number> --json mergeable --jq .mergeable)" != "UNKNOWN" ]; do sleep 5; done
-   gh pr view <pr_number> --json mergeable --jq .mergeable   # expect MERGEABLE
+   MERGEABLE=UNKNOWN
+   for _ in $(seq 12); do   # 12 × 5s ≈ 1 minute, then give up
+     MERGEABLE=$(gh pr view <pr_number> --json mergeable --jq .mergeable)
+     [ "$MERGEABLE" != "UNKNOWN" ] && break
+     sleep 5
+   done
+   echo "$MERGEABLE"   # expect MERGEABLE
    ```
+
+   Still `UNKNOWN` when the budget runs out → report the push as done but the
+   mergeability as *undetermined*, and move to the next PR. Never keep polling.
 
 7. **Clean up** the worktree you created (leave repo-skill-managed worktrees to that
    skill's own convention):
@@ -200,16 +247,46 @@ When in doubt, report. An unattended pass must never guess at semantics.
 
 3. **Decide with the confidence rule.** A clear cause — a test asserting on something
    you renamed, a lint/format failure, a missing import, a snapshot that needs
-   updating — gets fixed in the same worktree, verified locally, committed and pushed.
-   Anything else (genuine logic failure, suspected flake, infra/credentials error) is
-   reported, not guessed at. For a suspected flake, say so and note the check name —
-   don't re-run it blindly on every pass.
+   updating — gets fixed. Anything else (genuine logic failure, suspected flake,
+   infra/credentials error) is reported, not guessed at. For a suspected flake, say so
+   and note the check name — don't re-run it blindly on every pass.
+
+4. **Fix it in its own worktree.** Don't assume one already exists: a PR with no
+   conflicts never had one, and the conflict procedure removes the worktree it made
+   (step 7) before this procedure runs. Make a fresh one from the current PR head —
+   the conflict procedure just pushed to it, so fetch again rather than reusing a
+   stale ref:
+
+   ```bash
+   git fetch origin
+   WORKTREE_DIR=".worktrees/babysit-ci-<pr_number>"
+   git worktree add "$WORKTREE_DIR" "origin/<headRefName>"
+   ```
+
+   Same rules as the conflict procedure: follow the repo's own worktree skill if it
+   has one, detached HEAD so no local branch can collide, `git -C "$WORKTREE_DIR" …`
+   for every command, never touch the user's checkout, skip-and-report if you can't
+   get a clean worktree.
+
+5. **Verify, push, clean up.** Run the failing check's tests locally in the worktree
+   and only push once they pass — a blind push spends another CI cycle to learn what
+   you could have learned locally:
+
+   ```bash
+   git -C "$WORKTREE_DIR" commit -am "fix: <what you fixed>"
+   git -C "$WORKTREE_DIR" push origin HEAD:<headRefName>
+   git worktree remove "$WORKTREE_DIR"
+   ```
+
+   If the local run still fails, you misread the cause — don't push. Drop the fix
+   (`git -C "$WORKTREE_DIR" checkout .`), remove the worktree, and report the check.
+   Report the re-run as *pushed, CI pending*; don't wait for the new run to finish.
 
 ## Step 4 — Report
 
 One line per PR: what you found, what you did, what a human still needs to do.
 
-```
+```text
 #412 Fix payment webhook retries — CONFLICTING → merged default branch, 3 mechanical conflicts resolved, tests pass, pushed ✅
 #418 Add coach dashboard filters — CI failing (circleci: 2 tests) → fixed stale assertion, pushed ✅
 #421 Refactor booking serializer — CONFLICTING → ⚠️ needs a human: both sides rewrote `BookingSerializer.validate`
