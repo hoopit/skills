@@ -168,11 +168,16 @@ if [ "${1:-}" = "--check" ]; then
 fi
 
 # Rewrite the block in place (between the markers), preserving everything else.
+# The block goes through a file, not `awk -v`: macOS's awk rejects newlines inside a
+# -v assignment, so a multi-line -v works only under gawk.
 tmp=$(mktemp)
-awk -v b="$BEGIN" -v e="$END" -v block="$block" '
-  $0==b { print; print block; skip=1; next }
+blockfile=$(mktemp)
+printf '%s\n' "$block" > "$blockfile"
+awk -v b="$BEGIN" -v e="$END" -v bf="$blockfile" '
+  $0==b { print; while ((getline line < bf) > 0) print line; close(bf); skip=1; next }
   $0==e { skip=0 }
   !skip
 ' "$README" > "$tmp"
 mv "$tmp" "$README"
+rm -f "$blockfile"
 echo "Regenerated the skills block in $README."
