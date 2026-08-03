@@ -27,6 +27,12 @@ README=README.md
 BEGIN='<!-- BEGIN generated skills: scripts/gen-skills-readme.sh — do not edit between these markers -->'
 END='<!-- END generated skills -->'
 
+# Every mktemp below appends to TMPFILES; the EXIT trap clears them on *any* exit path,
+# since `set -e` can abort between the mktemp and its intended cleanup.
+TMPFILES=()
+cleanup() { [ ${#TMPFILES[@]} -eq 0 ] || rm -f "${TMPFILES[@]}"; }
+trap cleanup EXIT
+
 # Read a single-line frontmatter field from a SKILL.md (between the opening ---/--- fence).
 frontmatter_field() {
   awk -v key="$2" '
@@ -67,7 +73,7 @@ refresh_lock() {
   mapfile -t picks < <(jq -r '.plugins[] | select(.source | type == "object") | .skills[]' "$MARKETPLACE")
 
   echo "Refreshing ${#picks[@]} matt-picks from $repo@$ref …" >&2
-  local missing=() entries; entries=$(mktemp)
+  local missing=() entries; entries=$(mktemp); TMPFILES+=("$entries")
   local p path content name desc invoke
   for p in "${picks[@]}"; do
     path="${p#./}/SKILL.md"
@@ -83,7 +89,6 @@ refresh_lock() {
   done
 
   if [ ${#missing[@]} -gt 0 ]; then
-    rm -f "$entries"
     echo "ERROR: these picks no longer exist upstream ($repo@$ref):" >&2
     printf '  - %s\n' "${missing[@]}" >&2
     echo "They were renamed or removed upstream. Fix the skills[] list in $MARKETPLACE, then re-run --refresh." >&2
@@ -92,7 +97,6 @@ refresh_lock() {
 
   jq -n --arg repo "$repo" --arg ref "$ref" --slurpfile e <(jq -s 'from_entries' "$entries") \
     '{version: 1, repo: $repo, ref: $ref, skills: $e[0]}' > "$LOCK"
-  rm -f "$entries"
   echo "Wrote ${#picks[@]} picks to $LOCK." >&2
 }
 
@@ -168,9 +172,13 @@ if [ "${1:-}" = "--check" ]; then
 fi
 
 # Rewrite the block in place (between the markers), preserving everything else.
-tmp=$(mktemp)
-awk -v b="$BEGIN" -v e="$END" -v block="$block" '
-  $0==b { print; print block; skip=1; next }
+# The block goes through a file, not `awk -v`: macOS's awk rejects newlines inside a
+# -v assignment, so a multi-line -v works only under gawk.
+tmp=$(mktemp); TMPFILES+=("$tmp")
+blockfile=$(mktemp); TMPFILES+=("$blockfile")
+printf '%s\n' "$block" > "$blockfile"
+awk -v b="$BEGIN" -v e="$END" -v bf="$blockfile" '
+  $0==b { print; while ((getline line < bf) > 0) print line; close(bf); skip=1; next }
   $0==e { skip=0 }
   !skip
 ' "$README" > "$tmp"

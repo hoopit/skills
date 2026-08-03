@@ -21,13 +21,15 @@ Fetch the raw comments:
 gh api repos/<owner>/<repo>/pulls/<pr_number>/comments --paginate
 ```
 
-Then check which threads are actually unresolved via GraphQL (the REST comments API has no `resolved` field):
+Then check which threads are actually unresolved via GraphQL (the REST comments API has no `resolved` field). `reviewThreads` is paginated, so walk every page — a fixed `first: 50` silently drops unresolved threads on a busy PR:
 ```bash
-gh api graphql -f query='
-{
-  repository(owner: "<owner>", name: "<repo>") {
-    pullRequest(number: <pr_number>) {
-      reviewThreads(first: 50) {
+gh api graphql --paginate \
+  -f query='
+query($owner: String!, $repo: String!, $pr: Int!, $endCursor: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $pr) {
+      reviewThreads(first: 100, after: $endCursor) {
+        pageInfo { hasNextPage endCursor }
         nodes {
           id
           isResolved
@@ -40,8 +42,9 @@ gh api graphql -f query='
       }
     }
   }
-}'
+}' -F owner=<owner> -F repo=<repo> -F pr=<pr_number>
 ```
+> `--paginate` requires both the `$endCursor` variable and the `pageInfo` block to follow the cursor. It prints one JSON document **per page**, so merge the `nodes` arrays across pages instead of reading only the first document.
 
 Cross-reference `databaseId` with the REST comment IDs to build a map of `comment_id → isResolved`. Process only threads where `isResolved: false`.
 
