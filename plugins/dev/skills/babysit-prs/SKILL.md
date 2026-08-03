@@ -105,13 +105,15 @@ query($owner: String!, $repo: String!, $pr: Int!, $endCursor: String) {
     }
   }
 }' -F owner=<owner> -F repo=<repo> -F pr=<pr_number> \
-  --jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false)] | length'
+  --jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false)] | length' \
+  | awk '{ total += $1 } END { print total + 0 }'
 ```
 
 `reviewThreads` is paginated, so a bare `first: 50` can miss unresolved threads on a
 busy PR — every unresolved one could sit past the first page. `--paginate` needs the
-`$endCursor` variable and the `pageInfo` block to walk the pages; it then emits one
-result per page, so sum the counts rather than reading only the first line.
+`$endCursor` variable and the `pageInfo` block to walk the pages. `--jq` then runs
+**once per page** and prints one count per page, so the `awk` sum is what turns that
+into a single total — without it, reading the first line alone undercounts.
 
 Order matters: **resolve conflicts first**, then CI, then review comments — a
 conflicted branch can't be meaningfully tested, and the comment pass pushes its own
