@@ -222,6 +222,22 @@ When in doubt, report. An unattended pass must never guess at semantics.
    redoing the merge with them still in place fails on paths the merge wants to
    write.
 
+   **"Redo the merge", as the bullets below use it, is not a single command** — the
+   restore threw your resolution away along with the merge. The same paths come back
+   conflicted, identically, and nothing is committable until you re-apply the same
+   resolution you already decided on:
+
+   ```bash
+   git -C "$WORKTREE_DIR" merge "origin/$DEFAULT_BRANCH"   # conflicts again, the same ones
+   # …re-apply the same resolution, then commit it:
+   git -C "$WORKTREE_DIR" commit --no-edit
+   ```
+
+   Skipping it is the one mistake this procedure can't feel: a restored
+   `$PR_HEAD_SHA` is exactly what the remote already has, so pushing it succeeds as a
+   **no-op** and the pass reports a conflict "fixed" having changed nothing. Step 5
+   asserts against that rather than trusting this step to have happened.
+
    - **Fails the same way without the merge** → pre-existing on the PR head, or an
      infrastructure failure (no network, no test DB, missing credentials); either way
      the resolution isn't implicated. Redo the merge, push it, and report the red tests
@@ -254,8 +270,20 @@ When in doubt, report. An unattended pass must never guess at semantics.
 
    ```bash
    git -C "$WORKTREE_DIR" commit --no-edit   # if the merge didn't auto-commit
+   # Assert you're pushing the resolved merge, not a head some restore rewound.
+   # Step 4's baseline paths all end on a bare $PR_HEAD_SHA; if one of them ran, the
+   # merge has to have been redone since, or this push is a silent no-op.
+   git -C "$WORKTREE_DIR" merge-base --is-ancestor "origin/$DEFAULT_BRANCH" HEAD \
+     || echo "STOP: $DEFAULT_BRANCH is not in HEAD — the merge was never redone. Redo it or report; do not push."
+   git -C "$WORKTREE_DIR" grep -nI -e '^<<<<<<< ' -e '^>>>>>>> ' HEAD \
+     && echo "STOP: committed conflict markers — fix the resolution before pushing."
    git -C "$WORKTREE_DIR" push origin HEAD:<headRefName>
    ```
+
+   Both checks are about the same failure mode from opposite ends: the first catches a
+   merge that never happened, the second a merge that was "resolved" by committing the
+   markers. Neither is hypothetical once step 4 has rewound the tree — and a push is
+   the one action in this procedure that a later pass can't quietly undo.
 
 6. **Confirm** it took. GitHub recomputes mergeability asynchronously, so poll rather
    than checking once — but **bound the poll**, or one stuck PR hangs the whole pass:
