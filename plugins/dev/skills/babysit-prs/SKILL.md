@@ -275,17 +275,26 @@ When in doubt, report. An unattended pass must never guess at semantics.
    # Assert you're pushing the resolved merge, not a head some restore rewound.
    # Step 4's baseline paths all end on a bare $PR_HEAD_SHA; if one of them ran, the
    # merge has to have been redone since, or this push is a silent no-op.
-   git -C "$WORKTREE_DIR" merge-base --is-ancestor "origin/$DEFAULT_BRANCH" HEAD \
-     || echo "STOP: $DEFAULT_BRANCH is not in HEAD — the merge was never redone. Redo it or report; do not push."
-   git -C "$WORKTREE_DIR" grep -nI -e '^<<<<<<< ' -e '^>>>>>>> ' HEAD \
-     && echo "STOP: committed conflict markers — fix the resolution before pushing."
-   git -C "$WORKTREE_DIR" push origin HEAD:<headRefName>
+   if ! git -C "$WORKTREE_DIR" merge-base --is-ancestor "origin/$DEFAULT_BRANCH" HEAD; then
+     echo "STOP: $DEFAULT_BRANCH is not in HEAD — the merge was never redone. Redo it or report; do not push."
+   elif git -C "$WORKTREE_DIR" grep -nI -e '^<<<<<<< ' -e '^>>>>>>> ' HEAD; then
+     echo "STOP: committed conflict markers — fix the resolution before pushing."
+   else
+     git -C "$WORKTREE_DIR" push origin HEAD:<headRefName>
+   fi
    ```
 
    Both checks are about the same failure mode from opposite ends: the first catches a
    merge that never happened, the second a merge that was "resolved" by committing the
    markers. Neither is hypothetical once step 4 has rewound the tree — and a push is
    the one action in this procedure that a later pass can't quietly undo.
+
+   **The `if`/`elif`/`else` is load-bearing** — the checks have to *gate* the push, not
+   just print next to it. Written as two bare commands that only `echo`, the `git push`
+   on the following line runs regardless, so the pass pushes the very head the check
+   just declared unpushable. A failed guard ends this PR's procedure: report it and
+   move to the next PR. Don't `exit` — that would kill the whole pass, and the other
+   PRs still need their turn.
 
 6. **Confirm** it took. GitHub recomputes mergeability asynchronously, so poll rather
    than checking once — but **bound the poll**, or one stuck PR hangs the whole pass:
