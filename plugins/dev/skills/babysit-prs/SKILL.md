@@ -13,6 +13,13 @@ reports everything else for a human.
 **One invocation = one pass.** Do not loop inside the skill — finish the pass and
 report. Scheduling repeats is the caller's job (`/loop 15m /babysit-prs`).
 
+The pass runs as a thin **orchestrator**: it sweeps and triages every PR with cheap
+`gh` JSON calls, then hands each PR that actually needs work to its **own worker
+subagent**, which does all the log-reading and git surgery in its own context and
+returns a one-line verdict. Healthy PRs never spawn a worker. This keeps per-PR state
+(worktree paths, head SHAs, refnames) unmixable by construction and keeps CI logs and
+diffs out of the orchestrating context.
+
 ## Prerequisites
 
 - The `gh` CLI must be authenticated (`gh auth status`).
@@ -25,11 +32,20 @@ Never hardcode the repo or its default branch — read them from the checkout:
 ```bash
 gh repo view --json nameWithOwner,defaultBranchRef \
   --jq '"OWNER_REPO=\(.nameWithOwner)\nDEFAULT_BRANCH=\(.defaultBranchRef.name)"'
+git rev-parse --show-toplevel   # REPO_ROOT — absolute; worker prompts need it
 ```
 
 Use `OWNER_REPO` (as `<owner>/<repo>`) and `DEFAULT_BRANCH` throughout. For anything
 else project-specific — the test command, worktree setup, CI provider — consult the
 current repo's `CLAUDE.md` (see its *Workflow skills config* section if it has one).
+
+Workers don't inherit this skill's text, so resolve the path they'll read it from:
+
+```bash
+SKILL_FILE=$(find ~/.claude/plugins -path '*babysit-prs/SKILL.md' 2>/dev/null | head -1)
+# Fallback when the skill runs from a source checkout rather than an installed plugin:
+[ -n "$SKILL_FILE" ] || SKILL_FILE="$(git rev-parse --show-toplevel)/$(git ls-files '*babysit-prs/SKILL.md' | head -1)"
+```
 
 ## Step 2 — Sweep the open PRs
 
@@ -53,8 +69,11 @@ you can't tell a full sweep from a truncated one — raise the limit and re-run.
   - Still `UNKNOWN` → report it as *undetermined* and move on; the next pass will
     pick it up. Don't block the pass waiting on it.
   - Now `CONFLICTING` or `MERGEABLE` → it's a normal PR again. Run the **full Step 3
-    triage** on it (all three axes), or, if you're out of pass budget, report it
-    explicitly as *deferred to the next pass* — never as handled.
+    triage** on it (and dispatch a worker if it's flagged), or, if you're out of pass
+    budget, report it explicitly as *deferred to the next pass* — never as handled.
+
+  This recheck is one cheap `gh pr view`, and it stays orchestrator-side — never
+  spawn a worker "just to look" at an `UNKNOWN` PR.
 - **`isCrossRepository: true`** (the head branch lives in a fork) → report it and
   move on. Every fix here fetches and pushes `origin`, which is the *base* repo:
   `origin/<headRefName>` either doesn't exist or points at an unrelated branch of
@@ -65,13 +84,14 @@ you can't tell a full sweep from a truncated one — raise the limit and re-run.
 
 ## Step 3 — Triage each PR
 
-For each PR, check all three axes (a PR can need more than one):
+For each PR, check all three axes with cheap `gh` JSON calls — a PR can be flagged
+on more than one:
 
-| Signal | Condition | Go to |
-|---|---|---|
-| Merge conflict | `mergeable == "CONFLICTING"` (or `mergeStateStatus == "DIRTY"`) | [Conflict procedure](#conflict-procedure) |
-| Failing checks | any check with `bucket == "fail"` | [CI procedure](#ci-procedure) |
-| Unresolved review comments | any review thread with `isResolved: false` | invoke the **`review-github-comments`** skill with the PR URL |
+| Axis | Flag it when |
+|---|---|
+| Merge conflict | `mergeable == "CONFLICTING"` (or `mergeStateStatus == "DIRTY"`) |
+| Failing checks | any check with `bucket == "fail"` — but not on drafts (note those as draft instead) |
+| Unresolved review comments | any review thread with `isResolved: false` |
 
 Detect failing checks with `gh pr checks` rather than reading `statusCheckRollup`
 yourself — the rollup mixes two node shapes (`CheckRun` carries `name`/`conclusion`,
@@ -115,11 +135,112 @@ busy PR — every unresolved one could sit past the first page. `--paginate` nee
 **once per page** and prints one count per page, so the `awk` sum is what turns that
 into a single total — without it, reading the first line alone undercounts.
 
-Order matters: **resolve conflicts first**, then CI, then review comments — a
-conflicted branch can't be meaningfully tested, and the comment pass pushes its own
-commits on top.
+**Zero flagged axes → the PR is healthy.** Write its one report line (`healthy ✅`,
+or *checks pending, next pass* / *draft* as applicable) and move on — **no worker**.
+On a good day the whole pass is a handful of `gh` calls and zero subagents.
 
-### The confidence rule
+**One or more flagged axes → Step 4.** Keep the evidence you just gathered (the
+failing-checks JSON, the unresolved-thread count) — it goes into the worker prompt
+so the worker doesn't re-triage from scratch.
+
+## Step 4 — Dispatch one worker per flagged PR
+
+Spawn one **`general-purpose` subagent per flagged PR**, and spawn them **one at a
+time, in PR order** — workers share the repo's single `.git`, and concurrent
+`worktree add`/`fetch` contend on its locks. Wait for each worker's RESULT before
+starting the next.
+
+Fill the prompt template below with **literal values only — never `$VAR`**. The
+worker runs in its own context with its own shell: your variables don't exist there,
+and an unexpanded `$DEFAULT_BRANCH` in the prompt becomes an empty string in the
+worker's commands. Replace every `<...>` placeholder with the actual value — except
+inside the final `RESULT`/`DETAIL` block, whose placeholders the worker fills.
+
+```text
+You are babysitting exactly one pull request as part of a babysit-prs pass.
+
+First read <SKILL_FILE — literal absolute path> and follow its "Per-PR procedures"
+and "Safety" sections exactly. The orchestrator steps (1–5) are not your job — do
+not sweep or touch any other PR.
+
+Repo: <OWNER_REPO>              Default branch: <DEFAULT_BRANCH>
+Repo root: <absolute REPO_ROOT>
+PR: #<number> — <title>
+URL: <url>
+Head branch: <headRefName>      Draft: <true|false>
+Worktree dir (conflicts): <REPO_ROOT>/.worktrees/babysit-<number>
+Worktree dir (CI): <REPO_ROOT>/.worktrees/babysit-ci-<number>
+
+Flagged axes — handle only these, in this order (conflicts → CI → comments):
+- Merge conflict: <yes (mergeable=…, mergeStateStatus=…) | no>
+- Failing checks: <the fail-bucket JSON from triage | none>
+- Unresolved review threads: <count | 0>
+
+Safety rails — non-negotiable, restated from the skill's Safety section:
+- Never push to the default branch. Every push is
+  `git push origin HEAD:<headRefName>` — that head branch, nothing else.
+- Never force-push and never rebase.
+- Only ever `git clean` inside the two worktree dirs named above, always via
+  `git -C "<worktree dir>"`, never with `-x`, never in the main checkout.
+- Confidence rule: fix only what is mechanical and unambiguous. Anything needing
+  judgment → restore, report, move on. When in doubt, report.
+- Remove every worktree you created before finishing, even when you failed.
+
+Return ONLY this block — no logs, no diffs, no extra prose:
+
+RESULT #<number>: <FIXED|NEEDS-HUMAN|PARTIAL|DEFERRED|FAILED> — <one line: found → did → remaining>
+DETAIL: <≤2 lines, only for NEEDS-HUMAN or FAILED>
+```
+
+Take each worker's `RESULT` line into the Step 5 report as that PR's line. A worker
+that errors out, stalls, or returns anything other than a `RESULT` block is reported
+as `FAILED` for its PR — never silently dropped. Its leftover worktree, if any, is at
+the two dirs named in its prompt; remove them if the worker didn't.
+
+**No Agent/Task tool available?** Process each flagged PR inline yourself instead:
+sequentially, following the same *Per-PR procedures* below and the same report
+contract, and fully finishing one PR — including worktree removal — before starting
+the next.
+
+## Step 5 — Report
+
+One line per PR: what you found, what you did, what a human still needs to do.
+Healthy PRs get their line from Step 3; flagged PRs get theirs from the worker's
+`RESULT`.
+
+```text
+#412 Fix payment webhook retries — CONFLICTING → merged default branch, 3 mechanical conflicts resolved, tests pass, pushed ✅
+#418 Add coach dashboard filters — CI failing (circleci: 2 tests) → fixed stale assertion, pushed ✅
+#421 Refactor booking serializer — CONFLICTING → ⚠️ needs a human: both sides rewrote `BookingSerializer.validate`
+#425 Bump deps — 2 unresolved review threads → ran review-github-comments, 1 left open for discussion
+#430 Spike: new calendar — draft, mergeable UNKNOWN → undetermined, will recheck next pass
+#433 Tighten rate limits — CONFLICTING + CI failing → conflicts fixed and pushed, CI re-running on the new head, checks deferred to next pass
+```
+
+Finish with a one-line count (e.g. `5 PRs: 2 fixed, 1 needs a human, 1 partially
+handled, 1 undetermined`). Then **end the pass** — don't start another sweep.
+
+---
+
+# Per-PR procedures
+
+Everything below is the **worker side**: it handles exactly one PR, using only the
+values from its prompt plus what it reads here. When the pass runs inline (no Agent
+tool), the orchestrator follows these same procedures itself, one PR at a time.
+
+Work the flagged axes **in order: conflicts → CI → review comments** — a conflicted
+branch can't be meaningfully tested, and the comment pass pushes its own commits on
+top. Skip axes your prompt didn't flag. `WORKTREE_DIR` below always means the
+literal absolute dir assigned in your prompt — and shell variables don't survive
+between your tool calls, so re-set it (or restate the literal path) in every command
+block.
+
+- Merge conflict flagged → [Conflict procedure](#conflict-procedure)
+- Failing checks flagged → [CI procedure](#ci-procedure)
+- Unresolved review threads flagged → invoke the **`review-github-comments`** skill
+  with the PR URL
+
+## The confidence rule
 
 Applies to every fix in this skill:
 
@@ -132,7 +253,7 @@ Applies to every fix in this skill:
 
 When in doubt, report. An unattended pass must never guess at semantics.
 
-### Conflict procedure
+## Conflict procedure
 
 1. **Check the branch out in isolation** — never disturb the user's working tree. If
    the repo defines its own worktree skill (e.g.
@@ -141,16 +262,16 @@ When in doubt, report. An unattended pass must never guess at semantics.
 
    ```bash
    git fetch origin
-   WORKTREE_DIR=".worktrees/babysit-<pr_number>"
+   WORKTREE_DIR="<your assigned conflicts worktree dir>"   # <repo-root>/.worktrees/babysit-<pr_number>
    git worktree add "$WORKTREE_DIR" "origin/<headRefName>"
    ```
 
    This lands on a **detached HEAD** at the remote tip — deliberately, so it can't
    collide with a stale local branch of the same name. It changes how you push (step
    5). Drive every later command with `git -C "$WORKTREE_DIR" …` rather than `cd`, so
-   the pass can't lose track of which tree it's in.
+   the procedure can't lose track of which tree it's in.
 
-   If the working tree is dirty and you can't make a worktree, skip the PR and
+   If the main checkout is in a state where you can't make a worktree, stop and
    report why. Don't stash the user's work.
 
 2. **Merge the default branch in** — merge, **never rebase**. The branch is already
@@ -160,7 +281,7 @@ When in doubt, report. An unattended pass must never guess at semantics.
 
    ```bash
    PR_HEAD_SHA=$(git -C "$WORKTREE_DIR" rev-parse HEAD)
-   git -C "$WORKTREE_DIR" merge "origin/$DEFAULT_BRANCH"
+   git -C "$WORKTREE_DIR" merge "origin/<DEFAULT_BRANCH>"
    ```
 
 3. **Resolve the conflicts.** Use the `mattpocock-skills:resolving-merge-conflicts`
@@ -192,7 +313,7 @@ When in doubt, report. An unattended pass must never guess at semantics.
    A blanket `clean` is safe here precisely because step 1 built this worktree fresh
    from a remote ref — it started with zero untracked files, so anything `clean`
    finds is something this procedure created. That reasoning holds **only** inside
-   the skill's own worktree; never run it in the user's checkout. And no `-x`:
+   the procedure's own worktree; never run it in the user's checkout. And no `-x`:
    ignored paths (dependency dirs, `.pytest_cache`, coverage output) block neither a
    re-merge nor `worktree remove`, so deleting them only makes the next pass
    re-download them.
@@ -230,7 +351,7 @@ When in doubt, report. An unattended pass must never guess at semantics.
    resolution you already decided on:
 
    ```bash
-   git -C "$WORKTREE_DIR" merge "origin/$DEFAULT_BRANCH"   # conflicts again, the same ones
+   git -C "$WORKTREE_DIR" merge "origin/<DEFAULT_BRANCH>"   # conflicts again, the same ones
    # …re-apply the same resolution, then commit it:
    git -C "$WORKTREE_DIR" commit --no-edit
    ```
@@ -251,7 +372,7 @@ When in doubt, report. An unattended pass must never guess at semantics.
 
      ```bash
      git -C "$WORKTREE_DIR" clean -fd   # the rerun's droppings, before switching trees
-     git -C "$WORKTREE_DIR" checkout --detach "origin/$DEFAULT_BRANCH"
+     git -C "$WORKTREE_DIR" checkout --detach "origin/<DEFAULT_BRANCH>"
      # …re-run the same tests here…
      git -C "$WORKTREE_DIR" clean -fd
      git -C "$WORKTREE_DIR" checkout --detach "$PR_HEAD_SHA"
@@ -275,8 +396,8 @@ When in doubt, report. An unattended pass must never guess at semantics.
    # Assert you're pushing the resolved merge, not a head some restore rewound.
    # Step 4's baseline paths all end on a bare $PR_HEAD_SHA; if one of them ran, the
    # merge has to have been redone since, or this push is a silent no-op.
-   if ! git -C "$WORKTREE_DIR" merge-base --is-ancestor "origin/$DEFAULT_BRANCH" HEAD; then
-     echo "STOP: $DEFAULT_BRANCH is not in HEAD — the merge was never redone. Redo it or report; do not push."
+   if ! git -C "$WORKTREE_DIR" merge-base --is-ancestor "origin/<DEFAULT_BRANCH>" HEAD; then
+     echo "STOP: the default branch is not in HEAD — the merge was never redone. Redo it or report; do not push."
    elif git -C "$WORKTREE_DIR" grep -nI -e '^<<<<<<< ' -e '^>>>>>>> ' HEAD; then
      echo "STOP: committed conflict markers — fix the resolution before pushing."
    else
@@ -291,13 +412,13 @@ When in doubt, report. An unattended pass must never guess at semantics.
 
    **The `if`/`elif`/`else` is load-bearing** — the checks have to *gate* the push, not
    just print next to it. Written as two bare commands that only `echo`, the `git push`
-   on the following line runs regardless, so the pass pushes the very head the check
-   just declared unpushable. A failed guard ends this PR's procedure: report it and
-   move to the next PR. Don't `exit` — that would kill the whole pass, and the other
-   PRs still need their turn.
+   on the following line runs regardless, so the procedure pushes the very head the
+   check just declared unpushable. A failed guard ends this axis: record it for your
+   RESULT, run the step 3 restore, clean up the worktree (step 7), and report — don't
+   push, and don't abandon the cleanup.
 
 6. **Confirm** it took. GitHub recomputes mergeability asynchronously, so poll rather
-   than checking once — but **bound the poll**, or one stuck PR hangs the whole pass:
+   than checking once — but **bound the poll**, or one stuck PR eats the pass budget:
 
    ```bash
    MERGEABLE=UNKNOWN
@@ -310,7 +431,7 @@ When in doubt, report. An unattended pass must never guess at semantics.
    ```
 
    Still `UNKNOWN` when the budget runs out → report the push as done but the
-   mergeability as *undetermined*, and move to the next PR. Never keep polling.
+   mergeability as *undetermined*, and move on. Never keep polling.
 
 7. **Clean up** the worktree you created (leave repo-skill-managed worktrees to that
    skill's own convention):
@@ -329,25 +450,30 @@ When in doubt, report. An unattended pass must never guess at semantics.
    didn't finish dealing with. Investigate and report it; don't reach for `--force`
    to make the error go away.
 
-### CI procedure
+## CI procedure
 
-1. **Identify the failing checks** with the `bucket == "fail"` query from Step 3,
-   keeping each one's `name` and `link`.
+1. **Identify the failing checks.** Your prompt carries the fail-bucket JSON the
+   orchestrator gathered at triage, with each check's `name` and `link`.
 
-   **If the conflict procedure pushed for this PR, Step 3's results are stale** — they
-   describe the pre-merge commit. Re-run the query before you act on them, or you'll
-   spend a fix on a failure the merge already resolved (or miss one it introduced):
+   **If the conflict procedure pushed for this PR, that triage evidence is stale** —
+   it describes the pre-merge commit. Re-run the query before you act on it, or
+   you'll spend a fix on a failure the merge already resolved (or miss one it
+   introduced):
 
    ```bash
    gh pr checks <pr_number> --json name,bucket,state,link \
      --jq '[.[] | select(.bucket == "fail")]'
    ```
 
+   > `gh pr checks` exits **8** while checks are still pending, and non-zero when
+   > checks are failing — that's its normal reporting channel, not a command error.
+   > Read its output; don't abort on the exit code, and don't put it in an `&&`
+   > chain.
+
    A fresh push re-queues CI, so the honest answer here is usually `pending`, not a
-   new list of failures. Don't wait it out — waiting blocks every other PR in the
-   pass. Report the PR as *conflicts fixed, CI re-running* and let the next pass pick
-   up the checks. Only remediate failures you observed on the **current** head, with
-   no push in between.
+   new list of failures. Don't wait it out. Report the PR as *conflicts fixed, CI
+   re-running* and let the next pass pick up the checks. Only remediate failures you
+   observed on the **current** head, with no push in between.
 
 2. **Get the failure detail**, routing on the `link` host:
    - **CircleCI** (`circleci.com` / `app.circleci.com`) → invoke the
@@ -372,18 +498,18 @@ When in doubt, report. An unattended pass must never guess at semantics.
 4. **Fix it in its own worktree.** Don't assume one already exists: a PR with no
    conflicts never had one, and the conflict procedure removes the worktree it made
    (step 7) before this procedure runs. Make a fresh one from the current PR head —
-   the conflict procedure just pushed to it, so fetch again rather than reusing a
-   stale ref:
+   if the conflict procedure just pushed, fetch again rather than reusing a stale
+   ref:
 
    ```bash
    git fetch origin
-   WORKTREE_DIR=".worktrees/babysit-ci-<pr_number>"
+   WORKTREE_DIR="<your assigned CI worktree dir>"   # <repo-root>/.worktrees/babysit-ci-<pr_number>
    git worktree add "$WORKTREE_DIR" "origin/<headRefName>"
    ```
 
    Same rules as the conflict procedure: follow the repo's own worktree skill if it
    has one, detached HEAD so no local branch can collide, `git -C "$WORKTREE_DIR" …`
-   for every command, never touch the user's checkout, skip-and-report if you can't
+   for every command, never touch the user's checkout, stop-and-report if you can't
    get a clean worktree.
 
 5. **Verify, push, clean up.** Run the failing check's tests locally in the worktree
@@ -419,22 +545,6 @@ When in doubt, report. An unattended pass must never guess at semantics.
 
    Report the re-run as *pushed, CI pending*; don't wait for the new run to finish.
 
-## Step 4 — Report
-
-One line per PR: what you found, what you did, what a human still needs to do.
-
-```text
-#412 Fix payment webhook retries — CONFLICTING → merged default branch, 3 mechanical conflicts resolved, tests pass, pushed ✅
-#418 Add coach dashboard filters — CI failing (circleci: 2 tests) → fixed stale assertion, pushed ✅
-#421 Refactor booking serializer — CONFLICTING → ⚠️ needs a human: both sides rewrote `BookingSerializer.validate`
-#425 Bump deps — 2 unresolved review threads → ran review-github-comments, 1 left open for discussion
-#430 Spike: new calendar — draft, mergeable UNKNOWN → undetermined, will recheck next pass
-#433 Tighten rate limits — CONFLICTING + CI failing → conflicts fixed and pushed, CI re-running on the new head, checks deferred to next pass
-```
-
-Finish with a one-line count (e.g. `5 PRs: 2 fixed, 1 needs a human, 1 partially
-handled, 1 undetermined`). Then **end the pass** — don't start another sweep.
-
 ## Safety
 
 - **Never push to the default branch.** Every push in this skill targets a PR's own
@@ -444,7 +554,7 @@ handled, 1 undetermined`). Then **end the pass** — don't start another sweep.
   staying put.
 - **Never resolve a conflict by taking one side wholesale** (`--ours` / `--theirs`
   over a whole file) unless the file is a generated artifact you then regenerate.
-- **Only ever `git clean` inside a worktree this pass created.** It's safe there
+- **Only ever `git clean` inside a worktree this procedure created.** It's safe there
   because that worktree started empty of untracked files, so there's nothing to
   destroy that this pass didn't make. In the user's checkout that guarantee is gone
   and `clean -fd` deletes unsaved work — always target it with
