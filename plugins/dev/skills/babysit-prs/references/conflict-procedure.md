@@ -23,7 +23,11 @@ literal path substituted.
 State that must outlive a block is kept in a **git ref**, not a variable: step 2
 saves the PR head as `refs/babysit/pr-<number>-head`, which survives every shell,
 every `reset`, and every `clean` in this file. Steps 3–5 read it back by name — so
-there is no `PR_HEAD_SHA` to carry between blocks. Step 7 deletes it.
+there is no `PR_HEAD_SHA` to carry between blocks. Step 7 deletes it. The ref lives
+in the repo's shared ref store, which anything you later run in the worktree —
+setup, the PR's own tests — can rewrite; so step 2 also has you note the SHA
+itself, and step 5 re-checks the ref against your noted copy before anything is
+pushed.
 
 1. **Check the branch out in isolation** — never disturb the user's working tree. If
    the repo defines its own worktree skill (e.g.
@@ -33,8 +37,14 @@ there is no `PR_HEAD_SHA` to carry between blocks. Step 7 deletes it.
    ```bash
    git fetch origin
    WORKTREE_DIR="<your assigned conflicts worktree dir>"   # <REPO_ROOT>/.worktrees/babysit-<number>
-   git worktree add "$WORKTREE_DIR" "origin/<headRefName>"
+   HEAD_BRANCH=$(gh pr view <pr_number> --json headRefName --jq .headRefName)
+   git worktree add "$WORKTREE_DIR" "origin/$HEAD_BRANCH"
    ```
+
+   `HEAD_BRANCH` is resolved from `gh` at execution time rather than pasted from
+   your prompt, because branch names may contain characters the shell would
+   evaluate even inside double quotes — step 5 explains. Use this load-then-expand
+   pattern, re-resolved per block, for **every** branch-name expansion in this file.
 
    This lands on a **detached HEAD** at the remote tip — deliberately, so it can't
    collide with a stale local branch of the same name. It changes how you push (step
@@ -57,11 +67,18 @@ there is no `PR_HEAD_SHA` to carry between blocks. Step 7 deletes it.
    ```bash
    WORKTREE_DIR="<your assigned conflicts worktree dir>"
    git -C "$WORKTREE_DIR" update-ref "refs/babysit/pr-<number>-head" HEAD
+   git -C "$WORKTREE_DIR" rev-parse HEAD   # note this SHA — step 5 re-checks the ref against it
    git -C "$WORKTREE_DIR" merge "origin/<DEFAULT_BRANCH>"
    ```
 
    The ref name carries this PR's number so two PRs can never read each other's
    saved head. Substitute the literal number from your prompt.
+
+   **Note the SHA the `rev-parse` prints.** The ref is your workhorse — it survives
+   fresh shells — but it sits in the shared ref store, where anything you run from
+   here on (setup hooks, the PR's own test suite) has write access and could rewrite
+   or delete it. The SHA you noted lives in your context, out of the repo's reach;
+   step 5 compares the ref against it before anything is pushed.
 
 3. **Resolve the conflicts.** Use the `mattpocock-skills:resolving-merge-conflicts`
    skill when it's installed; otherwise resolve them directly. Apply the confidence
@@ -161,6 +178,15 @@ there is no `PR_HEAD_SHA` to carry between blocks. Step 7 deletes it.
      git -C "$WORKTREE_DIR" checkout --detach "refs/babysit/pr-<number>-head"
      ```
 
+     These `clean`s deliberately leave **ignored** files in place (no `-x`): the
+     deps and toolchain your setup installed are ignored paths, and stripping them
+     leaves the baseline unable to run at all. The cost is that ignored state the
+     PR's test run generated — a cache, a generated config — survives into the
+     baseline run. If you have concrete reason to think such state is steering the
+     baseline result, don't trust it: either `clean -fdx` and redo setup (only when
+     setup can recreate everything it deletes), or treat the baseline as
+     **indeterminate** and report it as that.
+
      **Do not push from inside this detour.** Between the two checkouts your `HEAD`
      *is* the default branch — pushing there would overwrite the PR's branch with
      the default branch's contents and drop every commit the PR was made of. Step 5's
@@ -177,18 +203,21 @@ there is no `PR_HEAD_SHA` to carry between blocks. Step 7 deletes it.
      merge you couldn't verify.
 
 5. **Commit and push.** Because the worktree is on a detached HEAD, a bare
-   `git push` **fails** — push the explicit, quoted refspec
-   `origin "HEAD:<headRefName>"` instead. Never `--force`.
+   `git push` **fails** — push the explicit refspec `origin "HEAD:$HEAD_BRANCH"`
+   instead, with the branch name resolved at execution time as below. Never
+   `--force`.
 
    ```bash
    WORKTREE_DIR="<your assigned conflicts worktree dir>"
+   HEAD_BRANCH=$(gh pr view <pr_number> --json headRefName --jq .headRefName)
    if git -C "$WORKTREE_DIR" rev-parse -q --verify MERGE_HEAD >/dev/null; then
      git -C "$WORKTREE_DIR" commit --no-edit   # the merge is still in progress
    fi
    SAVED_SHA=$(git -C "$WORKTREE_DIR" rev-parse -q --verify "refs/babysit/pr-<number>-head^{commit}") || SAVED_SHA=""
-   # Assert you're pushing the resolved merge: both sides of it have to be in HEAD.
-   if [ -z "$SAVED_SHA" ]; then
-     echo "STOP: step 2's saved-head ref is gone — nothing proves what this push would replace. Do not push."
+   # Assert you're pushing the resolved merge: the saved-head ref has to still be
+   # the commit you saved, and both sides of the merge have to be in HEAD.
+   if [ "$SAVED_SHA" != "<the SHA you noted in step 2>" ]; then
+     echo "STOP: refs/babysit/pr-<number>-head is gone or no longer matches the SHA noted in step 2 — something rewrote it. Do not push."
    elif ! git -C "$WORKTREE_DIR" merge-base --is-ancestor "$SAVED_SHA" HEAD; then
      echo "STOP: the PR head is not in HEAD — you are on a baseline checkout, not the merge. Do not push."
    elif ! git -C "$WORKTREE_DIR" merge-base --is-ancestor "origin/<DEFAULT_BRANCH>" HEAD; then
@@ -196,7 +225,7 @@ there is no `PR_HEAD_SHA` to carry between blocks. Step 7 deletes it.
    elif git -C "$WORKTREE_DIR" grep -nI -e '^<<<<<<< ' -e '^>>>>>>> ' HEAD; then
      echo "STOP: committed conflict markers — fix the resolution before pushing."
    else
-     git -C "$WORKTREE_DIR" push --force-with-lease="<headRefName>:$SAVED_SHA" origin "HEAD:<headRefName>"
+     git -C "$WORKTREE_DIR" push --force-with-lease="$HEAD_BRANCH:$SAVED_SHA" origin "HEAD:$HEAD_BRANCH"
    fi
    ```
 
@@ -206,13 +235,23 @@ there is no `PR_HEAD_SHA` to carry between blocks. Step 7 deletes it.
    non-zero, and a fail-fast shell would die right there — *before* the guards and
    the push — turning a finished resolution into a silent no-push.
 
-   The push carries `--force-with-lease="<headRefName>:$SAVED_SHA"` — a
+   The first check pins the saved head to trusted state: the ref lives in the
+   shared ref store, and everything you ran since step 2 — setup, the PR's own
+   tests — had write access to that store. If the ref moved, the two ancestry
+   checks below it would be asserting against whatever it was rewritten to point
+   at; comparing it to the SHA you noted in step 2 (substitute it literally)
+   restores their footing. `SAVED_SHA` is read **once**, checked against your noted
+   copy, and that one value feeds both the ancestry guard and the push — so the
+   commit the guards validated is the commit the lease pins. A ref that's gone
+   entirely resolves to an empty `SAVED_SHA`, which the same comparison rejects.
+
+   The push carries `--force-with-lease="$HEAD_BRANCH:$SAVED_SHA"` — a
    compare-and-swap, not a force. The remote accepts the push only if the branch tip
    is still exactly the head this pass started from (step 2's saved ref). Anything
    that landed on the branch mid-pass rejects it — including a force-push to an
    *ancestor*, which a plain push would silently bury by reinstating the commits
-   someone just deliberately removed. Because the first guard already proved
-   `$SAVED_SHA` is an ancestor of `HEAD`, a push the lease lets through is an
+   someone just deliberately removed. Because the first ancestry guard already
+   proved `$SAVED_SHA` is an ancestor of `HEAD`, a push the lease lets through is an
    ordinary fast-forward: pinned to an explicit SHA, the lease can only **refuse**
    pushes a plain push would have accepted, never rewrite history, so it doesn't
    breach the never-force rail. Bare `--force`, and bare `--force-with-lease`
@@ -220,13 +259,7 @@ there is no `PR_HEAD_SHA` to carry between blocks. Step 7 deletes it.
    stay forbidden. A lease rejection means the branch moved under you mid-pass:
    treat it as a failed guard — restore, clean up, report; don't refetch and retry.
 
-   `SAVED_SHA` is read **once**, verified, and that one value feeds both the
-   ancestry guard and the lease — so the commit the guard validated is the commit
-   the lease pins. The emptiness check ahead of the guards matters twice over: an
-   unresolvable ref would error the ancestry check, and an *empty* lease value
-   flips its meaning to "expect the branch to be absent".
-
-   The three substantive checks cover the same failure mode from three sides. **Both** ancestry
+   The three checks after the pin cover the same failure mode from three sides. **Both** ancestry
    checks are needed, and neither substitutes for the other: the default-branch one
    catches a merge that never happened, but on its own it *passes* on step 4's
    baseline detour — where `HEAD` is the default branch, making it trivially its own
@@ -236,11 +269,15 @@ there is no `PR_HEAD_SHA` to carry between blocks. Step 7 deletes it.
    step 4 has rewound or switched the tree — and a push is the one action in this
    procedure that a later pass can't quietly undo.
 
-   The refspec is **quoted** (`"HEAD:<headRefName>"`) because git accepts branch names
-   containing shell metacharacters — `;`, `$(…)`, backticks are all legal in a ref name
-   (only spaces, `~^:?*[\` and a few patterns are not). Unquoted, a branch named
-   `feature;rm-something` would end the `git push` command and run the rest as a
-   second command. Quote it here and everywhere else you name a branch.
+   The branch name is **resolved at execution time**, in the same block that uses
+   it (each block is a fresh shell — re-resolve, don't carry it over). Pasting it
+   into the command text instead is not safe *even quoted*: git accepts branch
+   names containing `;`, `$(…)`, backticks and quotes (only spaces, `~^:?*[\` and
+   a few patterns are forbidden), and inside double quotes the shell still
+   evaluates command substitutions — a literal `"HEAD:feature$(…)"` in shell
+   source runs whatever the name embeds. Expanded from `$HEAD_BRANCH` inside a
+   quoted argument, the name is data the shell never re-parses. Load-then-expand
+   like this everywhere you name a branch.
 
    **The `if`/`elif`/`else` is load-bearing** — the checks have to *gate* the push, not
    just print next to it. Written as two bare commands that only `echo`, the `git push`
