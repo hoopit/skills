@@ -246,15 +246,16 @@ pushed.
    entirely resolves to an empty `SAVED_SHA`, which the same comparison rejects.
 
    The push carries `--force-with-lease="$HEAD_BRANCH:$SAVED_SHA"` — a
-   compare-and-swap, not a force. The remote accepts the push only if the branch tip
-   is still exactly the head this pass started from (step 2's saved ref). Anything
-   that landed on the branch mid-pass rejects it — including a force-push to an
-   *ancestor*, which a plain push would silently bury by reinstating the commits
-   someone just deliberately removed. Because the first ancestry guard already
-   proved `$SAVED_SHA` is an ancestor of `HEAD`, a push the lease lets through is an
-   ordinary fast-forward: pinned to an explicit SHA, the lease can only **refuse**
-   pushes a plain push would have accepted, never rewrite history, so it doesn't
-   breach the never-force rail. Bare `--force`, and bare `--force-with-lease`
+   lease-guarded force update. The flag itself is force-capable: on its own it
+   would let a matching lease rewrite history. Two things confine it here. The
+   lease makes the remote accept the push only if the branch tip is still exactly
+   the head this pass started from (step 2's saved ref) — anything that landed on
+   the branch mid-pass rejects it, including a force-push to an *ancestor*, which
+   a plain push would silently bury by reinstating the commits someone just
+   deliberately removed. And because the first ancestry guard already proved
+   `$SAVED_SHA` is an ancestor of `HEAD`, the only push the lease can let through
+   is an ordinary fast-forward of the saved head — the guard, not the flag, is
+   what keeps this within the never-force rail. Bare `--force`, and bare `--force-with-lease`
    without an expected value (it trusts whatever your remote-tracking ref says),
    stay forbidden. A lease rejection means the branch moved under you mid-pass:
    treat it as a failed guard — restore, clean up, report; don't refetch and retry.
