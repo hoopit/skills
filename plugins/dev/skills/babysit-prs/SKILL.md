@@ -150,6 +150,14 @@ time, in PR order** — workers share the repo's single `.git`, and concurrent
 `worktree add`/`fetch` contend on its locks. Wait for each worker's RESULT before
 starting the next.
 
+This holds even when only **one** PR is flagged. Workers are sequential, so there is
+no parallel fan-out whose overhead needs amortising — a worker costs one spawn plus
+re-reading this file in its own context, and buys the thing this design exists for:
+the CI logs, diffs, and merge churn land in the worker's context, not the
+orchestrator's. Under `/loop` the orchestrator's session accumulates pass after pass,
+so that hygiene pays at any count. The inline path below is a capability fallback
+(no Agent tool), not a count threshold.
+
 Fill the prompt template below with **literal values only — never `$VAR`**. The
 worker runs in its own context with its own shell: your variables don't exist there,
 and an unexpanded `$DEFAULT_BRANCH` in the prompt becomes an empty string in the
@@ -262,7 +270,7 @@ When in doubt, report. An unattended pass must never guess at semantics.
 
    ```bash
    git fetch origin
-   WORKTREE_DIR="<your assigned conflicts worktree dir>"   # <repo-root>/.worktrees/babysit-<pr_number>
+   WORKTREE_DIR="<your assigned conflicts worktree dir>"   # <REPO_ROOT>/.worktrees/babysit-<number>
    git worktree add "$WORKTREE_DIR" "origin/<headRefName>"
    ```
 
@@ -503,7 +511,7 @@ When in doubt, report. An unattended pass must never guess at semantics.
 
    ```bash
    git fetch origin
-   WORKTREE_DIR="<your assigned CI worktree dir>"   # <repo-root>/.worktrees/babysit-ci-<pr_number>
+   WORKTREE_DIR="<your assigned CI worktree dir>"   # <REPO_ROOT>/.worktrees/babysit-ci-<number>
    git worktree add "$WORKTREE_DIR" "origin/<headRefName>"
    ```
 
