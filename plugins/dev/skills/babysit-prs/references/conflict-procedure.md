@@ -182,20 +182,51 @@ there is no `PR_HEAD_SHA` to carry between blocks. Step 7 deletes it.
 
    ```bash
    WORKTREE_DIR="<your assigned conflicts worktree dir>"
-   git -C "$WORKTREE_DIR" commit --no-edit   # if the merge didn't auto-commit
+   if git -C "$WORKTREE_DIR" rev-parse -q --verify MERGE_HEAD >/dev/null; then
+     git -C "$WORKTREE_DIR" commit --no-edit   # the merge is still in progress
+   fi
+   SAVED_SHA=$(git -C "$WORKTREE_DIR" rev-parse -q --verify "refs/babysit/pr-<number>-head^{commit}") || SAVED_SHA=""
    # Assert you're pushing the resolved merge: both sides of it have to be in HEAD.
-   if ! git -C "$WORKTREE_DIR" merge-base --is-ancestor "refs/babysit/pr-<number>-head" HEAD; then
+   if [ -z "$SAVED_SHA" ]; then
+     echo "STOP: step 2's saved-head ref is gone — nothing proves what this push would replace. Do not push."
+   elif ! git -C "$WORKTREE_DIR" merge-base --is-ancestor "$SAVED_SHA" HEAD; then
      echo "STOP: the PR head is not in HEAD — you are on a baseline checkout, not the merge. Do not push."
    elif ! git -C "$WORKTREE_DIR" merge-base --is-ancestor "origin/<DEFAULT_BRANCH>" HEAD; then
      echo "STOP: the default branch is not in HEAD — the merge was never redone. Redo it or report; do not push."
    elif git -C "$WORKTREE_DIR" grep -nI -e '^<<<<<<< ' -e '^>>>>>>> ' HEAD; then
      echo "STOP: committed conflict markers — fix the resolution before pushing."
    else
-     git -C "$WORKTREE_DIR" push origin "HEAD:<headRefName>"
+     git -C "$WORKTREE_DIR" push --force-with-lease="<headRefName>:$SAVED_SHA" origin "HEAD:<headRefName>"
    fi
    ```
 
-   The three checks cover the same failure mode from three sides. **Both** ancestry
+   The commit is **gated on `MERGE_HEAD`** because by step 5 the merge may already be
+   committed — a clean re-merge auto-commits, and a resolution skill may have
+   committed for you. With no merge in progress, `git commit --no-edit` exits
+   non-zero, and a fail-fast shell would die right there — *before* the guards and
+   the push — turning a finished resolution into a silent no-push.
+
+   The push carries `--force-with-lease="<headRefName>:$SAVED_SHA"` — a
+   compare-and-swap, not a force. The remote accepts the push only if the branch tip
+   is still exactly the head this pass started from (step 2's saved ref). Anything
+   that landed on the branch mid-pass rejects it — including a force-push to an
+   *ancestor*, which a plain push would silently bury by reinstating the commits
+   someone just deliberately removed. Because the first guard already proved
+   `$SAVED_SHA` is an ancestor of `HEAD`, a push the lease lets through is an
+   ordinary fast-forward: pinned to an explicit SHA, the lease can only **refuse**
+   pushes a plain push would have accepted, never rewrite history, so it doesn't
+   breach the never-force rail. Bare `--force`, and bare `--force-with-lease`
+   without an expected value (it trusts whatever your remote-tracking ref says),
+   stay forbidden. A lease rejection means the branch moved under you mid-pass:
+   treat it as a failed guard — restore, clean up, report; don't refetch and retry.
+
+   `SAVED_SHA` is read **once**, verified, and that one value feeds both the
+   ancestry guard and the lease — so the commit the guard validated is the commit
+   the lease pins. The emptiness check ahead of the guards matters twice over: an
+   unresolvable ref would error the ancestry check, and an *empty* lease value
+   flips its meaning to "expect the branch to be absent".
+
+   The three substantive checks cover the same failure mode from three sides. **Both** ancestry
    checks are needed, and neither substitutes for the other: the default-branch one
    catches a merge that never happened, but on its own it *passes* on step 4's
    baseline detour — where `HEAD` is the default branch, making it trivially its own
