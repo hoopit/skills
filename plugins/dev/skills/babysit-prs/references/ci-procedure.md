@@ -72,8 +72,13 @@ literal path substituted.
    ```bash
    git fetch origin
    WORKTREE_DIR="<your assigned CI worktree dir>"   # <REPO_ROOT>/.worktrees/babysit-ci-<number>
-   git worktree add "$WORKTREE_DIR" "origin/<headRefName>"
+   HEAD_BRANCH=$(gh pr view <pr_number> --json headRefName --jq .headRefName)
+   git worktree add "$WORKTREE_DIR" "origin/$HEAD_BRANCH"
    ```
+
+   `HEAD_BRANCH` is resolved from `gh` at execution time, never pasted from your
+   prompt — step 5 explains why. Re-resolve it in every block that names the
+   branch; blocks don't share shells.
 
    Same rules as the conflict procedure: follow the repo's own worktree skill if it
    has one, detached HEAD so no local branch can collide, `git -C "$WORKTREE_DIR" …`
@@ -86,18 +91,21 @@ literal path substituted.
 
    ```bash
    WORKTREE_DIR="<your assigned CI worktree dir>"
+   HEAD_BRANCH=$(gh pr view <pr_number> --json headRefName --jq .headRefName)
    git -C "$WORKTREE_DIR" add -A   # not `commit -am`: that skips files the fix added
    git -C "$WORKTREE_DIR" commit -m "fix: <what you fixed>"
    git -C "$WORKTREE_DIR" show --stat HEAD   # every file you touched, or you pushed a half-fix
-   git -C "$WORKTREE_DIR" push origin "HEAD:<headRefName>"
+   git -C "$WORKTREE_DIR" push origin "HEAD:$HEAD_BRANCH"
    git -C "$WORKTREE_DIR" clean -fd   # test artifacts, or `worktree remove` refuses
    git worktree remove "$WORKTREE_DIR"
    ```
 
-   The refspec is **quoted** because git accepts branch names containing shell
-   metacharacters (`;`, `$(…)`, backticks are all legal in a ref name). Unquoted, a
-   branch named `feature;rm-something` would terminate the `git push` and run the
-   remainder as a second command.
+   The branch name is **resolved at execution time** rather than pasted into the
+   command, because pasting is unsafe *even quoted*: git accepts branch names
+   containing `;`, `$(…)`, backticks and quotes, and inside double quotes the
+   shell still evaluates command substitutions — a literal `"HEAD:feature$(…)"`
+   in shell source runs whatever the name embeds. Expanded from `$HEAD_BRANCH`
+   inside a quoted argument, it's data the shell never re-parses.
 
    `add -A` before the commit is what makes a fix that *creates* a file (a missing
    migration, a new snapshot or fixture) land: `-am` stages only tracked paths, so the
