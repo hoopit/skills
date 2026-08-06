@@ -9,10 +9,15 @@ here, and nothing below repeats them.
 
 Every `<...>` below is a value from your worker prompt. `WORKTREE_DIR` means the
 literal absolute **CI** worktree dir it assigned
-(`<REPO_ROOT>/.worktrees/babysit-ci-<number>`) — shell variables don't survive
-between your tool calls, so re-set it (or restate the literal path) in every command
-block. The step numbers here are this procedure's own; they are not the
-orchestrator's Steps 1–5.
+(`<REPO_ROOT>/.worktrees/babysit-ci-<number>`). The step numbers here are this
+procedure's own; they are not the orchestrator's Steps 1–5.
+
+**Each command block runs in a fresh shell.** Your tool calls do not share an
+environment, so a variable assigned in one block is *empty* in the next — and an
+empty `WORKTREE_DIR` turns `git -C "$WORKTREE_DIR" clean -fd` into a `clean` of
+whatever directory you happen to be in. Every block below therefore re-assigns
+`WORKTREE_DIR` on its first line; keep that line when you run the block, with the
+literal path substituted.
 
 1. **Identify the failing checks.** Your prompt carries the fail-bucket JSON the
    orchestrator gathered at triage, with each check's `name` and `link`.
@@ -80,13 +85,19 @@ orchestrator's Steps 1–5.
    you could have learned locally:
 
    ```bash
+   WORKTREE_DIR="<your assigned CI worktree dir>"
    git -C "$WORKTREE_DIR" add -A   # not `commit -am`: that skips files the fix added
    git -C "$WORKTREE_DIR" commit -m "fix: <what you fixed>"
    git -C "$WORKTREE_DIR" show --stat HEAD   # every file you touched, or you pushed a half-fix
-   git -C "$WORKTREE_DIR" push origin HEAD:<headRefName>
+   git -C "$WORKTREE_DIR" push origin "HEAD:<headRefName>"
    git -C "$WORKTREE_DIR" clean -fd   # test artifacts, or `worktree remove` refuses
    git worktree remove "$WORKTREE_DIR"
    ```
+
+   The refspec is **quoted** because git accepts branch names containing shell
+   metacharacters (`;`, `$(…)`, backticks are all legal in a ref name). Unquoted, a
+   branch named `feature;rm-something` would terminate the `git push` and run the
+   remainder as a second command.
 
    `add -A` before the commit is what makes a fix that *creates* a file (a missing
    migration, a new snapshot or fixture) land: `-am` stages only tracked paths, so the
@@ -101,6 +112,7 @@ orchestrator's Steps 1–5.
    `git worktree remove` refuses and leaves the worktree behind:
 
    ```bash
+   WORKTREE_DIR="<your assigned CI worktree dir>"
    git -C "$WORKTREE_DIR" checkout .   # revert edits to tracked files
    git -C "$WORKTREE_DIR" clean -fd    # …and remove any file the fix added
    git worktree remove "$WORKTREE_DIR"

@@ -10,10 +10,20 @@ here, and nothing below repeats them.
 
 Every `<...>` below is a value from your worker prompt. `WORKTREE_DIR` means the
 literal absolute **conflicts** worktree dir it assigned
-(`<REPO_ROOT>/.worktrees/babysit-<number>`) — shell variables don't survive between
-your tool calls, so re-set it (or restate the literal path) in every command block.
-The step numbers here are this procedure's own; they are not the orchestrator's
-Steps 1–5.
+(`<REPO_ROOT>/.worktrees/babysit-<number>`). The step numbers here are this
+procedure's own; they are not the orchestrator's Steps 1–5.
+
+**Each command block runs in a fresh shell.** Your tool calls do not share an
+environment, so a variable assigned in one block is *empty* in the next — and an
+empty `WORKTREE_DIR` turns `git -C "$WORKTREE_DIR" clean -fd` into a `clean` of
+whatever directory you happen to be in. Every block below therefore re-assigns
+`WORKTREE_DIR` on its first line; keep that line when you run the block, with the
+literal path substituted.
+
+State that must outlive a block is kept in a **git ref**, not a variable: step 2
+saves the PR head as `refs/babysit/pr-<number>-head`, which survives every shell,
+every `reset`, and every `clean` in this file. Steps 3–5 read it back by name — so
+there is no `PR_HEAD_SHA` to carry between blocks. Step 7 deletes it.
 
 1. **Check the branch out in isolation** — never disturb the user's working tree. If
    the repo defines its own worktree skill (e.g.
@@ -39,10 +49,19 @@ Steps 1–5.
    later "back it out" step needs a SHA to return to, and a detached HEAD leaves you
    no branch name to fall back on.
 
+   Save it as a **ref**, not a shell variable — the later steps that need it run in
+   their own shells, and a `PR_HEAD_SHA` that came back empty would turn
+   `reset --hard "$PR_HEAD_SHA"` into a reset to `HEAD`, silently keeping the very
+   merge you meant to throw away:
+
    ```bash
-   PR_HEAD_SHA=$(git -C "$WORKTREE_DIR" rev-parse HEAD)
+   WORKTREE_DIR="<your assigned conflicts worktree dir>"
+   git -C "$WORKTREE_DIR" update-ref "refs/babysit/pr-<number>-head" HEAD
    git -C "$WORKTREE_DIR" merge "origin/<DEFAULT_BRANCH>"
    ```
+
+   The ref name carries this PR's number so two PRs can never read each other's
+   saved head. Substitute the literal number from your prompt.
 
 3. **Resolve the conflicts.** Use the `mattpocock-skills:resolving-merge-conflicts`
    skill when it's installed; otherwise resolve them directly. Apply the confidence
@@ -54,11 +73,12 @@ Steps 1–5.
    `--abort` fail with *"There is no merge to abort"*:
 
    ```bash
+   WORKTREE_DIR="<your assigned conflicts worktree dir>"
    # restore the PR head, whether or not the merge is still in progress
    if git -C "$WORKTREE_DIR" rev-parse -q --verify MERGE_HEAD >/dev/null; then
      git -C "$WORKTREE_DIR" merge --abort
    else
-     git -C "$WORKTREE_DIR" reset --hard "$PR_HEAD_SHA"
+     git -C "$WORKTREE_DIR" reset --hard "refs/babysit/pr-<number>-head"
    fi
    git -C "$WORKTREE_DIR" clean -fd   # neither branch above removes untracked files
    ```
@@ -88,13 +108,14 @@ Steps 1–5.
    wrong. Re-run the same tests on the pre-merge tip to find out:
 
    ```bash
+   WORKTREE_DIR="<your assigned conflicts worktree dir>"
    git -C "$WORKTREE_DIR" stash list   # expect empty; the merge is committed or in progress
    # back to the PR head, un-merged — same restore as step 3, because by now the
    # merge may well be committed and `merge --abort` would fail
    if git -C "$WORKTREE_DIR" rev-parse -q --verify MERGE_HEAD >/dev/null; then
      git -C "$WORKTREE_DIR" merge --abort
    else
-     git -C "$WORKTREE_DIR" reset --hard "$PR_HEAD_SHA"
+     git -C "$WORKTREE_DIR" reset --hard "refs/babysit/pr-<number>-head"
    fi
    git -C "$WORKTREE_DIR" clean -fd   # test-run droppings too, not just merge leftovers
    # …re-run the same tests here, then redo the merge if you need to
@@ -111,13 +132,14 @@ Steps 1–5.
    resolution you already decided on:
 
    ```bash
+   WORKTREE_DIR="<your assigned conflicts worktree dir>"
    git -C "$WORKTREE_DIR" merge "origin/<DEFAULT_BRANCH>"   # conflicts again, the same ones
    # …re-apply the same resolution, then commit it:
    git -C "$WORKTREE_DIR" commit --no-edit
    ```
 
-   Skipping it is the one mistake this procedure can't feel: a restored
-   `$PR_HEAD_SHA` is exactly what the remote already has, so pushing it succeeds as a
+   Skipping it is the one mistake this procedure can't feel: a restored PR head is
+   exactly what the remote already has, so pushing it succeeds as a
    **no-op** and the pass reports a conflict "fixed" having changed nothing. Step 5
    below asserts against that rather than trusting this step to have happened.
 
@@ -131,12 +153,19 @@ Steps 1–5.
      parent, re-run there, then come back to the PR head:
 
      ```bash
+     WORKTREE_DIR="<your assigned conflicts worktree dir>"
      git -C "$WORKTREE_DIR" clean -fd   # the rerun's droppings, before switching trees
      git -C "$WORKTREE_DIR" checkout --detach "origin/<DEFAULT_BRANCH>"
      # …re-run the same tests here…
      git -C "$WORKTREE_DIR" clean -fd
-     git -C "$WORKTREE_DIR" checkout --detach "$PR_HEAD_SHA"
+     git -C "$WORKTREE_DIR" checkout --detach "refs/babysit/pr-<number>-head"
      ```
+
+     **Do not push from inside this detour.** Between the two checkouts your `HEAD`
+     *is* the default branch — pushing there would overwrite the PR's branch with
+     the default branch's contents and drop every commit the PR was made of. Step 5's
+     first guard exists to catch exactly this; come back to the PR head before you
+     go near it.
 
      Red on the default branch too → it's already broken; treat it like the first
      bullet (redo the merge, push, report the failure as inherited, not yours). Green
@@ -148,27 +177,39 @@ Steps 1–5.
      merge you couldn't verify.
 
 5. **Commit and push.** Because the worktree is on a detached HEAD, a bare
-   `git push` **fails** (`git push origin HEAD:<name-of-remote-branch>`) — push the
-   explicit refspec instead. Never `--force`.
+   `git push` **fails** — push the explicit, quoted refspec
+   `origin "HEAD:<headRefName>"` instead. Never `--force`.
 
    ```bash
+   WORKTREE_DIR="<your assigned conflicts worktree dir>"
    git -C "$WORKTREE_DIR" commit --no-edit   # if the merge didn't auto-commit
-   # Assert you're pushing the resolved merge, not a head some restore rewound.
-   # Step 4's baseline paths all end on a bare $PR_HEAD_SHA; if one of them ran, the
-   # merge has to have been redone since, or this push is a silent no-op.
-   if ! git -C "$WORKTREE_DIR" merge-base --is-ancestor "origin/<DEFAULT_BRANCH>" HEAD; then
+   # Assert you're pushing the resolved merge: both sides of it have to be in HEAD.
+   if ! git -C "$WORKTREE_DIR" merge-base --is-ancestor "refs/babysit/pr-<number>-head" HEAD; then
+     echo "STOP: the PR head is not in HEAD — you are on a baseline checkout, not the merge. Do not push."
+   elif ! git -C "$WORKTREE_DIR" merge-base --is-ancestor "origin/<DEFAULT_BRANCH>" HEAD; then
      echo "STOP: the default branch is not in HEAD — the merge was never redone. Redo it or report; do not push."
    elif git -C "$WORKTREE_DIR" grep -nI -e '^<<<<<<< ' -e '^>>>>>>> ' HEAD; then
      echo "STOP: committed conflict markers — fix the resolution before pushing."
    else
-     git -C "$WORKTREE_DIR" push origin HEAD:<headRefName>
+     git -C "$WORKTREE_DIR" push origin "HEAD:<headRefName>"
    fi
    ```
 
-   Both checks are about the same failure mode from opposite ends: the first catches a
-   merge that never happened, the second a merge that was "resolved" by committing the
-   markers. Neither is hypothetical once step 4 has rewound the tree — and a push is
-   the one action in this procedure that a later pass can't quietly undo.
+   The three checks cover the same failure mode from three sides. **Both** ancestry
+   checks are needed, and neither substitutes for the other: the default-branch one
+   catches a merge that never happened, but on its own it *passes* on step 4's
+   baseline detour — where `HEAD` is the default branch, making it trivially its own
+   ancestor — and would push the default branch over the PR's head branch, discarding
+   the PR. The PR-head check is what rejects that. The `grep` then catches a merge
+   that was "resolved" by committing the markers. None of this is hypothetical once
+   step 4 has rewound or switched the tree — and a push is the one action in this
+   procedure that a later pass can't quietly undo.
+
+   The refspec is **quoted** (`"HEAD:<headRefName>"`) because git accepts branch names
+   containing shell metacharacters — `;`, `$(…)`, backticks are all legal in a ref name
+   (only spaces, `~^:?*[\` and a few patterns are not). Unquoted, a branch named
+   `feature;rm-something` would end the `git push` command and run the rest as a
+   second command. Quote it here and everywhere else you name a branch.
 
    **The `if`/`elif`/`else` is load-bearing** — the checks have to *gate* the push, not
    just print next to it. Written as two bare commands that only `echo`, the `git push`
@@ -197,9 +238,15 @@ Steps 1–5.
    skill's own convention):
 
    ```bash
+   WORKTREE_DIR="<your assigned conflicts worktree dir>"
    git -C "$WORKTREE_DIR" clean -fd   # the success path never ran a restore
+   git -C "$WORKTREE_DIR" update-ref -d "refs/babysit/pr-<number>-head"   # step 2's saved head
    git worktree remove "$WORKTREE_DIR"
    ```
+
+   Delete the saved-head ref on **every** exit from this axis, including the failure
+   paths — it lives in the shared ref store, not in the worktree, so removing the
+   worktree does not take it with it.
 
    The `clean` is here for the path where **nothing went wrong**: a merge that
    resolved cleanly, passed its tests and pushed never hits a restore step, so the
