@@ -16,8 +16,8 @@ procedure's own; they are not the orchestrator's Steps 1–5.
 environment, so a variable assigned in one block is *empty* in the next — and an
 empty `WORKTREE_DIR` turns `git -C "$WORKTREE_DIR" clean -fd` into a `clean` of
 whatever directory you happen to be in. Every block below therefore re-assigns
-`WORKTREE_DIR` on its first line; keep that line when you run the block, with the
-literal path substituted.
+`WORKTREE_DIR` (and `REPO_ROOT`, where the block needs it) on its first lines;
+keep those lines when you run the block, with the literal paths substituted.
 
 1. **Identify the failing checks.** Your prompt carries the fail-bucket JSON the
    orchestrator gathered at triage, with each check's `name` and `link`.
@@ -70,10 +70,11 @@ literal path substituted.
    stale ref:
 
    ```bash
-   git fetch origin
+   REPO_ROOT="<your repo root>"
    WORKTREE_DIR="<your assigned CI worktree dir>"   # <REPO_ROOT>/.worktrees/babysit-ci-<number>
    HEAD_BRANCH=$(gh pr view <pr_number> --json headRefName --jq .headRefName)
-   git worktree add "$WORKTREE_DIR" "origin/$HEAD_BRANCH"
+   git -C "$REPO_ROOT" fetch origin
+   git -C "$REPO_ROOT" worktree add "$WORKTREE_DIR" "origin/$HEAD_BRANCH"
    ```
 
    `HEAD_BRANCH` is resolved from `gh` at execution time, never pasted from your
@@ -82,14 +83,16 @@ literal path substituted.
 
    Same rules as the conflict procedure: follow the repo's own worktree skill if it
    has one, detached HEAD so no local branch can collide, `git -C "$WORKTREE_DIR" …`
-   for every command, never touch the user's checkout, stop-and-report if you can't
-   get a clean worktree.
+   for every command inside the worktree (lifecycle commands scope to
+   `git -C "$REPO_ROOT"` per the briefing), never touch the user's checkout,
+   stop-and-report if you can't get a clean worktree.
 
 5. **Verify, push, clean up.** Run the failing check's tests locally in the worktree
    and only push once they pass — a blind push spends another CI cycle to learn what
    you could have learned locally:
 
    ```bash
+   REPO_ROOT="<your repo root>"
    WORKTREE_DIR="<your assigned CI worktree dir>"
    HEAD_BRANCH=$(gh pr view <pr_number> --json headRefName --jq .headRefName)
    git -C "$WORKTREE_DIR" add -A   # not `commit -am`: that skips files the fix added
@@ -97,7 +100,7 @@ literal path substituted.
    git -C "$WORKTREE_DIR" show --stat HEAD   # every file you touched, or you pushed a half-fix
    git -C "$WORKTREE_DIR" push origin "HEAD:$HEAD_BRANCH"
    git -C "$WORKTREE_DIR" clean -fd   # test artifacts, or `worktree remove` refuses
-   git worktree remove "$WORKTREE_DIR"
+   git -C "$REPO_ROOT" worktree remove "$WORKTREE_DIR"
    ```
 
    The branch name is **resolved at execution time** rather than pasted into the
@@ -120,10 +123,11 @@ literal path substituted.
    `git worktree remove` refuses and leaves the worktree behind:
 
    ```bash
+   REPO_ROOT="<your repo root>"
    WORKTREE_DIR="<your assigned CI worktree dir>"
    git -C "$WORKTREE_DIR" checkout .   # revert edits to tracked files
    git -C "$WORKTREE_DIR" clean -fd    # …and remove any file the fix added
-   git worktree remove "$WORKTREE_DIR"
+   git -C "$REPO_ROOT" worktree remove "$WORKTREE_DIR"
    ```
 
    Report the re-run as *pushed, CI pending*; don't wait for the new run to finish.

@@ -85,11 +85,18 @@ When in doubt, report. An unattended pass must never guess at semantics.
 
 ## Worktree hygiene
 
-Your prompt names the only worktree dirs you may create. Address them with
-`git -C "<worktree dir>"` on **every** command — your command blocks each run in a
-fresh shell, and a bare `git` in whatever directory you happen to be in operates on
-the user's checkout. The procedure files carry the exact creation and removal
-commands.
+Your prompt names the only worktree dirs you may create. Scope **every** git
+command explicitly with `-C` — your command blocks each run in a fresh shell, and a
+bare `git` in whatever directory you happen to be in operates on the user's
+checkout. Two scopes cover everything:
+
+- **Inside a worktree** — anything run against the checked-out tree —
+  `git -C "<worktree dir>"`.
+- **Worktree lifecycle** — `fetch`, `worktree add`, `worktree remove` — operates on
+  the repository itself, before the worktree exists or after it's gone:
+  `git -C "<repo root>"`, using the repo root your prompt gives.
+
+The procedure files carry the exact creation and removal commands.
 
 **Remove every worktree you created before finishing, even when you failed.** A
 leftover worktree pins its branch checkout and blocks the next pass's

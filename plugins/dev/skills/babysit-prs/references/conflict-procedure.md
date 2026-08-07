@@ -17,8 +17,8 @@ procedure's own; they are not the orchestrator's Steps 1–5.
 environment, so a variable assigned in one block is *empty* in the next — and an
 empty `WORKTREE_DIR` turns `git -C "$WORKTREE_DIR" clean -fd` into a `clean` of
 whatever directory you happen to be in. Every block below therefore re-assigns
-`WORKTREE_DIR` on its first line; keep that line when you run the block, with the
-literal path substituted.
+`WORKTREE_DIR` (and `REPO_ROOT`, where the block needs it) on its first lines;
+keep those lines when you run the block, with the literal paths substituted.
 
 State that must outlive a block is kept in a **git ref**, not a variable: step 2
 saves the PR head as `refs/babysit/pr-<number>-head`, which survives every shell,
@@ -35,10 +35,11 @@ pushed.
    test-DB / direnv / toolchain setup. Otherwise:
 
    ```bash
-   git fetch origin
+   REPO_ROOT="<your repo root>"
    WORKTREE_DIR="<your assigned conflicts worktree dir>"   # <REPO_ROOT>/.worktrees/babysit-<number>
    HEAD_BRANCH=$(gh pr view <pr_number> --json headRefName --jq .headRefName)
-   git worktree add "$WORKTREE_DIR" "origin/$HEAD_BRANCH"
+   git -C "$REPO_ROOT" fetch origin
+   git -C "$REPO_ROOT" worktree add "$WORKTREE_DIR" "origin/$HEAD_BRANCH"
    ```
 
    `HEAD_BRANCH` is resolved from `gh` at execution time rather than pasted from
@@ -311,10 +312,11 @@ pushed.
    skill's own convention):
 
    ```bash
+   REPO_ROOT="<your repo root>"
    WORKTREE_DIR="<your assigned conflicts worktree dir>"
    git -C "$WORKTREE_DIR" clean -fd   # the success path never ran a restore
    git -C "$WORKTREE_DIR" update-ref -d "refs/babysit/pr-<number>-head"   # step 2's saved head
-   git worktree remove "$WORKTREE_DIR"
+   git -C "$REPO_ROOT" worktree remove "$WORKTREE_DIR"
    ```
 
    Delete the saved-head ref on **every** exit from this axis, including the failure
