@@ -108,9 +108,14 @@ keep those lines when you run the block, with the literal paths substituted.
    falls straight through to the `clean`/`worktree remove` lines, which delete the
    fix you just made — and the report then claims a push that never happened. If
    this block exits non-zero partway, the worktree is left intact on purpose:
-   report the failure (with the command's output), don't report the change as
-   pushed. This fail-fast applies to *this* block; the `gh pr checks` query in
-   step 1 keeps its own expected-non-zero handling.
+   report the failure (with the command's output), and match the report to where
+   the block stopped. A failure at or before the `push` line means the remote
+   never got the change — don't report it as pushed. A failure *after* the push
+   (`clean` or `worktree remove`) means the fix is already on the remote — report
+   the push as done and the cleanup failure separately, so the orchestrator knows
+   there's a leftover worktree, not a missing fix. This fail-fast applies to
+   *this* block; the `gh pr checks` query in step 1 keeps its own
+   expected-non-zero handling.
 
    The branch name is **resolved at execution time** rather than pasted into the
    command, because pasting is unsafe *even quoted*: git accepts branch names
