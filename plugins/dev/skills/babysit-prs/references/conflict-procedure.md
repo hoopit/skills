@@ -66,9 +66,10 @@ pushed.
 
    ```bash
    WORKTREE_DIR="<your assigned conflicts worktree dir>"
+   DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)
    git -C "$WORKTREE_DIR" update-ref "refs/babysit/pr-<number>-head" HEAD
    git -C "$WORKTREE_DIR" rev-parse HEAD   # note this SHA — step 5 re-checks the ref against it
-   git -C "$WORKTREE_DIR" merge "origin/<DEFAULT_BRANCH>"
+   git -C "$WORKTREE_DIR" merge "origin/$DEFAULT_BRANCH"
    ```
 
    The ref name carries this PR's number so two PRs can never read each other's
@@ -150,7 +151,8 @@ pushed.
 
    ```bash
    WORKTREE_DIR="<your assigned conflicts worktree dir>"
-   git -C "$WORKTREE_DIR" merge "origin/<DEFAULT_BRANCH>"   # conflicts again, the same ones
+   DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)
+   git -C "$WORKTREE_DIR" merge "origin/$DEFAULT_BRANCH"   # conflicts again, the same ones
    # …re-apply the same resolution, then commit it:
    git -C "$WORKTREE_DIR" commit --no-edit
    ```
@@ -171,8 +173,9 @@ pushed.
 
      ```bash
      WORKTREE_DIR="<your assigned conflicts worktree dir>"
+     DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)
      git -C "$WORKTREE_DIR" clean -fd   # the rerun's droppings, before switching trees
-     git -C "$WORKTREE_DIR" checkout --detach "origin/<DEFAULT_BRANCH>"
+     git -C "$WORKTREE_DIR" checkout --detach "origin/$DEFAULT_BRANCH"
      # …re-run the same tests here…
      git -C "$WORKTREE_DIR" clean -fd
      git -C "$WORKTREE_DIR" checkout --detach "refs/babysit/pr-<number>-head"
@@ -210,6 +213,7 @@ pushed.
    ```bash
    WORKTREE_DIR="<your assigned conflicts worktree dir>"
    HEAD_BRANCH=$(gh pr view <pr_number> --json headRefName --jq .headRefName)
+   DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)
    if git -C "$WORKTREE_DIR" rev-parse -q --verify MERGE_HEAD >/dev/null; then
      git -C "$WORKTREE_DIR" commit --no-edit   # the merge is still in progress
    fi
@@ -220,7 +224,7 @@ pushed.
      echo "STOP: refs/babysit/pr-<number>-head is gone or no longer matches the SHA noted in step 2 — something rewrote it. Do not push."
    elif ! git -C "$WORKTREE_DIR" merge-base --is-ancestor "$SAVED_SHA" HEAD; then
      echo "STOP: the PR head is not in HEAD — you are on a baseline checkout, not the merge. Do not push."
-   elif ! git -C "$WORKTREE_DIR" merge-base --is-ancestor "origin/<DEFAULT_BRANCH>" HEAD; then
+   elif ! git -C "$WORKTREE_DIR" merge-base --is-ancestor "origin/$DEFAULT_BRANCH" HEAD; then
      echo "STOP: the default branch is not in HEAD — the merge was never redone. Redo it or report; do not push."
    elif git -C "$WORKTREE_DIR" grep -nI -e '^<<<<<<< ' -e '^>>>>>>> ' HEAD; then
      echo "STOP: committed conflict markers — fix the resolution before pushing."
