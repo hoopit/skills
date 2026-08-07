@@ -3,9 +3,9 @@
 One axis of a **babysit-prs** per-PR pass: this PR has at least one check in the
 `fail` bucket. Read this file only when your prompt flagged the failing-checks axis.
 
-Read the skill's *Per-PR procedures* preamble (the confidence rule) and its *Safety*
-section in [`../SKILL.md`](../SKILL.md) first — every rule there governs every step
-here, and nothing below repeats them.
+Read the worker briefing in [`worker-briefing.md`](worker-briefing.md) first — its
+confidence rule, safety rails, and worktree hygiene govern every step here, and
+nothing below repeats them.
 
 Every `<...>` below is a value from your worker prompt. `WORKTREE_DIR` means the
 literal absolute **CI** worktree dir it assigned
