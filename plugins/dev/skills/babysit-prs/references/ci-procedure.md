@@ -92,6 +92,7 @@ keep those lines when you run the block, with the literal paths substituted.
    you could have learned locally:
 
    ```bash
+   set -euo pipefail   # a failed commit or push must stop the block *before* the cleanup lines
    REPO_ROOT="<your repo root>"
    WORKTREE_DIR="<your assigned CI worktree dir>"
    HEAD_BRANCH=$(gh pr view <pr_number> -R <owner_repo> --json headRefName --jq .headRefName)
@@ -102,6 +103,14 @@ keep those lines when you run the block, with the literal paths substituted.
    git -C "$WORKTREE_DIR" clean -fd   # test artifacts, or `worktree remove` refuses
    git -C "$REPO_ROOT" worktree remove "$WORKTREE_DIR"
    ```
+
+   The `set -euo pipefail` is load-bearing: without it a failed `commit` or `push`
+   falls straight through to the `clean`/`worktree remove` lines, which delete the
+   fix you just made — and the report then claims a push that never happened. If
+   this block exits non-zero partway, the worktree is left intact on purpose:
+   report the failure (with the command's output), don't report the change as
+   pushed. This fail-fast applies to *this* block; the `gh pr checks` query in
+   step 1 keeps its own expected-non-zero handling.
 
    The branch name is **resolved at execution time** rather than pasted into the
    command, because pasting is unsafe *even quoted*: git accepts branch names
