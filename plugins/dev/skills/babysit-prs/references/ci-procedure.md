@@ -28,7 +28,7 @@ keep those lines when you run the block, with the literal paths substituted.
    introduced):
 
    ```bash
-   gh pr checks <pr_number> --json name,bucket,state,link \
+   gh pr checks <pr_number> -R <owner_repo> --json name,bucket,state,link \
      --jq '[.[] | select(.bucket == "fail")]'
    ```
 
@@ -50,7 +50,7 @@ keep those lines when you run the block, with the literal paths substituted.
      `circleci.com/gh/<org>/<repo>/<build>`). Open the link and drill down to the
      failing job first, then hand that job URL to the skill.
    - **GitHub Actions** (`github.com/.../actions/runs/<run_id>/...`) → take the
-     `<run_id>` from the link: `gh run view <run_id> --log-failed`.
+     `<run_id>` from the link: `gh run view <run_id> -R <owner_repo> --log-failed`.
    - **Anything else** (security scanners, review bots, custom status contexts) →
      read what the `link` gives you. An empty `link` (common for `StatusContext`
      checks posted by bots) means there's nothing to fetch — report the check as
@@ -72,7 +72,7 @@ keep those lines when you run the block, with the literal paths substituted.
    ```bash
    REPO_ROOT="<your repo root>"
    WORKTREE_DIR="<your assigned CI worktree dir>"   # <REPO_ROOT>/.worktrees/babysit-ci-<number>
-   HEAD_BRANCH=$(gh pr view <pr_number> --json headRefName --jq .headRefName)
+   HEAD_BRANCH=$(gh pr view <pr_number> -R <owner_repo> --json headRefName --jq .headRefName)
    git -C "$REPO_ROOT" fetch origin
    git -C "$REPO_ROOT" worktree add "$WORKTREE_DIR" "origin/$HEAD_BRANCH"
    ```
@@ -94,7 +94,7 @@ keep those lines when you run the block, with the literal paths substituted.
    ```bash
    REPO_ROOT="<your repo root>"
    WORKTREE_DIR="<your assigned CI worktree dir>"
-   HEAD_BRANCH=$(gh pr view <pr_number> --json headRefName --jq .headRefName)
+   HEAD_BRANCH=$(gh pr view <pr_number> -R <owner_repo> --json headRefName --jq .headRefName)
    git -C "$WORKTREE_DIR" add -A   # not `commit -am`: that skips files the fix added
    git -C "$WORKTREE_DIR" commit -m "fix: <what you fixed>"
    git -C "$WORKTREE_DIR" show --stat HEAD   # every file you touched, or you pushed a half-fix
