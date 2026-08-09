@@ -4,9 +4,9 @@ One axis of a **babysit-prs** per-PR pass: this PR's `mergeable` is `CONFLICTING
 (or `mergeStateStatus` is `DIRTY`). Read this file only when your prompt flagged the
 merge-conflict axis.
 
-Read the skill's *Per-PR procedures* preamble (the confidence rule) and its *Safety*
-section in [`../SKILL.md`](../SKILL.md) first — every rule there governs every step
-here, and nothing below repeats them.
+Read the worker briefing in [`worker-briefing.md`](worker-briefing.md) first — its
+confidence rule, safety rails, and worktree hygiene govern every step here, and
+nothing below repeats them.
 
 Every `<...>` below is a value from your worker prompt. `WORKTREE_DIR` means the
 literal absolute **conflicts** worktree dir it assigned
@@ -17,8 +17,8 @@ procedure's own; they are not the orchestrator's Steps 1–5.
 environment, so a variable assigned in one block is *empty* in the next — and an
 empty `WORKTREE_DIR` turns `git -C "$WORKTREE_DIR" clean -fd` into a `clean` of
 whatever directory you happen to be in. Every block below therefore re-assigns
-`WORKTREE_DIR` on its first line; keep that line when you run the block, with the
-literal path substituted.
+`WORKTREE_DIR` (and `REPO_ROOT`, where the block needs it) on its first lines;
+keep those lines when you run the block, with the literal paths substituted.
 
 State that must outlive a block is kept in a **git ref**, not a variable: step 2
 saves the PR head as `refs/babysit/pr-<number>-head`, which survives every shell,
@@ -35,10 +35,11 @@ pushed.
    test-DB / direnv / toolchain setup. Otherwise:
 
    ```bash
-   git fetch origin
+   REPO_ROOT="<your repo root>"
    WORKTREE_DIR="<your assigned conflicts worktree dir>"   # <REPO_ROOT>/.worktrees/babysit-<number>
-   HEAD_BRANCH=$(gh pr view <pr_number> --json headRefName --jq .headRefName)
-   git worktree add "$WORKTREE_DIR" "origin/$HEAD_BRANCH"
+   HEAD_BRANCH=$(gh pr view <pr_number> -R <owner_repo> --json headRefName --jq .headRefName)
+   git -C "$REPO_ROOT" fetch origin
+   git -C "$REPO_ROOT" worktree add "$WORKTREE_DIR" "origin/$HEAD_BRANCH"
    ```
 
    `HEAD_BRANCH` is resolved from `gh` at execution time rather than pasted from
@@ -66,7 +67,7 @@ pushed.
 
    ```bash
    WORKTREE_DIR="<your assigned conflicts worktree dir>"
-   DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)
+   DEFAULT_BRANCH=$(gh repo view <owner_repo> --json defaultBranchRef --jq .defaultBranchRef.name)
    git -C "$WORKTREE_DIR" update-ref "refs/babysit/pr-<number>-head" HEAD
    git -C "$WORKTREE_DIR" rev-parse HEAD   # note this SHA — step 5 re-checks the ref against it
    git -C "$WORKTREE_DIR" merge "origin/$DEFAULT_BRANCH"
@@ -151,7 +152,7 @@ pushed.
 
    ```bash
    WORKTREE_DIR="<your assigned conflicts worktree dir>"
-   DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)
+   DEFAULT_BRANCH=$(gh repo view <owner_repo> --json defaultBranchRef --jq .defaultBranchRef.name)
    git -C "$WORKTREE_DIR" merge "origin/$DEFAULT_BRANCH"   # conflicts again, the same ones
    # …re-apply the same resolution, then commit it:
    git -C "$WORKTREE_DIR" commit --no-edit
@@ -173,7 +174,7 @@ pushed.
 
      ```bash
      WORKTREE_DIR="<your assigned conflicts worktree dir>"
-     DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)
+     DEFAULT_BRANCH=$(gh repo view <owner_repo> --json defaultBranchRef --jq .defaultBranchRef.name)
      git -C "$WORKTREE_DIR" clean -fd   # the rerun's droppings, before switching trees
      git -C "$WORKTREE_DIR" checkout --detach "origin/$DEFAULT_BRANCH"
      # …re-run the same tests here…
@@ -193,8 +194,8 @@ pushed.
      **Do not push from inside this detour.** Between the two checkouts your `HEAD`
      *is* the default branch — pushing there would overwrite the PR's branch with
      the default branch's contents and drop every commit the PR was made of. Step 5's
-     first guard exists to catch exactly this; come back to the PR head before you
-     go near it.
+     PR-head ancestry guard exists to catch exactly this; come back to the PR head
+     before you go near it.
 
      Red on the default branch too → it's already broken; treat it like the first
      bullet (redo the merge, push, report the failure as inherited, not yours). Green
@@ -212,15 +213,18 @@ pushed.
 
    ```bash
    WORKTREE_DIR="<your assigned conflicts worktree dir>"
-   HEAD_BRANCH=$(gh pr view <pr_number> --json headRefName --jq .headRefName)
-   DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)
+   HEAD_BRANCH=$(gh pr view <pr_number> -R <owner_repo> --json headRefName --jq .headRefName)
+   DEFAULT_BRANCH=$(gh repo view <owner_repo> --json defaultBranchRef --jq .defaultBranchRef.name)
    if git -C "$WORKTREE_DIR" rev-parse -q --verify MERGE_HEAD >/dev/null; then
      git -C "$WORKTREE_DIR" commit --no-edit   # the merge is still in progress
    fi
    SAVED_SHA=$(git -C "$WORKTREE_DIR" rev-parse -q --verify "refs/babysit/pr-<number>-head^{commit}") || SAVED_SHA=""
-   # Assert you're pushing the resolved merge: the saved-head ref has to still be
-   # the commit you saved, and both sides of the merge have to be in HEAD.
-   if [ "$SAVED_SHA" != "<the SHA you noted in step 2>" ]; then
+   # Assert the push is allowed at all, then that you're pushing the resolved
+   # merge: the PR's head must not be the default branch, the saved-head ref has
+   # to still be the commit you saved, and both sides of the merge have to be in HEAD.
+   if [ "$HEAD_BRANCH" = "$DEFAULT_BRANCH" ]; then
+     echo "STOP: this PR's head *is* the default branch — the briefing forbids every push to it. Report the PR; do not push."
+   elif [ "$SAVED_SHA" != "<the SHA you noted in step 2>" ]; then
      echo "STOP: refs/babysit/pr-<number>-head is gone or no longer matches the SHA noted in step 2 — something rewrote it. Do not push."
    elif ! git -C "$WORKTREE_DIR" merge-base --is-ancestor "$SAVED_SHA" HEAD; then
      echo "STOP: the PR head is not in HEAD — you are on a baseline checkout, not the merge. Do not push."
@@ -239,7 +243,13 @@ pushed.
    non-zero, and a fail-fast shell would die right there — *before* the guards and
    the push — turning a finished resolution into a silent no-push.
 
-   The first check pins the saved head to trusted state: the ref lives in the
+   The default-branch check is the briefing's never-push-to-default rail made
+   executable: a same-repo PR can have the default branch *as* its head (a
+   back-merge into a release branch, say), and nothing upstream filters those
+   out — so the block compares the two names it just resolved and refuses the
+   push outright when they match. Such a PR gets reported, not pushed.
+
+   The pin check after it anchors the saved head to trusted state: the ref lives in the
    shared ref store, and everything you ran since step 2 — setup, the PR's own
    tests — had write access to that store. If the ref moved, the two ancestry
    checks below it would be asserting against whatever it was rewritten to point
@@ -297,7 +307,7 @@ pushed.
    ```bash
    MERGEABLE=UNKNOWN
    for _ in $(seq 12); do   # 12 × 5s ≈ 1 minute, then give up
-     MERGEABLE=$(gh pr view <pr_number> --json mergeable --jq .mergeable)
+     MERGEABLE=$(gh pr view <pr_number> -R <owner_repo> --json mergeable --jq .mergeable)
      [ "$MERGEABLE" != "UNKNOWN" ] && break
      sleep 5
    done
@@ -311,10 +321,11 @@ pushed.
    skill's own convention):
 
    ```bash
+   REPO_ROOT="<your repo root>"
    WORKTREE_DIR="<your assigned conflicts worktree dir>"
    git -C "$WORKTREE_DIR" clean -fd   # the success path never ran a restore
    git -C "$WORKTREE_DIR" update-ref -d "refs/babysit/pr-<number>-head"   # step 2's saved head
-   git worktree remove "$WORKTREE_DIR"
+   git -C "$REPO_ROOT" worktree remove "$WORKTREE_DIR"
    ```
 
    Delete the saved-head ref on **every** exit from this axis, including the failure

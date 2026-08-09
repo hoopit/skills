@@ -3,9 +3,9 @@
 One axis of a **babysit-prs** per-PR pass: this PR has at least one check in the
 `fail` bucket. Read this file only when your prompt flagged the failing-checks axis.
 
-Read the skill's *Per-PR procedures* preamble (the confidence rule) and its *Safety*
-section in [`../SKILL.md`](../SKILL.md) first — every rule there governs every step
-here, and nothing below repeats them.
+Read the worker briefing in [`worker-briefing.md`](worker-briefing.md) first — its
+confidence rule, safety rails, and worktree hygiene govern every step here, and
+nothing below repeats them.
 
 Every `<...>` below is a value from your worker prompt. `WORKTREE_DIR` means the
 literal absolute **CI** worktree dir it assigned
@@ -16,8 +16,8 @@ procedure's own; they are not the orchestrator's Steps 1–5.
 environment, so a variable assigned in one block is *empty* in the next — and an
 empty `WORKTREE_DIR` turns `git -C "$WORKTREE_DIR" clean -fd` into a `clean` of
 whatever directory you happen to be in. Every block below therefore re-assigns
-`WORKTREE_DIR` on its first line; keep that line when you run the block, with the
-literal path substituted.
+`WORKTREE_DIR` (and `REPO_ROOT`, where the block needs it) on its first lines;
+keep those lines when you run the block, with the literal paths substituted.
 
 1. **Identify the failing checks.** Your prompt carries the fail-bucket JSON the
    orchestrator gathered at triage, with each check's `name` and `link`.
@@ -28,7 +28,7 @@ literal path substituted.
    introduced):
 
    ```bash
-   gh pr checks <pr_number> --json name,bucket,state,link \
+   gh pr checks <pr_number> -R <owner_repo> --json name,bucket,state,link \
      --jq '[.[] | select(.bucket == "fail")]'
    ```
 
@@ -50,7 +50,7 @@ literal path substituted.
      `circleci.com/gh/<org>/<repo>/<build>`). Open the link and drill down to the
      failing job first, then hand that job URL to the skill.
    - **GitHub Actions** (`github.com/.../actions/runs/<run_id>/...`) → take the
-     `<run_id>` from the link: `gh run view <run_id> --log-failed`.
+     `<run_id>` from the link: `gh run view <run_id> -R <owner_repo> --log-failed`.
    - **Anything else** (security scanners, review bots, custom status contexts) →
      read what the `link` gives you. An empty `link` (common for `StatusContext`
      checks posted by bots) means there's nothing to fetch — report the check as
@@ -70,10 +70,11 @@ literal path substituted.
    stale ref:
 
    ```bash
-   git fetch origin
+   REPO_ROOT="<your repo root>"
    WORKTREE_DIR="<your assigned CI worktree dir>"   # <REPO_ROOT>/.worktrees/babysit-ci-<number>
-   HEAD_BRANCH=$(gh pr view <pr_number> --json headRefName --jq .headRefName)
-   git worktree add "$WORKTREE_DIR" "origin/$HEAD_BRANCH"
+   HEAD_BRANCH=$(gh pr view <pr_number> -R <owner_repo> --json headRefName --jq .headRefName)
+   git -C "$REPO_ROOT" fetch origin
+   git -C "$REPO_ROOT" worktree add "$WORKTREE_DIR" "origin/$HEAD_BRANCH"
    ```
 
    `HEAD_BRANCH` is resolved from `gh` at execution time, never pasted from your
@@ -82,23 +83,47 @@ literal path substituted.
 
    Same rules as the conflict procedure: follow the repo's own worktree skill if it
    has one, detached HEAD so no local branch can collide, `git -C "$WORKTREE_DIR" …`
-   for every command, never touch the user's checkout, stop-and-report if you can't
-   get a clean worktree.
+   for every command inside the worktree (lifecycle commands scope to
+   `git -C "$REPO_ROOT"` per the briefing), never touch the user's checkout,
+   stop-and-report if you can't get a clean worktree.
 
 5. **Verify, push, clean up.** Run the failing check's tests locally in the worktree
    and only push once they pass — a blind push spends another CI cycle to learn what
    you could have learned locally:
 
    ```bash
+   set -euo pipefail   # a failed commit or push must stop the block *before* the cleanup lines
+   REPO_ROOT="<your repo root>"
    WORKTREE_DIR="<your assigned CI worktree dir>"
-   HEAD_BRANCH=$(gh pr view <pr_number> --json headRefName --jq .headRefName)
+   HEAD_BRANCH=$(gh pr view <pr_number> -R <owner_repo> --json headRefName --jq .headRefName)
+   DEFAULT_BRANCH=$(gh repo view <owner_repo> --json defaultBranchRef --jq .defaultBranchRef.name)
+   [ "$HEAD_BRANCH" != "$DEFAULT_BRANCH" ]   # never push to the default branch — a matching head stops the block here
    git -C "$WORKTREE_DIR" add -A   # not `commit -am`: that skips files the fix added
    git -C "$WORKTREE_DIR" commit -m "fix: <what you fixed>"
    git -C "$WORKTREE_DIR" show --stat HEAD   # every file you touched, or you pushed a half-fix
    git -C "$WORKTREE_DIR" push origin "HEAD:$HEAD_BRANCH"
    git -C "$WORKTREE_DIR" clean -fd   # test artifacts, or `worktree remove` refuses
-   git worktree remove "$WORKTREE_DIR"
+   git -C "$REPO_ROOT" worktree remove "$WORKTREE_DIR"
    ```
+
+   The `DEFAULT_BRANCH` test is the briefing's never-push-to-default rail made
+   executable: a same-repo PR can have the default branch *as* its head (a
+   back-merge into a release branch, say), and under `set -e` a matching name
+   fails the test and stops the block before anything is committed or pushed.
+   Report such a PR instead of pushing it.
+
+   The `set -euo pipefail` is load-bearing: without it a failed `commit` or `push`
+   falls straight through to the `clean`/`worktree remove` lines, which delete the
+   fix you just made — and the report then claims a push that never happened. If
+   this block exits non-zero partway, the worktree is left intact on purpose:
+   report the failure (with the command's output), and match the report to where
+   the block stopped. A failure at or before the `push` line means the remote
+   never got the change — don't report it as pushed. A failure *after* the push
+   (`clean` or `worktree remove`) means the fix is already on the remote — report
+   the push as done and the cleanup failure separately, so the orchestrator knows
+   there's a leftover worktree, not a missing fix. This fail-fast applies to
+   *this* block; the `gh pr checks` query in step 1 keeps its own
+   expected-non-zero handling.
 
    The branch name is **resolved at execution time** rather than pasted into the
    command, because pasting is unsafe *even quoted*: git accepts branch names
@@ -120,10 +145,11 @@ literal path substituted.
    `git worktree remove` refuses and leaves the worktree behind:
 
    ```bash
+   REPO_ROOT="<your repo root>"
    WORKTREE_DIR="<your assigned CI worktree dir>"
    git -C "$WORKTREE_DIR" checkout .   # revert edits to tracked files
    git -C "$WORKTREE_DIR" clean -fd    # …and remove any file the fix added
-   git worktree remove "$WORKTREE_DIR"
+   git -C "$REPO_ROOT" worktree remove "$WORKTREE_DIR"
    ```
 
    Report the re-run as *pushed, CI pending*; don't wait for the new run to finish.
