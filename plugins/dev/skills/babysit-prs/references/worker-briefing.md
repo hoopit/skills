@@ -48,7 +48,11 @@ When in doubt, report. An unattended pass must never guess at semantics.
 ## Safety
 
 - **Never push to the default branch.** Every push in this skill targets a PR's own
-  head branch.
+  head branch — but "not the default branch" is checked, not assumed: a same-repo
+  PR can have the default branch *as* its head (a back-merge into a release
+  branch, say), so each procedure's push block resolves `DEFAULT_BRANCH` alongside
+  `HEAD_BRANCH` and stops before pushing when the two match. Such a PR is
+  reported, never pushed.
 - **Never interpolate a branch name into shell source.** Git's ref rules forbid
   spaces and a short list of characters, but `;`, `$(…)`, `&`, backticks and even
   quotes are all legal in a branch name — and double-quoting a pasted name does

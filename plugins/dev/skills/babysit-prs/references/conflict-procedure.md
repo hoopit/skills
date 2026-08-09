@@ -194,8 +194,8 @@ pushed.
      **Do not push from inside this detour.** Between the two checkouts your `HEAD`
      *is* the default branch — pushing there would overwrite the PR's branch with
      the default branch's contents and drop every commit the PR was made of. Step 5's
-     first guard exists to catch exactly this; come back to the PR head before you
-     go near it.
+     PR-head ancestry guard exists to catch exactly this; come back to the PR head
+     before you go near it.
 
      Red on the default branch too → it's already broken; treat it like the first
      bullet (redo the merge, push, report the failure as inherited, not yours). Green
@@ -219,9 +219,12 @@ pushed.
      git -C "$WORKTREE_DIR" commit --no-edit   # the merge is still in progress
    fi
    SAVED_SHA=$(git -C "$WORKTREE_DIR" rev-parse -q --verify "refs/babysit/pr-<number>-head^{commit}") || SAVED_SHA=""
-   # Assert you're pushing the resolved merge: the saved-head ref has to still be
-   # the commit you saved, and both sides of the merge have to be in HEAD.
-   if [ "$SAVED_SHA" != "<the SHA you noted in step 2>" ]; then
+   # Assert the push is allowed at all, then that you're pushing the resolved
+   # merge: the PR's head must not be the default branch, the saved-head ref has
+   # to still be the commit you saved, and both sides of the merge have to be in HEAD.
+   if [ "$HEAD_BRANCH" = "$DEFAULT_BRANCH" ]; then
+     echo "STOP: this PR's head *is* the default branch — the briefing forbids every push to it. Report the PR; do not push."
+   elif [ "$SAVED_SHA" != "<the SHA you noted in step 2>" ]; then
      echo "STOP: refs/babysit/pr-<number>-head is gone or no longer matches the SHA noted in step 2 — something rewrote it. Do not push."
    elif ! git -C "$WORKTREE_DIR" merge-base --is-ancestor "$SAVED_SHA" HEAD; then
      echo "STOP: the PR head is not in HEAD — you are on a baseline checkout, not the merge. Do not push."
@@ -240,7 +243,13 @@ pushed.
    non-zero, and a fail-fast shell would die right there — *before* the guards and
    the push — turning a finished resolution into a silent no-push.
 
-   The first check pins the saved head to trusted state: the ref lives in the
+   The default-branch check is the briefing's never-push-to-default rail made
+   executable: a same-repo PR can have the default branch *as* its head (a
+   back-merge into a release branch, say), and nothing upstream filters those
+   out — so the block compares the two names it just resolved and refuses the
+   push outright when they match. Such a PR gets reported, not pushed.
+
+   The pin check after it anchors the saved head to trusted state: the ref lives in the
    shared ref store, and everything you ran since step 2 — setup, the PR's own
    tests — had write access to that store. If the ref moved, the two ancestry
    checks below it would be asserting against whatever it was rewritten to point

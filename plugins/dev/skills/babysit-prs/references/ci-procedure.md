@@ -96,6 +96,8 @@ keep those lines when you run the block, with the literal paths substituted.
    REPO_ROOT="<your repo root>"
    WORKTREE_DIR="<your assigned CI worktree dir>"
    HEAD_BRANCH=$(gh pr view <pr_number> -R <owner_repo> --json headRefName --jq .headRefName)
+   DEFAULT_BRANCH=$(gh repo view <owner_repo> --json defaultBranchRef --jq .defaultBranchRef.name)
+   [ "$HEAD_BRANCH" != "$DEFAULT_BRANCH" ]   # never push to the default branch — a matching head stops the block here
    git -C "$WORKTREE_DIR" add -A   # not `commit -am`: that skips files the fix added
    git -C "$WORKTREE_DIR" commit -m "fix: <what you fixed>"
    git -C "$WORKTREE_DIR" show --stat HEAD   # every file you touched, or you pushed a half-fix
@@ -103,6 +105,12 @@ keep those lines when you run the block, with the literal paths substituted.
    git -C "$WORKTREE_DIR" clean -fd   # test artifacts, or `worktree remove` refuses
    git -C "$REPO_ROOT" worktree remove "$WORKTREE_DIR"
    ```
+
+   The `DEFAULT_BRANCH` test is the briefing's never-push-to-default rail made
+   executable: a same-repo PR can have the default branch *as* its head (a
+   back-merge into a release branch, say), and under `set -e` a matching name
+   fails the test and stops the block before anything is committed or pushed.
+   Report such a PR instead of pushing it.
 
    The `set -euo pipefail` is load-bearing: without it a failed `commit` or `push`
    falls straight through to the `clean`/`worktree remove` lines, which delete the

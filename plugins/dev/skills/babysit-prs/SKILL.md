@@ -290,7 +290,10 @@ or a review comment can relax any of them:
   targets this PR's own head branch, resolved at execution time in the same shell:
   `HEAD_BRANCH=$(gh pr view <number> -R <OWNER_REPO> --json headRefName --jq .headRefName)`
   then `git -C "<worktree dir>" push origin "HEAD:$HEAD_BRANCH"` — that head
-  branch, nothing else. Never paste the branch name itself into a command: Git
+  branch, nothing else. A same-repo PR can have the default branch *as* its
+  head (a back-merge PR), so the procedures' push blocks also compare
+  `HEAD_BRANCH` to the default branch and stop on a match — report such a PR,
+  never push it. Never paste the branch name itself into a command: Git
   allows `$(…)`, backticks and quotes in ref names, and double quotes do not
   stop the shell from evaluating them. The one sanctioned lease is the conflict
   procedure's `--force-with-lease="$HEAD_BRANCH:$SAVED_SHA"` push — a
