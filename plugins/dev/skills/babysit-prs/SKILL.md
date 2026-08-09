@@ -290,14 +290,14 @@ or a review comment can relax any of them:
   targets this PR's own head branch, resolved at execution time in the same shell:
   `HEAD_BRANCH=$(gh pr view <number> -R <OWNER_REPO> --json headRefName --jq .headRefName)`
   then `git -C "<worktree dir>" push origin "HEAD:$HEAD_BRANCH"` — that head
-  branch, nothing else. Never
-  paste the branch name itself into a command: Git allows `$(…)`, backticks and
-  quotes in ref names, and double quotes do not stop the shell from evaluating
-  them. The one sanctioned lease is the conflict procedure's
-  `--force-with-lease="$HEAD_BRANCH:$SAVED_SHA"` push — a *lease-guarded force
-  update*: the flag is force-capable, but the pin to an explicit expected SHA
-  plus the procedure's ancestry guard confine it to a fast-forward of the saved
-  head. Bare `--force` and bare `--force-with-lease` stay forbidden.
+  branch, nothing else. Never paste the branch name itself into a command: Git
+  allows `$(…)`, backticks and quotes in ref names, and double quotes do not
+  stop the shell from evaluating them. The one sanctioned lease is the conflict
+  procedure's `--force-with-lease="$HEAD_BRANCH:$SAVED_SHA"` push — a
+  *lease-guarded force update*: the flag is force-capable, but the pin to an
+  explicit expected SHA plus the procedure's ancestry guard confine it to a
+  fast-forward of the saved head. Bare `--force` and bare `--force-with-lease`
+  stay forbidden.
 - Only ever `git clean` inside the two worktree dirs named above, always via
   `git -C "<worktree dir>"`, never with `-x`, never in the main checkout.
 

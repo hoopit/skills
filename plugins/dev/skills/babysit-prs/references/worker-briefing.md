@@ -66,10 +66,14 @@ When in doubt, report. An unattended pass must never guess at semantics.
 - **Never force-push and never rebase** a branch that's already on the remote — a
   reviewer's in-progress comments and the PR's review history depend on its history
   staying put. The one sanctioned lease is the conflict procedure's
-  `--force-with-lease="$HEAD_BRANCH:$SAVED_SHA"`, pinned to the head the pass
-  started from: it can only *reject* pushes a plain push would accept, never
-  rewrite history. Bare `--force` and bare `--force-with-lease` (no expected SHA)
-  remain forbidden.
+  `--force-with-lease="$HEAD_BRANCH:$SAVED_SHA"` — a lease-guarded force update,
+  not a safe push: the flag itself is force-capable, and a matching lease would
+  let it rewrite history. The lease only protects against the branch moving
+  mid-pass; it's the procedure's ancestry guard, run first, that confines the
+  push to a plain fast-forward of the saved head. Never use the lease without
+  that guard — everywhere else in this skill a normal push is the only push.
+  Bare `--force` and bare `--force-with-lease` (no expected SHA) remain
+  forbidden.
 - **Never resolve a conflict by taking one side wholesale** (`--ours` / `--theirs`
   over a whole file) unless the file is a generated artifact you then regenerate.
 - **Only ever `git clean` inside a worktree this procedure created.** It's safe there
@@ -107,7 +111,12 @@ The procedure files carry the exact creation and removal commands.
 
 **Remove every worktree you created before finishing, even when you failed.** A
 leftover worktree pins its branch checkout and blocks the next pass's
-`worktree add` for this PR.
+`worktree add` for this PR. The one exception is a worktree a procedure
+explicitly tells you to leave intact — the CI procedure preserves its worktree
+when the push block fails partway, so an unpushed fix isn't destroyed. When you
+leave one behind under that exception, say so in your result (the worktree dir
+is in your prompt), so the leftover reads as preserved state, not a cleanup you
+forgot.
 
 ## Return contract
 
@@ -130,3 +139,10 @@ One verdict word, defined:
   the next pass picks it up.
 - **FAILED** — the procedure itself broke (tooling error, unexpected repo state)
   before you could finish; say why in DETAIL.
+
+A mixed pass can match more than one definition — a conflict fix pushed while CI
+re-runs, or a fix landed next to a question only a human can answer. Report the
+first that applies in this order: **FAILED, NEEDS-HUMAN, PARTIAL, DEFERRED,
+FIXED** — and let the one-line explanation carry what else happened. So a pushed
+fix plus a re-queued check is PARTIAL, not DEFERRED; a pushed fix plus a human
+question is NEEDS-HUMAN with the push noted in the one line.
