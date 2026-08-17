@@ -60,9 +60,12 @@ Call after the fix is committed on the branch, **before** push/PR. Return exactl
      affected reviewer(s); loop until no new *valid* Critical/High remains.
    - **Fix the class, not the instance.** When a finding reveals a *class* of defect (one
      unvalidated field among several consumed, one call site among many, one write path of
-     several), sweep for and fix every instance of the class in the changed code — all fields,
-     call sites, and write paths — not just the flagged one. Narrow fixes are what re-trigger
-     the next review round, and they tend to introduce the round's new findings.
+     several), sweep for every instance of the class and fix them all — following it past the
+     diff into unchanged fields, call sites, consumers, and sibling write paths, which carry
+     the same defect while the gate still reads `PASS`. Narrow fixes are what re-trigger the
+     next review round, and they tend to introduce the round's new findings. When the tail of
+     the sweep is too large for this change, fix what this change touches and `BLOCK` on the
+     rest (the too-large rule below).
    - **Invalid Low/Medium → skip**, recording a one-line reason (collected for the PR).
    - **Invalid (disputed) Critical/High → `BLOCK`.** Record the finding + your reasoning. Do not skip it.
    - **Valid but unsafe / too large to fix in this change → `BLOCK`** with that reason.
