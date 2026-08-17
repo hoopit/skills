@@ -119,9 +119,8 @@ own `skills/` folder, so a plugin exposes **only** its own skills — this is wh
 each group gets its own directory rather than a shared top-level `skills/` (a
 single shared folder would leak every skill into every plugin).
 
-Every plugin here is a local directory. A marketplace *can* also list a plugin fetched
-from another repo (a `github` source with a `strict` pick-list), but we don't — see
-[CLAUDE.md](CLAUDE.md) for why that goes stale.
+Every plugin here is a local directory — third-party skills are installed from their
+own marketplace, as above, rather than re-packaged into a plugin here.
 
 > **Adding or removing a Hoopit skill?** When working in this repo, Claude has a
 > project-local `create-hoopit-skill` skill (under `.claude/skills/`) that

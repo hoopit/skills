@@ -29,19 +29,12 @@ Skills here are distributed across **all** Hoopit projects (the `api` / backend,
 This refines `create-hoopit-skill`'s Rule 1: the test is "true for one Hoopit
 **project** but not another," not "mentions Hoopit at all."
 
-## Don't re-package third-party skills here
+## Third-party skills
 
-Every plugin in `.claude-plugin/marketplace.json` is a **local directory**
-(`"source": "./plugins/<group>"`). A re-packaged remote plugin can't be kept fresh:
-Claude Code's update check compares the upstream `plugin.json` `"version"` string,
-not the tree, so a plugin tracking a moving `main` reports "already at the latest
-version" while its cache silently freezes months behind, and skills renamed upstream
-fail with `skills path not found`.
-
-Install third-party skills from their own marketplace instead, so updates come
-straight from upstream — Matt's are `mattpocock-skills@claude-plugins-official`,
-enabled for this repo in `.claude/settings.json`. Our skills reference them by their
-namespaced name (`mattpocock-skills:code-review`), which is unchanged by the source.
+Skills our skills reference but don't ship — Matt Pocock's, for instance — are
+installed from their own marketplace (`mattpocock-skills@claude-plugins-official`,
+enabled for this repo in `.claude/settings.json`), never re-packaged into a plugin
+here. Reference them by namespaced name (`mattpocock-skills:code-review`).
 
 ## `/plugin` uninstall says "plugin doesn't exist"
 
