@@ -29,43 +29,24 @@ Skills here are distributed across **all** Hoopit projects (the `api` / backend,
 This refines `create-hoopit-skill`'s Rule 1: the test is "true for one Hoopit
 **project** but not another," not "mentions Hoopit at all."
 
-## matt-picks: `/plugin` update silently no-ops
+## Don't re-package third-party skills here
 
-`hoopit-matt-picks` tracks `mattpocock/skills` at a moving `main` (no `ref` in
-`marketplace.json`), but upstream's `.claude-plugin/plugin.json` pins a static
-`"version"` that rarely changes — it read `1.2.0` while `package.json` said `1.1.0`
-and the newest release was `v1.1.0`. Claude Code's update check compares **that
-version string**, not the tree, so `/plugin` reports "already at the latest version"
-and never re-downloads. The cache can sit months behind `main` (it froze at a June 30
-commit, 161 behind, until Aug 4).
+Every plugin in `.claude-plugin/marketplace.json` is a **local directory**
+(`"source": "./plugins/<group>"`). We used to also ship `hoopit-matt-picks`, a
+`strict` curated pick-list pointed at `mattpocock/skills` — it was removed because a
+re-packaged remote plugin can't be kept fresh: Claude Code's update check compares
+the upstream `plugin.json` `"version"` string, not the tree, so a plugin tracking a
+moving `main` reports "already at the latest version" and its cache silently froze
+months behind (once 161 commits, until a manual cache wipe). Picks that had been
+renamed upstream then failed with `skills path not found`.
 
-The symptom is `skills path not found` for picks that plainly exist on GitHub: the
-frozen tree predates them. Don't "fix" it by editing the `skills[]` list to match
-the stale cache — that's backwards, and it's how `to-tickets`/`to-spec` got reverted
-in `78f4eb8`.
+Install third-party skills from their own marketplace instead, so updates come
+straight from upstream — Matt's are `mattpocock-skills@claude-plugins-official`,
+enabled for this repo in `.claude/settings.json`. Our skills reference them by their
+namespaced name (`mattpocock-skills:code-review`), which is unchanged by the source.
 
-To force a real refresh:
+## `/plugin` uninstall says "plugin doesn't exist"
 
-```bash
-rm -rf ~/.claude/plugins/cache/hoopit-skills/hoopit-matt-picks/*
-rm -f  ~/.claude/plugins/plugin-catalog-cache.json
-# then /plugin, then /reload-plugins
-```
-
-Verify the **content**, not the directory name — the refreshed tarball lands in a
-directory still named after the old commit, and carries no `.git`. Compare a blob
-against upstream instead:
-
-```bash
-git hash-object package.json   # must equal:
-gh api "repos/mattpocock/skills/contents/package.json?ref=main" --jq .sha
-```
-
-Then run `scripts/gen-skills-readme.sh --refresh`, which 404-checks every pick
-against upstream and exits 1 listing any that moved. Run it periodically regardless —
-it is the only thing that catches upstream renames, since the version check never
-will.
-
-Related: `installed_plugins.json` records a plugin per `projectPath`. A plugin
-enabled in a repo's `.claude/settings.local.json` but with no install record for that
-path loads fine yet makes `/plugin` uninstall report "plugin doesn't exist."
+`installed_plugins.json` records a plugin per `projectPath`. A plugin enabled in a
+repo's `.claude/settings.local.json` but with no install record for that path loads
+fine yet makes `/plugin` uninstall report "plugin doesn't exist."

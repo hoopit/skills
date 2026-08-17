@@ -1,8 +1,8 @@
 name: Regenerate README skills block
 
 # Keeps the "Skills by plugin" block in README.md in sync with the source of truth
-# (each plugin's SKILL.md frontmatter + the picks in marketplace.json). Regenerates
-# and commits README back to main when it drifts.
+# (each plugin's SKILL.md frontmatter + the plugin list in marketplace.json).
+# Regenerates and commits README back to main when it drifts.
 #
 # No loop: the trigger paths below intentionally exclude README.md, so the README-only
 # commit this makes can't retrigger the workflow (and GITHUB_TOKEN pushes don't spawn
@@ -14,7 +14,6 @@ on:
     paths:
       - 'plugins/**/SKILL.md'
       - '.claude-plugin/marketplace.json'
-      - 'matt-picks-lock.json'
       - 'scripts/gen-skills-readme.sh'
 
 permissions:
