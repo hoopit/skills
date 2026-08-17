@@ -115,7 +115,7 @@ git commit -m "<JIRA_KEY>: <short description>
 ## Step 6 — Review gate
 
 From inside the worktree, run the **`review-gate`** skill against `$DEFAULT_BRANCH`.
-It runs the independent reviewers (matt-picks `mattpocock-skills:code-review` / cold
+It runs the independent reviewers (`mattpocock-skills:code-review` / cold
 subagent / self-review, plus CodeRabbit and Codex when installed), de-dups findings,
 fixes the valid ones, tracks the skipped ones, and returns:
 

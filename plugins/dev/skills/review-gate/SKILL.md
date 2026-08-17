@@ -1,6 +1,6 @@
 ---
 name: review-gate
-description: Run multiple independent code reviewers (the matt-picks two-axis /review + CodeRabbit + Codex) on the committed branch changes before a PR, aggregate and de-dup findings, fix what is valid, and BLOCK the PR (with notes) on any disputed Critical/High finding. Use right before opening a PR; handle-jira-issue Step 7 calls it. CodeRabbit/Codex are skipped if not installed locally; an independent review always runs (matt-picks /review, else a cold subagent, else inline self-review).
+description: Run multiple independent code reviewers (the mattpocock-skills two-axis /review + CodeRabbit + Codex) on the committed branch changes before a PR, aggregate and de-dup findings, fix what is valid, and BLOCK the PR (with notes) on any disputed Critical/High finding. Use right before opening a PR; handle-jira-issue Step 7 calls it. CodeRabbit/Codex are skipped if not installed locally; an independent review always runs (mattpocock-skills /review, else a cold subagent, else inline self-review).
 ---
 
 # Review Gate
@@ -8,7 +8,7 @@ description: Run multiple independent code reviewers (the matt-picks two-axis /r
 Runs up to three **independent** reviewers on the current branch's changes vs the repo's default
 branch, then gates PR creation. An independent review always runs; **CodeRabbit and Codex run only if
 available locally** (skipped, not failed, when absent). Diversity is the point — CodeRabbit and Codex
-are separate engines, and the always-on review prefers the **matt-picks `mattpocock-skills:code-review`
+are separate engines, and the always-on review prefers the **`mattpocock-skills:code-review`
 skill** (a two-axis Standards + Spec reviewer that spawns its own cold sub-agents — genuinely
 independent eyes). If that skill isn't installed it falls back to a fresh independent subagent, and to
 inline self-review only when no subagent tool is available.
@@ -35,7 +35,7 @@ Call after the fix is committed on the branch, **before** push/PR. Return exactl
    It prints `coderabbit=<ran|error|unavailable>[:file]` and `codex=<…>`. Read each `:file` for that
    reviewer's findings. Treat `error`/`unavailable` as **skipped** — note it, never fail the gate on it.
 3. **Independent review (always).** Prefer a cold, independent reviewer over grading your own work:
-   - **Preferred — invoke the `mattpocock-skills:code-review` skill** (the matt-picks two-axis reviewer;
+   - **Preferred — invoke the `mattpocock-skills:code-review` skill** (the two-axis reviewer;
      use the namespaced name so it isn't confused with the built-in `/review`, which reviews an
      existing GitHub PR). Give it **`$DEFAULT_BRANCH` as the fixed point** — it runs
      `git diff "$DEFAULT_BRANCH"...HEAD`, spawns its own parallel **Standards** and **Spec** sub-agents
@@ -43,7 +43,7 @@ Call after the fix is committed on the branch, **before** push/PR. Return exactl
      hypothesis), and returns `## Standards` + `## Spec` findings. If you have the originating Jira
      issue / PRD (e.g. handle-jira-issue passes it through), give it to the skill as the spec argument
      so the **Spec** axis runs; otherwise that axis self-skips.
-   - **Fallback — if that skill isn't installed** (e.g. only `hoopit-dev`, not `hoopit-matt-picks`):
+   - **Fallback — if that skill isn't installed** (e.g. only `hoopit-dev`, not `mattpocock-skills`):
      if the Agent/Task tool is available, spawn a fresh `general-purpose` subagent to review the change
      **cold** — give it only the repo path and `git diff "$DEFAULT_BRANCH"...HEAD`; otherwise review
      the diff yourself inline. For this fallback look for: correctness/logic bugs, security,
@@ -93,9 +93,10 @@ Solution:
 - If only the always-on review ran (CodeRabbit + Codex both unavailable), say so explicitly in the PR
   notes so the human knows review coverage was reduced — `mattpocock-skills:code-review` covers standards +
   spec, so bug/security depth leans on CodeRabbit/Codex when they run.
-- `mattpocock-skills:code-review` ships via the **`hoopit-matt-picks`** plugin (a curated pick of
-  `mattpocock/skills`). If that plugin isn't installed the gate uses the cold-subagent fallback above —
-  equivalent independence, but you lose the structured two-axis split.
+- `mattpocock-skills:code-review` ships via the **`mattpocock-skills`** plugin, installed from the
+  official Claude Code marketplace (`mattpocock-skills@claude-plugins-official`). If that plugin isn't
+  installed the gate uses the cold-subagent fallback above — equivalent independence, but you lose the
+  structured two-axis split.
 - `coderabbit`/`codex` may be slow (minutes) and need their own auth (`coderabbit auth`, codex setup);
   an auth/`error` result is treated as a skipped reviewer, not a gate failure.
 - The script invokes `coderabbit review --agent` (structured NDJSON findings). The older `--prompt-only`

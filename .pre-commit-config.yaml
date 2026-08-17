@@ -1,10 +1,8 @@
 # Keeps README.md's "Skills by plugin" block in sync with the source of truth before
 # each commit. Enable once per clone with:  pre-commit install
 #
-# This hook is OFFLINE — it regenerates the block from marketplace.json, the local
-# SKILL.md files, and the committed matt-picks-lock.json. It does NOT hit the network.
-# If you add/rename a matt-pick, refresh the lockfile first (this also verifies the
-# pick still exists upstream):  scripts/gen-skills-readme.sh --refresh
+# This hook is OFFLINE — it regenerates the block from marketplace.json and the local
+# SKILL.md files. It does NOT hit the network.
 repos:
   - repo: local
     hooks:
@@ -13,4 +11,4 @@ repos:
         entry: bash scripts/gen-skills-readme.sh
         language: system
         pass_filenames: false
-        files: '^(plugins/.*/SKILL\.md|\.claude-plugin/marketplace\.json|scripts/gen-skills-readme\.sh|matt-picks-lock\.json)$'
+        files: '^(plugins/.*/SKILL\.md|\.claude-plugin/marketplace\.json|scripts/gen-skills-readme\.sh)$'
