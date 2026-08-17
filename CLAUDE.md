@@ -32,13 +32,11 @@ This refines `create-hoopit-skill`'s Rule 1: the test is "true for one Hoopit
 ## Don't re-package third-party skills here
 
 Every plugin in `.claude-plugin/marketplace.json` is a **local directory**
-(`"source": "./plugins/<group>"`). We used to also ship `hoopit-matt-picks`, a
-`strict` curated pick-list pointed at `mattpocock/skills` — it was removed because a
-re-packaged remote plugin can't be kept fresh: Claude Code's update check compares
-the upstream `plugin.json` `"version"` string, not the tree, so a plugin tracking a
-moving `main` reports "already at the latest version" and its cache silently froze
-months behind (once 161 commits, until a manual cache wipe). Picks that had been
-renamed upstream then failed with `skills path not found`.
+(`"source": "./plugins/<group>"`). A re-packaged remote plugin can't be kept fresh:
+Claude Code's update check compares the upstream `plugin.json` `"version"` string,
+not the tree, so a plugin tracking a moving `main` reports "already at the latest
+version" while its cache silently freezes months behind, and skills renamed upstream
+fail with `skills path not found`.
 
 Install third-party skills from their own marketplace instead, so updates come
 straight from upstream — Matt's are `mattpocock-skills@claude-plugins-official`,
