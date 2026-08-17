@@ -78,8 +78,8 @@ keep those lines when you run the block, with the literal paths substituted.
    ```
 
    `HEAD_BRANCH` is resolved from `gh` at execution time, never pasted from your
-   prompt — step 5 explains why. Re-resolve it in every block that names the
-   branch; blocks don't share shells.
+   prompt — the briefing's *never interpolate a branch name* rail. Re-resolve it in
+   every block that names the branch; blocks don't share shells.
 
    Same rules as the conflict procedure: follow the repo's own worktree skill if it
    has one, detached HEAD so no local branch can collide, `git -C "$WORKTREE_DIR" …`
@@ -106,38 +106,26 @@ keep those lines when you run the block, with the literal paths substituted.
    git -C "$REPO_ROOT" worktree remove "$WORKTREE_DIR"
    ```
 
-   The `DEFAULT_BRANCH` test is the briefing's never-push-to-default rail made
-   executable: a same-repo PR can have the default branch *as* its head (a
-   back-merge into a release branch, say), and under `set -e` a matching name
-   fails the test and stops the block before anything is committed or pushed.
-   Report such a PR instead of pushing it.
+   - **The `DEFAULT_BRANCH` test** is the briefing's never-push-to-default rail made
+     executable: under `set -e` a matching name stops the block before anything is
+     committed or pushed. Report such a PR instead of pushing it.
+   - **`set -euo pipefail` is load-bearing.** Without it a failed `commit` or `push`
+     falls straight through to the `clean`/`worktree remove` lines, which delete the
+     fix you just made while the report claims a push that never happened. It applies
+     to *this* block only; step 1's `gh pr checks` keeps its own expected-non-zero
+     handling.
+   - **`add -A`, not `commit -am`**, is what makes a fix that *creates* a file (a
+     missing migration, a new snapshot or fixture) land — `-am` stages only tracked
+     paths, so the push would carry an incomplete fix and the `clean` two lines later
+     would delete the missing piece. Check `show --stat` against what you actually
+     edited before pushing; if `add -A` sweeps in a stray artifact, delete that file
+     rather than falling back to `-am`.
 
-   The `set -euo pipefail` is load-bearing: without it a failed `commit` or `push`
-   falls straight through to the `clean`/`worktree remove` lines, which delete the
-   fix you just made — and the report then claims a push that never happened. If
-   this block exits non-zero partway, the worktree is left intact on purpose:
-   report the failure (with the command's output), and match the report to where
-   the block stopped. A failure at or before the `push` line means the remote
-   never got the change — don't report it as pushed. A failure *after* the push
-   (`clean` or `worktree remove`) means the fix is already on the remote — report
-   the push as done and the cleanup failure separately, so the orchestrator knows
-   there's a leftover worktree, not a missing fix. This fail-fast applies to
-   *this* block; the `gh pr checks` query in step 1 keeps its own
-   expected-non-zero handling.
-
-   The branch name is **resolved at execution time** rather than pasted into the
-   command, because pasting is unsafe *even quoted*: git accepts branch names
-   containing `;`, `$(…)`, backticks and quotes, and inside double quotes the
-   shell still evaluates command substitutions — a literal `"HEAD:feature$(…)"`
-   in shell source runs whatever the name embeds. Expanded from `$HEAD_BRANCH`
-   inside a quoted argument, it's data the shell never re-parses.
-
-   `add -A` before the commit is what makes a fix that *creates* a file (a missing
-   migration, a new snapshot or fixture) land: `-am` stages only tracked paths, so the
-   push would carry an incomplete fix, CI would fail the same way, and the `clean` two
-   lines later would delete the missing piece — leaving nothing to explain the miss.
-   Check `show --stat` against what you actually edited before pushing. If `add -A`
-   sweeps in a stray artifact, delete that file rather than falling back to `-am`.
+   When this block exits non-zero partway the worktree is left intact on purpose.
+   Match the report to where it stopped: at or before the `push` line the remote
+   never got the change — don't report it as pushed; after the push, the fix is on
+   the remote, so report the push as done and the cleanup failure separately, so the
+   orchestrator reads it as a leftover worktree rather than a missing fix.
 
    If the local run still fails, you misread the cause — don't push. Drop the fix and
    report the check. Note that `checkout .` only covers **tracked** files, so a fix

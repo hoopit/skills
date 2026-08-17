@@ -43,9 +43,9 @@ pushed.
    ```
 
    `HEAD_BRANCH` is resolved from `gh` at execution time rather than pasted from
-   your prompt, because branch names may contain characters the shell would
-   evaluate even inside double quotes — step 5 explains. Use this load-then-expand
-   pattern, re-resolved per block, for **every** branch-name expansion in this file.
+   your prompt — the briefing's *never interpolate a branch name* rail. Use this
+   load-then-expand pattern, re-resolved per block, for **every** branch-name
+   expansion in this file.
 
    This lands on a **detached HEAD** at the remote tip — deliberately, so it can't
    collide with a stale local branch of the same name. It changes how you push (step
@@ -110,12 +110,10 @@ pushed.
    untracked files"*.
 
    A blanket `clean` is safe here precisely because step 1 built this worktree fresh
-   from a remote ref — it started with zero untracked files, so anything `clean`
-   finds is something this procedure created. That reasoning holds **only** inside
-   the procedure's own worktree; never run it in the user's checkout. And no `-x`:
-   ignored paths (dependency dirs, `.pytest_cache`, coverage output) block neither a
-   re-merge nor `worktree remove`, so deleting them only makes the next pass
-   re-download them.
+   from a remote ref — anything it finds is something this procedure created. Keep
+   it scoped to that worktree, and keep `-x` off: ignored paths (dependency dirs,
+   caches, coverage output) block neither a re-merge nor `worktree remove`, so
+   deleting them only makes the next pass re-download them.
 
    Then report the PR as needing a human, naming the files and what the two sides
    disagree about. Every later step that says *abort* means this same restore —
@@ -237,69 +235,40 @@ pushed.
    fi
    ```
 
-   The commit is **gated on `MERGE_HEAD`** because by step 5 the merge may already be
-   committed — a clean re-merge auto-commits, and a resolution skill may have
-   committed for you. With no merge in progress, `git commit --no-edit` exits
-   non-zero, and a fail-fast shell would die right there — *before* the guards and
-   the push — turning a finished resolution into a silent no-push.
+   Why each piece is shaped the way it is — a push is the one action here a later
+   pass can't quietly undo, so every guard has to *gate* the push rather than print
+   beside it. Keep the `if`/`elif`/`else`: written as bare commands that only `echo`,
+   the `git push` on the next line runs regardless and pushes the very head the check
+   just declared unpushable.
 
-   The default-branch check is the briefing's never-push-to-default rail made
-   executable: a same-repo PR can have the default branch *as* its head (a
-   back-merge into a release branch, say), and nothing upstream filters those
-   out — so the block compares the two names it just resolved and refuses the
-   push outright when they match. Such a PR gets reported, not pushed.
+   - **The commit is gated on `MERGE_HEAD`** because by now the merge may already be
+     committed (a clean re-merge auto-commits, and a resolution skill may have
+     committed for you). With no merge in progress `git commit --no-edit` exits
+     non-zero, and a fail-fast shell would die before the guards and the push —
+     turning a finished resolution into a silent no-push.
+   - **The default-branch check** is the briefing's never-push-to-default rail made
+     executable; nothing upstream filters back-merge PRs out.
+   - **The pin check** anchors the saved head to trusted state: the ref lives in the
+     shared ref store that setup and the PR's own tests could write to, so the
+     ancestry checks below it would otherwise assert against whatever rewrote it.
+     `SAVED_SHA` is read **once** and feeds both the ancestry guard and the lease, so
+     the commit the guards validated is the commit the lease pins. A deleted ref
+     resolves to an empty `SAVED_SHA`, which the same comparison rejects.
+   - **Both ancestry checks** are needed, neither substitutes for the other. The
+     default-branch one catches a merge that never happened, but it *passes* on step
+     4's baseline detour — where `HEAD` is the default branch, trivially its own
+     ancestor — and would push the default branch over the PR's head, discarding the
+     PR. The PR-head check rejects that. The `grep` then catches a merge "resolved"
+     by committing the markers.
+   - **`--force-with-lease="$HEAD_BRANCH:$SAVED_SHA"`** is force-capable on its own;
+     what confines it is the ancestry guard above having already proved `$SAVED_SHA`
+     is an ancestor of `HEAD`, leaving only an ordinary fast-forward. The lease also
+     rejects anything that landed on the branch mid-pass — including a force-push to
+     an *ancestor*, which a plain push would silently bury. A lease rejection is a
+     failed guard: restore, clean up, report; don't refetch and retry.
 
-   The pin check after it anchors the saved head to trusted state: the ref lives in the
-   shared ref store, and everything you ran since step 2 — setup, the PR's own
-   tests — had write access to that store. If the ref moved, the two ancestry
-   checks below it would be asserting against whatever it was rewritten to point
-   at; comparing it to the SHA you noted in step 2 (substitute it literally)
-   restores their footing. `SAVED_SHA` is read **once**, checked against your noted
-   copy, and that one value feeds both the ancestry guard and the push — so the
-   commit the guards validated is the commit the lease pins. A ref that's gone
-   entirely resolves to an empty `SAVED_SHA`, which the same comparison rejects.
-
-   The push carries `--force-with-lease="$HEAD_BRANCH:$SAVED_SHA"` — a
-   lease-guarded force update. The flag itself is force-capable: on its own it
-   would let a matching lease rewrite history. Two things confine it here. The
-   lease makes the remote accept the push only if the branch tip is still exactly
-   the head this pass started from (step 2's saved ref) — anything that landed on
-   the branch mid-pass rejects it, including a force-push to an *ancestor*, which
-   a plain push would silently bury by reinstating the commits someone just
-   deliberately removed. And because the first ancestry guard already proved
-   `$SAVED_SHA` is an ancestor of `HEAD`, the only push the lease can let through
-   is an ordinary fast-forward of the saved head — the guard, not the flag, is
-   what keeps this within the never-force rail. Bare `--force`, and bare `--force-with-lease`
-   without an expected value (it trusts whatever your remote-tracking ref says),
-   stay forbidden. A lease rejection means the branch moved under you mid-pass:
-   treat it as a failed guard — restore, clean up, report; don't refetch and retry.
-
-   The three checks after the pin cover the same failure mode from three sides. **Both** ancestry
-   checks are needed, and neither substitutes for the other: the default-branch one
-   catches a merge that never happened, but on its own it *passes* on step 4's
-   baseline detour — where `HEAD` is the default branch, making it trivially its own
-   ancestor — and would push the default branch over the PR's head branch, discarding
-   the PR. The PR-head check is what rejects that. The `grep` then catches a merge
-   that was "resolved" by committing the markers. None of this is hypothetical once
-   step 4 has rewound or switched the tree — and a push is the one action in this
-   procedure that a later pass can't quietly undo.
-
-   The branch name is **resolved at execution time**, in the same block that uses
-   it (each block is a fresh shell — re-resolve, don't carry it over). Pasting it
-   into the command text instead is not safe *even quoted*: git accepts branch
-   names containing `;`, `$(…)`, backticks and quotes (only spaces, `~^:?*[\` and
-   a few patterns are forbidden), and inside double quotes the shell still
-   evaluates command substitutions — a literal `"HEAD:feature$(…)"` in shell
-   source runs whatever the name embeds. Expanded from `$HEAD_BRANCH` inside a
-   quoted argument, the name is data the shell never re-parses. Load-then-expand
-   like this everywhere you name a branch.
-
-   **The `if`/`elif`/`else` is load-bearing** — the checks have to *gate* the push, not
-   just print next to it. Written as two bare commands that only `echo`, the `git push`
-   on the following line runs regardless, so the procedure pushes the very head the
-   check just declared unpushable. A failed guard ends this axis: record it for your
-   RESULT, run the step 3 restore, clean up the worktree (step 7), and report — don't
-   push, and don't abandon the cleanup.
+   A failed guard ends this axis: record it for your RESULT, run the step 3 restore,
+   clean up the worktree (step 7), and report.
 
 6. **Confirm** it took. GitHub recomputes mergeability asynchronously, so poll rather
    than checking once — but **bound the poll**, or one stuck PR eats the pass budget:

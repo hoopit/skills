@@ -41,8 +41,9 @@ for repo in "$HOOPIT_ROOT"/*/; do
 done
 ```
 
-(At the time of writing that resolves to `BAC → api`, `WEB → web-admin`,
-`FA → flutter-app`, but always resolve it from CLAUDE.md.)
+Call the resulting set of keys the **project keys**; every "is this a project issue?"
+test below means "is its prefix one of them?". Wherever the steps show `BAC` / `WEB` /
+`FA`, they are examples of that set, never the set itself.
 
 Once you know `TARGET_REPO`, read the rest of its Workflow skills config —
 **Jira base URL**, **ITSM project key**, **Default branch** — from that repo's
@@ -88,7 +89,7 @@ Before anything else, classify the input issue. If a full Jira URL was provided,
 
 For project-originated issues the project is already known from the key prefix. For ITSM-originated issues, resolve the target project as follows:
 
-1. **Existing link wins.** After fetching the ITSM issue, if it already links to an issue whose key prefix is `BAC-`, `WEB-`, or `FA-`, that is `TARGET_PROJECT` — no question needed.
+1. **Existing link wins.** After fetching the ITSM issue, if it already links to an issue whose key prefix is one of the project keys, that is `TARGET_PROJECT` — no question needed.
 2. **Fall back to cwd.** Otherwise, default to whichever repo the current working directory sits inside, and read **that** repo's `Jira project key` from its CLAUDE.md Workflow skills config — that is `TARGET_PROJECT`.
 3. **Ask if ambiguous.** If neither rule resolves (e.g. cwd is outside all three repos, or the ITSM issue clearly describes a different layer than the cwd suggests), ask the user which project to target before doing anything else.
 
@@ -147,7 +148,7 @@ Instead, fetch the `issuelinks` field directly and parse the JSON:
 acli jira workitem view <ITSM_ISSUE_KEY> --fields 'issuelinks' --json
 ```
 
-Inspect **both** `inwardIssue.key` and `outwardIssue.key` across all entries in the `fields.issuelinks` array. Look for any linked issue whose key starts with `BAC-`, `WEB-`, or `FA-`.
+Inspect **both** `inwardIssue.key` and `outwardIssue.key` across all entries in the `fields.issuelinks` array. Look for any linked issue whose key prefix is one of the project keys.
 
 If such a link exists:
 - Set `TARGET_PROJECT` from its prefix and `TARGET_KEY` to that key.

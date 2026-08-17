@@ -63,10 +63,8 @@ acli jira workitem view <ITSM_ISSUE_KEY> --fields 'issuelinks' --json
 
 From `fields.issuelinks`, keep every entry whose `type.name` is an
 `implementation_link_types` value and whose linked key (`inwardIssue.key` **or**
-`outwardIssue.key`) starts with a configured platform project key (`BAC` / `WEB` /
-`FA`). This is exactly what `_triage_common/jira_links.py`'s
-`implementation_links_from_issuelinks(issuelinks, config)` computes — use it if
-running from Python. Each such key's prefix identifies an **affected repo**.
+`outwardIssue.key`) starts with a platform project key configured in the triage
+config. Each such key's prefix identifies an **affected repo**.
 
 ### 2b — Determine any additional affected repos from investigation
 

@@ -102,11 +102,3 @@ Print a summary table of all processed comments:
 | 1 | `path/to/file` | coderabbitai | Applied fix | ✅ Yes |
 | 2 | `path/to/other` | coderabbitai | Invalid — explained why | ✅ Yes |
 | 3 | `path/to/another` | coderabbitai | Shared findings, needs discussion | ❌ No |
-
-## Resolution Rules
-
-> **Only resolve a comment thread if one of the following is true:**
-> 1. You implemented a code change that addresses the comment.
-> 2. You determined the comment is invalid/not applicable and explained why.
->
-> **In all other cases**, reply with your findings but **leave the thread unresolved**.

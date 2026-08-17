@@ -22,7 +22,10 @@ The `context_window` field Claude Code passes to statusline commands only counts
 
 Streaming writes several transcript entries per assistant message (same `message.id`, same usage), so the sums dedupe by message id.
 
-> **Glyph width matters.** Keep the RENDER glyphs single-cell. `↯` (U+21AF) is used for cache instead of `⚡` (U+26A1) because `⚡` is **double-width**: terminals draw it 2 columns wide while Claude Code counts it as 1, which desyncs the status bar's redraw and leaves stale characters on screen when a value's length changes.
+> **Glyph width matters** (the rule behind every glyph choice here, see *Nerd Font glyphs* below). Keep
+> every RENDER glyph single-cell: a double-width glyph like `⚡` (U+26A1) is drawn 2 columns by the
+> terminal but counted as 1 by the status bar, which desyncs the redraw and leaves stale characters on
+> screen when a value's length changes. Hence `↯` (U+21AF) for cache.
 
 ## Install steps
 
@@ -110,8 +113,8 @@ The RENDER block defines two glyph sets, picked by a `use_nerd` toggle near its 
 
 The installer sets this for you (the Nerd Font check in Install steps prints the icons and asks if they render). To flip it by hand, edit the `use_nerd=` line. Two rules when adding glyphs:
 
-- **Keep every glyph single-cell.** A double-width glyph (e.g. `⚡` U+26A1) is drawn 2 columns by the terminal but counted as 1 by the status bar, which desyncs the redraw and leaves stale characters when a value's length changes.
-- **Write codepoints as `\uXXXX`, never the literal glyph.** `bash`'s `$'\uXXXX'` expands them at render time, and the source stays pure ASCII — so the glyphs can't be silently blanked (which is how the original git markers were lost).
+- **Keep every glyph single-cell**, per the width rule above.
+- **Write codepoints as `\uXXXX`, never the literal glyph.** `bash`'s `$'\uXXXX'` expands them at render time and the source stays pure ASCII, so an editor or a copy-paste through a font-less pipeline can't silently blank them.
 
 ### Using the built-in `/statusline` agent to format
 
@@ -150,5 +153,4 @@ In both cases the home-directory tilde shortening (`${dir/#$home/~}`) and the `�
 
 ## Caveats
 
-- The git status symbols include Nerd Font glyphs (` `, ` `). If the user's terminal font lacks them, substitute plain characters like `!` and `=`.
 - The numbers measure different things and are **not** expected to satisfy `context = ↑ + ↓`. The useful invariant is roughly `context ≈ ↑ + prefix cached by an earlier session` (system prompt and project context are often cache-shared across sessions, so the first call reads tokens this session never paid to write).

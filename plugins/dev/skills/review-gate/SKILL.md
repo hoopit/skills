@@ -93,12 +93,8 @@ Solution:
 - If only the always-on review ran (CodeRabbit + Codex both unavailable), say so explicitly in the PR
   notes so the human knows review coverage was reduced — `mattpocock-skills:code-review` covers standards +
   spec, so bug/security depth leans on CodeRabbit/Codex when they run.
-- `mattpocock-skills:code-review` ships via the **`mattpocock-skills`** plugin, installed from the
-  official Claude Code marketplace (`mattpocock-skills@claude-plugins-official`). If that plugin isn't
-  installed the gate uses the cold-subagent fallback above — equivalent independence, but you lose the
-  structured two-axis split.
+- `mattpocock-skills:code-review` ships via the **`mattpocock-skills`** plugin
+  (`mattpocock-skills@claude-plugins-official`). Without it the gate uses the cold-subagent fallback
+  above — equivalent independence, minus the structured two-axis split.
 - `coderabbit`/`codex` may be slow (minutes) and need their own auth (`coderabbit auth`, codex setup);
   an auth/`error` result is treated as a skipped reviewer, not a gate failure.
-- The script invokes `coderabbit review --agent` (structured NDJSON findings). The older `--prompt-only`
-  flag was removed from the CodeRabbit CLI — on a CLI that predates `--agent`, CodeRabbit will `error`
-  (silently dropping coverage to the always-on review only). Keep the CLI current (`coderabbit --version`).

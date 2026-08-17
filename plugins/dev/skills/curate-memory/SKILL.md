@@ -46,6 +46,10 @@ every* edit to files of its type; a **skill** is relevant only when you're doing
 rule. If converting a skill to a rule would load a long how-to on edits that mostly
 *aren't* that task, keep it a skill.
 
+One knowledge item gets **one** home. When the same gotcha applies across many
+sibling directories, a single path-scoped rule covers them all — reach for that
+rather than a copy of it in each directory's `CLAUDE.md`.
+
 ## Workflow
 
 ### 1. Survey
@@ -140,18 +144,3 @@ Globs support `**`, `*`, and brace expansion (`{ts,tsx}`). Skills support the sa
 `paths:` field if you want a skill that only surfaces for certain files. Differences:
 nested `CLAUDE.md` loads by *directory proximity*; a rule loads by *path glob match*;
 a skill loads by *model invocation* (description-gated), optionally narrowed by paths.
-
-## Anti-patterns
-
-- Promoting a one-off incident log or in-flight status into a team doc — those are
-  exactly what should stay (or be deleted), not shared.
-- Converting an occasional how-to skill into an always-on rule — context bloat on
-  every edit for a task that rarely happens.
-- Duplicating into a team doc something already enforced by a test/hook or commented
-  next to the code — delete the memory instead; point-of-use wins.
-- Per-directory `CLAUDE.md` copies for something that lives in many sibling dirs — use
-  one path-scoped rule instead of N copies.
-- Deleting the source memory before writing the promoted copy.
-- Committing promoted docs straight to the default branch — they always go up as a
-  PR (step 8).
-- Leaving `MEMORY.md` out of sync with the files on disk.
