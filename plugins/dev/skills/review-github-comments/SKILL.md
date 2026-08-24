@@ -14,6 +14,13 @@ description: Review and resolve all review comments on a GitHub PR — fetch com
 ### 1. Get PR metadata
 Ask the user for the PR URL if not provided. Extract the `<owner>/<repo>` and `<pr_number>` from the URL.
 
+Then echo the PR url once, so Claude Code renders its footer PR badge for the rest of
+the session (it builds that badge by scanning command output for a PR url, and the
+`gh api` calls below never print one):
+```bash
+gh pr view <pr_number> --repo <owner>/<repo> --json url --jq .url
+```
+
 ### 2. Fetch review comments and thread resolution status
 
 Fetch the raw comments:
