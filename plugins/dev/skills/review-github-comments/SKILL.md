@@ -21,6 +21,21 @@ the session (it builds that badge by scanning command output for a PR url, and t
 gh pr view <pr_number> --repo <owner>/<repo> --json url --jq .url
 ```
 
+### 1b. Work in the PR's worktree if one exists
+Fixes must land on the PR branch, so before touching any code find where that branch
+is checked out:
+```bash
+gh pr view <pr_number> --repo <owner>/<repo> --json headRefName --jq .headRefName
+git worktree list
+```
+- If a worktree already has the PR branch checked out, `cd` into it and do all
+  edits, commits and pushes there — don't create a second one.
+- Otherwise, if the current checkout is on a different branch, add a worktree for
+  the PR branch (`git fetch origin <branch> && git worktree add <path> <branch>`)
+  rather than switching the user's current checkout.
+- Run `git pull --ff-only` in the chosen worktree so you're editing the latest
+  PR head before applying fixes.
+
 ### 2. Fetch review comments and thread resolution status
 
 Fetch the raw comments:
