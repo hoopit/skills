@@ -98,7 +98,10 @@ After processing all comments:
 
    Resolved comments from coderabbitai on PR #<pr_number>.
    ```
-3. Push to the PR branch.
+3. Push to the PR branch. **Always push** unless the user explicitly asked not to
+   (e.g. "don't push", "leave it local") — a fix that only exists locally doesn't
+   answer the reviewer, and the reply you already posted claims it's addressed.
+   If pushing is declined, say so plainly in the summary.
 
 
 ### 6. Report summary
