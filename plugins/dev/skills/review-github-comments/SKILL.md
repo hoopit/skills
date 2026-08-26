@@ -119,6 +119,29 @@ After processing all comments:
    If pushing is declined, say so plainly in the summary.
 
 
+### 5b. Clear a stale CodeRabbit "changes requested" review
+CodeRabbit often submits its findings as a `REQUEST_CHANGES` review. Resolving the threads
+does **not** clear that state — the PR stays blocked on "changes requested" until the review
+is superseded or dismissed. After pushing, check:
+```bash
+gh api repos/<owner>/<repo>/pulls/<pr_number>/reviews \
+  --jq '.[] | select(.state=="CHANGES_REQUESTED") | {id, user: .user.login}'
+```
+For each `CHANGES_REQUESTED` review from `coderabbitai[bot]`:
+- **If you fixed or explained every thread from that review**, ask CodeRabbit to re-review so it
+  supersedes its own verdict — post a PR comment `@coderabbitai review`. That is the preferred
+  path; it also surfaces anything your fixes introduced. If the user wants the PR unblocked
+  immediately (or CodeRabbit doesn't respond), dismiss the stale review instead:
+  ```bash
+  gh api -X PUT repos/<owner>/<repo>/pulls/<pr_number>/reviews/<review_id>/dismissals \
+    -f message="Addressed in <short-sha>; threads resolved." -f event=DISMISS
+  ```
+- **If any thread from that review is still open (case c)**, leave the review in place — the
+  block is legitimate — and say so in the summary.
+
+Never dismiss a `CHANGES_REQUESTED` review from a **human** reviewer; only they (or a re-review)
+should clear it. Mention it in the summary as still pending.
+
 ### 6. Report summary
 Print a summary table of all processed comments:
 
