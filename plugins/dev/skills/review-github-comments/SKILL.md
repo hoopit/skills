@@ -119,6 +119,15 @@ After processing all comments:
    If pushing is declined, say so plainly in the summary.
 
 
+### 5a. Trigger a fresh Codex review if nothing was pushed
+If every thread ended up resolved but the run produced **no push** (no code changed),
+the reviewers have nothing new to look at — start another review round yourself:
+```bash
+gh workflow run codex-review-manual.yml -f pr=<pr_number> --repo <owner>/<repo>
+```
+Skip this when a calling skill (e.g. `monitor-pr`) says it handles re-review triggering
+itself.
+
 ### 5b. Clear a stale CodeRabbit "changes requested" review
 CodeRabbit often submits its findings as a `REQUEST_CHANGES` review. Resolving the threads
 does **not** clear that state — the PR stays blocked on "changes requested" until the review
