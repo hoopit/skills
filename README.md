@@ -70,9 +70,8 @@ Day-to-day dev workflows and CLIs: Jira/Sentry issues, PR review, Atlassian, Cir
 | `circleci-tests` | Auto | Fetch failing tests from a CircleCI job URL. |
 | `create-pull-request` | Auto | Create GitHub PRs that always link the work item they implement (Jira/Sentry/etc.) and keep Jira links clean — emit only the keys this PR delivers so GitHub-for-Jira doesn't attach it to unrelated tickets. |
 | `curate-memory` | Manual | Review, prune, and promote Claude Code agent memories — delete stale/shipped ones, and move durable team-relevant knowledge into the right shared home (a path-scoped rule, a directory CLAUDE.md, root CLAUDE.md, or leave it a skill). |
-| `fix-itsm-issue` | Auto | Fix an ITSM ticket end-to-end across every project it affects — read the ticket + attachments, resolve or create the linked platform issue in each affected repo, then ship one PR per repo via implement-and-ship-fix. |
 | `fix-sentry-issue` | Auto | Fix a Sentry issue end-to-end — fetch details, create or link a Jira ticket (with a native bidirectional Sentry↔Jira link), then ship the fix (branch, fix, test, review, PR) via implement-and-ship-fix. |
-| `handle-jira-issue` | Auto | Handle any Jira issue end-to-end — an ITSM ticket or a project issue (BAC/WEB/FA). |
+| `handle-jira-issue` | Auto | Handle any Jira issue end-to-end — an ITSM ticket (single- or multi-project) or a project issue (BAC/WEB/FA). |
 | `implement-and-ship-fix` | Auto | Ship a fix for an already-identified bug end-to-end — worktree, minimal fix, regression test, review gate, push, PR. |
 | `review-gate` | Auto | Run multiple independent code reviewers (the mattpocock-skills two-axis /review + CodeRabbit + Codex) on the committed branch changes before a PR, aggregate and de-dup findings, fix what is valid, and BLOCK the PR (with notes) on any disputed Critical/High finding. |
 | `review-github-comments` | Auto | Review and resolve all review comments on a GitHub PR — fetch comments, evaluate each one, apply fixes where needed, and reply to resolve them. |

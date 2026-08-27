@@ -9,7 +9,7 @@ The generic core shared by every fix workflow: given a **known target repo**, a
 **known project issue**, and an understood bug, take it from a branch to a reviewed
 PR. The origin-specific work — figuring out *which* repo and issue, reading the
 report, creating/linking the tracker — happens in the **entry skill** that calls
-this one (`fix-itsm-issue`, `fix-sentry-issue`, `handle-jira-issue`). This skill
+this one (`fix-sentry-issue`, `handle-jira-issue`). This skill
 starts at "we know what to fix and where" and ends at "the PR is open".
 
 Run it **once per repo**. A fix that spans several repos calls this skill once for
