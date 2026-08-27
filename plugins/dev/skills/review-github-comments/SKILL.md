@@ -21,6 +21,15 @@ the session (it builds that badge by scanning command output for a PR url, and t
 gh pr view <pr_number> --repo <owner>/<repo> --json url --jq .url
 ```
 
+### 1a. Label the PR while you work
+Mark the PR so humans see an agent is on it, and clear the label as your final action
+before the summary (also on failure or early exit):
+```bash
+gh pr edit <pr_number> --repo <owner>/<repo> --add-label agent-working     # now
+gh pr edit <pr_number> --repo <owner>/<repo> --remove-label agent-working  # when done
+```
+Skip both when a calling skill (e.g. `monitor-pr`) says it manages the label itself.
+
 ### 1b. Work in the PR's worktree if one exists
 Fixes must land on the PR branch, so before touching any code find where that branch
 is checked out:
