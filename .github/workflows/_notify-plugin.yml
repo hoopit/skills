@@ -2,7 +2,8 @@ name: Notify plugin change (reusable)
 
 # Reusable core for the per-plugin Slack notifications. Each plugin has its own
 # caller workflow (notify-<plugin>.yml) that filters on its path and calls this.
-# Posts a compact message to #development-team via SLACK_DEVELOPMENT_TEAM_WEBHOOK.
+# Posts a compact message to #skills via SLACK_DEVELOPMENT_TEAM_WEBHOOK (the
+# org webhook secret keeps its historical name; it points at #skills).
 
 on:
   workflow_call:
