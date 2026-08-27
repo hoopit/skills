@@ -5,6 +5,12 @@ description: Review and resolve all review comments on a GitHub PR — fetch com
 
 # GitHub PR Review Comments Workflow
 
+## Caller-owned rounds
+A calling skill (e.g. `monitor-pr`) may say it **owns the round**. It then manages the
+whole lifecycle — worktree, `agent-working` label, push, and any re-review trigger —
+and you do only the comment work: steps 2–4 plus the commit in step 5. Skip steps 1a,
+1b, 5a, and step 5's push.
+
 ## Prerequisites
 - The `gh` CLI must be authenticated.
 - You must be in the project repository (or a worktree of it).
@@ -28,7 +34,6 @@ before the summary (also on failure or early exit):
 gh pr edit <pr_number> --repo <owner>/<repo> --add-label agent-working     # now
 gh pr edit <pr_number> --repo <owner>/<repo> --remove-label agent-working  # when done
 ```
-Skip both when a calling skill (e.g. `monitor-pr`) says it manages the label itself.
 
 ### 1b. Work in the PR's worktree if one exists
 Fixes must land on the PR branch, so before touching any code find where that branch
@@ -134,8 +139,6 @@ the reviewers have nothing new to look at — start another review round yoursel
 ```bash
 gh workflow run codex-review-manual.yml -f pr=<pr_number> --repo <owner>/<repo>
 ```
-Skip this when a calling skill (e.g. `monitor-pr`) says it handles re-review triggering
-itself.
 
 ### 5b. Clear a stale CodeRabbit "changes requested" review
 CodeRabbit often submits its findings as a `REQUEST_CHANGES` review. Resolving the threads
