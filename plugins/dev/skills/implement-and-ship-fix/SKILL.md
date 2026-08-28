@@ -167,4 +167,5 @@ Reviewers run: <independent review (mattpocock-skills:code-review / subagent / s
 ```
 
 Report the PR url back to the caller. The caller owns labelling, the review-comment
-loop, worktree cleanup, and the final RESULT block.
+loop, worktree cleanup (skill `clean-up-worktree`, once the PR is merged), and the final
+RESULT block.
