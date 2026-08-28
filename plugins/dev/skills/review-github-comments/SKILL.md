@@ -143,20 +143,24 @@ gh workflow run codex-review-manual.yml -f pr=<pr_number> --repo <owner>/<repo>
 ### 5b. Clear a stale CodeRabbit "changes requested" review
 CodeRabbit often submits its findings as a `REQUEST_CHANGES` review. Resolving the threads
 does **not** clear that state — the PR stays blocked on "changes requested" until the review
-is superseded or dismissed. After pushing, check:
+is dismissed. Check at the end of the round, whether or not it pushed:
 ```bash
 gh api repos/<owner>/<repo>/pulls/<pr_number>/reviews \
   --jq '.[] | select(.state=="CHANGES_REQUESTED") | {id, user: .user.login}'
 ```
+CodeRabbit reviews **on every push, by itself** — the push is the only trigger this run uses,
+and a fresh COMMENTED review from it leaves the old `CHANGES_REQUESTED` standing regardless.
+Dismissal is what clears the block.
+
 For each `CHANGES_REQUESTED` review from `coderabbitai[bot]`:
-- **If you fixed or explained every thread from that review**, ask CodeRabbit to re-review so it
-  supersedes its own verdict — post a PR comment `@coderabbitai review`. That is the preferred
-  path; it also surfaces anything your fixes introduced. If the user wants the PR unblocked
-  immediately (or CodeRabbit doesn't respond), dismiss the stale review instead:
+- **If you fixed or explained every thread from that review**, dismiss it, saying which:
   ```bash
   gh api -X PUT repos/<owner>/<repo>/pulls/<pr_number>/reviews/<review_id>/dismissals \
     -f message="Addressed in <short-sha>; threads resolved." -f event=DISMISS
   ```
+  When the round pushed nothing because every finding was declined, dismiss with that as the
+  message (`Findings declined, see thread replies; no code change.`) — the replies carry the
+  reasoning, and CodeRabbit re-reviews whenever the next push lands.
 - **If any thread from that review is still open (case c)**, leave the review in place — the
   block is legitimate — and say so in the summary.
 
