@@ -5,13 +5,12 @@ description: Run independent code reviewers (the mattpocock-skills two-axis /rev
 
 # Review Gate
 
-Runs up to two **independent** reviewers on the current branch's changes vs the repo's default
-branch, then gates PR creation. An independent review always runs; **Codex runs only if
-available locally** (skipped, not failed, when absent). Diversity is the point — Codex is
-a separate engine, and the always-on review prefers the **`mattpocock-skills:code-review`
-skill** (a two-axis Standards + Spec reviewer that spawns its own cold sub-agents — genuinely
-independent eyes). If that skill isn't installed it falls back to a fresh independent subagent, and to
-inline self-review only when no subagent tool is available.
+Reviews the current branch's changes vs the repo's default branch, then gates PR creation. The
+always-on **independent** review prefers the **`mattpocock-skills:code-review` skill** (a two-axis
+Standards + Spec reviewer that spawns its own cold sub-agents — genuinely independent eyes); without
+it, a fresh independent subagent, and inline self-review only when no subagent tool is available.
+**Codex** is a second, separate engine and runs when available locally (skipped, not failed, when
+absent) — engine diversity is the point.
 
 ## Contract
 
@@ -33,8 +32,8 @@ Call after the fix is committed on the branch, **before** push/PR. Return exactl
    bash "$(find ~/.claude/plugins -path '*review-gate/scripts/run_external_reviewers.sh' | head -1)" "$DEFAULT_BRANCH"
    ```
    It prints `codex=<ran|error|unavailable>[:file]`. Read the `:file` for Codex's findings. Treat
-   `error`/`unavailable` as **skipped** — note it, never fail the gate on it.
-   **Never run CodeRabbit locally** — it is not part of this gate.
+   `error`/`unavailable` as **skipped** — note it, never fail the gate on it. The script is the whole
+   external-reviewer step: Codex is the only external engine this gate runs locally.
 3. **Independent review (always).** Prefer a cold, independent reviewer over grading your own work:
    - **Preferred — invoke the `mattpocock-skills:code-review` skill** (the two-axis reviewer;
      use the namespaced name so it isn't confused with the built-in `/review`, which reviews an
