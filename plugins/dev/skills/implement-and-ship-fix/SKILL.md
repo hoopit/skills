@@ -116,7 +116,7 @@ git commit -m "<JIRA_KEY>: <short description>
 
 From inside the worktree, run the **`review-gate`** skill against `$DEFAULT_BRANCH`.
 It runs the independent reviewers (`mattpocock-skills:code-review` / cold
-subagent / self-review, plus CodeRabbit and Codex when installed), de-dups findings,
+subagent / self-review, plus Codex when installed), de-dups findings,
 fixes the valid ones, tracks the skipped ones, and returns:
 
 - **`PASS`** → keep its notes block for the PR body; continue.
@@ -157,7 +157,7 @@ labels-at-creation rule, and link hygiene. Include the `## ITSM` section only wh
 - <the test(s) added, or an explicit statement that no automated regression test was feasible and why>
 
 ## Code review (review-gate)
-Reviewers run: <independent review (mattpocock-skills:code-review / subagent / self-review), CodeRabbit, Codex — note any skipped as unavailable/error>
+Reviewers run: <independent review (mattpocock-skills:code-review / subagent / self-review), Codex — note any skipped as unavailable/error>
 
 ### Findings addressed
 - <reviewer> · <severity>: <finding> — <what was done>

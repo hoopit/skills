@@ -1,14 +1,14 @@
 ---
 name: review-gate
-description: Run multiple independent code reviewers (the mattpocock-skills two-axis /review + CodeRabbit + Codex) on the committed branch changes before a PR, aggregate and de-dup findings, fix what is valid, and BLOCK the PR (with notes) on any disputed Critical/High finding. Use right before opening a PR; handle-jira-issue Step 7 calls it. CodeRabbit/Codex are skipped if not installed locally; an independent review always runs (mattpocock-skills /review, else a cold subagent, else inline self-review).
+description: Run independent code reviewers (the mattpocock-skills two-axis /review + Codex) on the committed branch changes before a PR, aggregate and de-dup findings, fix what is valid, and BLOCK the PR (with notes) on any disputed Critical/High finding. Use right before opening a PR; handle-jira-issue Step 7 calls it. Codex is skipped if not installed locally; an independent review always runs (mattpocock-skills /review, else a cold subagent, else inline self-review).
 ---
 
 # Review Gate
 
-Runs up to three **independent** reviewers on the current branch's changes vs the repo's default
-branch, then gates PR creation. An independent review always runs; **CodeRabbit and Codex run only if
-available locally** (skipped, not failed, when absent). Diversity is the point — CodeRabbit and Codex
-are separate engines, and the always-on review prefers the **`mattpocock-skills:code-review`
+Runs up to two **independent** reviewers on the current branch's changes vs the repo's default
+branch, then gates PR creation. An independent review always runs; **Codex runs only if
+available locally** (skipped, not failed, when absent). Diversity is the point — Codex is
+a separate engine, and the always-on review prefers the **`mattpocock-skills:code-review`
 skill** (a two-axis Standards + Spec reviewer that spawns its own cold sub-agents — genuinely
 independent eyes). If that skill isn't installed it falls back to a fresh independent subagent, and to
 inline self-review only when no subagent tool is available.
@@ -28,12 +28,13 @@ Call after the fix is committed on the branch, **before** push/PR. Return exactl
 
 1. **Base branch.** Resolve `$DEFAULT_BRANCH` from the repo's CLAUDE.md *Workflow skills config*
    (e.g. `master`). Run from inside the worktree being reviewed.
-2. **External reviewers (parallel, skip-if-unavailable).** Run the bundled script:
+2. **External reviewer (Codex, skip-if-unavailable).** Run the bundled script:
    ```bash
    bash "$(find ~/.claude/plugins -path '*review-gate/scripts/run_external_reviewers.sh' | head -1)" "$DEFAULT_BRANCH"
    ```
-   It prints `coderabbit=<ran|error|unavailable>[:file]` and `codex=<…>`. Read each `:file` for that
-   reviewer's findings. Treat `error`/`unavailable` as **skipped** — note it, never fail the gate on it.
+   It prints `codex=<ran|error|unavailable>[:file]`. Read the `:file` for Codex's findings. Treat
+   `error`/`unavailable` as **skipped** — note it, never fail the gate on it.
+   **Never run CodeRabbit locally** — it is not part of this gate.
 3. **Independent review (always).** Prefer a cold, independent reviewer over grading your own work:
    - **Preferred — invoke the `mattpocock-skills:code-review` skill** (the two-axis reviewer;
      use the namespaced name so it isn't confused with the built-in `/review`, which reviews an
@@ -95,11 +96,11 @@ Solution:
 
 ## Notes
 
-- If only the always-on review ran (CodeRabbit + Codex both unavailable), say so explicitly in the PR
-  notes so the human knows review coverage was reduced — `mattpocock-skills:code-review` covers standards +
-  spec, so bug/security depth leans on CodeRabbit/Codex when they run.
+- If only the always-on review ran (Codex unavailable), say so explicitly in the PR notes so the
+  human knows review coverage was reduced — `mattpocock-skills:code-review` covers standards +
+  spec, so bug/security depth leans on Codex when it runs.
 - `mattpocock-skills:code-review` ships via the **`mattpocock-skills`** plugin
   (`mattpocock-skills@claude-plugins-official`). Without it the gate uses the cold-subagent fallback
   above — equivalent independence, minus the structured two-axis split.
-- `coderabbit`/`codex` may be slow (minutes) and need their own auth (`coderabbit auth`, codex setup);
-  an auth/`error` result is treated as a skipped reviewer, not a gate failure.
+- `codex` may be slow (minutes) and needs its own auth (codex setup); an auth/`error` result is
+  treated as a skipped reviewer, not a gate failure.
