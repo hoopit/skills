@@ -1,7 +1,7 @@
 ---
 name: code-reviewer
-description: Independent, cold code reviewer used by review-gate. Reads a diff plus a brief and reports findings. Pinned to Fable at high effort so review quality doesn't depend on the session's /effort or model.
-model: fable
+description: Independent, cold code reviewer used by review-gate. Reads a diff plus a brief and reports findings. Pinned to Opus at high effort so review quality doesn't depend on the session's /effort or model.
+model: opus
 effort: high
 tools: Read, Grep, Glob, Bash
 ---

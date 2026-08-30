@@ -46,8 +46,8 @@ Call after the fix is committed on the branch, **before** push/PR. Return exactl
      **Spawn its sub-agents as `hoopit-dev:code-reviewer`.** The skill supplies the prompts, but
      *you* make the Agent calls — pass `subagent_type: "hoopit-dev:code-reviewer"` for both the
      Standards and Spec agents. That agent (`plugins/dev/agents/code-reviewer.md`) is pinned to
-     Fable at high effort, so review quality never inherits a low `/effort` or a smaller session
-     model. Only fall back to `general-purpose` with `model: "fable"` if the agent type isn't found.
+     Opus at high effort, so review quality never inherits a low `/effort` or a smaller session
+     model. Only fall back to `general-purpose` with `model: "opus"` if the agent type isn't found.
    - **Fallback — if that skill isn't installed** (e.g. only `hoopit-dev`, not `mattpocock-skills`):
      if the Agent/Task tool is available, spawn a fresh `hoopit-dev:code-reviewer` subagent (same
      pinned reviewer as above) to review the change **cold** — give it only the repo path and `git diff "$DEFAULT_BRANCH"...HEAD`; otherwise review
