@@ -1,6 +1,6 @@
 ---
 name: create-pull-request
-description: Create GitHub PRs that always link the work item they implement (Jira/Sentry/etc.) and keep Jira links clean — emit only the keys this PR delivers so GitHub-for-Jira doesn't attach it to unrelated tickets. Use when naming a branch or writing commit messages / a PR title or body in a Jira-connected repo.
+description: Create GitHub PRs that link the work item they deliver and keep Jira keys off unrelated tickets. Use when naming a branch, writing commit messages, or writing a PR title or body in a Jira-connected repo.
 ---
 
 # Create a Pull Request
@@ -21,24 +21,52 @@ reviewer can jump to its source of truth:
 
 If there's genuinely no tracked item (e.g. a pure chore), say so in the body.
 
-## Keep Jira links clean (GitHub-for-Jira)
+## Keep Jira keys on their own ticket (GitHub-for-Jira)
 
-GitHub-for-Jira links the PR to **every** Jira key (`ABC-123` — letters, dash,
-digits) in the **branch name, commit messages, and PR title + body**. Wrapping a
-key in a link or `/browse/` URL does **not** exempt it (open: github-for-jira#1031).
+GitHub-for-Jira scans four **linked surfaces** — the branch name, the commit
+messages, the PR title and the PR body — and acts on every Jira key (`ABC-123` —
+letters, dash, digits) it finds there. Wrapping a key in a link or `/browse/`
+URL does not exempt it (open: github-for-jira#1031).
 
-So: **emit only the keys for items this PR actually delivers** — everything else
-stays out of those four surfaces.
+It acts, not merely links: opening the PR moves each key it found to In Progress
+/ Code Review, merging moves it to Awaiting release, and a key already at
+Awaiting release is pushed to Ready for QA — past the release automation's
+`Awaiting release -> Done` sweep, where it parks indefinitely.
 
-- **Link freely:** the target issue's `JIRA_KEY`; the originating ITSM ticket
-  *when linked* (keep its `## ITSM` section + `Refs <ITSM_ISSUE_KEY>` footer).
-- **Safe — never matches:** a Sentry short ID (e.g. `BAC-QCB`, no digits after
+### One key on the linked surfaces, and it is the one you deliver
+
+- **Required:** the target issue's `JIRA_KEY`, in the branch name, the commit
+  subject, and the body's link section.
+- **Also allowed:** the originating ITSM ticket *when linked* (keep its `## ITSM`
+  section + `Refs <ITSM_ISSUE_KEY>` footer) — a different project, and the
+  workflow depends on that link.
+- **Inert — never matches:** a Sentry short ID (e.g. `BAC-QCB`, no digits after
   the dash). Keep the `## Sentry` reference and `Fixes <SENTRY_ID>` footer.
-- **Forbidden:** any unrelated work item (sibling-project issue, unrelated task,
-  "similar to …" aside). Reference those in Jira, not the PR.
+- **Everything else drops the hyphen:** a spun-out follow-up, a blocked-by or
+  related ticket, a "same class as …" or "supersedes …" aside, a sibling-project
+  issue.
 
-Before opening: re-read freeform sections and commit bodies, and confirm no
-`ABC-123`-shaped key beyond the allowed set has crept in.
+Write a non-primary issue with a space where the hyphen goes — `ABC 123`, not
+`ABC-123`. The scan matches letters-dash-digits, so the spaced form is inert: a
+reviewer still reads it and can paste it into Jira, and nothing is linked or
+transitioned. It is not a clickable key, which is the point.
+
+```
+Spun out of this review: ABC 123 (co-guardian partial invoice), ABC 124.
+```
+
+### A child's PR carries the child's key
+
+A PR that delivers a child issue takes the child's key on its linked surfaces,
+not the epic's or parent's. Delivered under a parent's key, the work is
+invisible to every key-based check: nobody can tell the ticket shipped, and it
+sits in a stale status for weeks while its code is live. A parent advances when
+its children do.
+
+### Before you open the PR
+
+Re-read every linked surface and confirm each `ABC-123`-shaped key on it is in
+the allowed set. Drop the hyphen from every one that is not.
 
 ## Creating the PR
 
