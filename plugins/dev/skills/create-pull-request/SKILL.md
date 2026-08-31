@@ -1,6 +1,6 @@
 ---
 name: create-pull-request
-description: Create GitHub PRs that always link the work item they implement (Jira/Sentry/etc.) and keep Jira links clean — emit only the keys this PR delivers so GitHub-for-Jira doesn't attach it to unrelated tickets. Use when naming a branch or writing commit messages / a PR title or body in a Jira-connected repo.
+description: Create GitHub PRs that always link the work item they implement (Jira/Sentry/etc.) and keep Jira links clean — exactly one key, the one this PR delivers, in the branch/commits/title/body, with every related issue moved to a post-creation PR comment, so GitHub-for-Jira doesn't transition unrelated tickets. Use when naming a branch or writing commit messages / a PR title or body in a Jira-connected repo.
 ---
 
 # Create a Pull Request
@@ -24,21 +24,61 @@ If there's genuinely no tracked item (e.g. a pure chore), say so in the body.
 ## Keep Jira links clean (GitHub-for-Jira)
 
 GitHub-for-Jira links the PR to **every** Jira key (`ABC-123` — letters, dash,
-digits) in the **branch name, commit messages, and PR title + body**. Wrapping a
-key in a link or `/browse/` URL does **not** exempt it (open: github-for-jira#1031).
+digits) it finds in the **branch name, commit messages, and PR title + body**.
+Wrapping a key in a link or `/browse/` URL does **not** exempt it (open:
+github-for-jira#1031).
 
-So: **emit only the keys for items this PR actually delivers** — everything else
-stays out of those four surfaces.
+Linking is not passive. A key in any of those four surfaces is **transitioned**:
+opening the PR moves the issue to In Progress / Code Review, merging it moves the
+issue to Awaiting release — and if the issue was already at Awaiting release, the
+merge pushes it to Ready for QA, *past* the release automation's
+`Awaiting release -> Done` sweep, where it parks indefinitely. The changelog
+attributes all of this to the PR author, so it is indistinguishable from a human
+move after the fact.
 
-- **Link freely:** the target issue's `JIRA_KEY`; the originating ITSM ticket
-  *when linked* (keep its `## ITSM` section + `Refs <ITSM_ISSUE_KEY>` footer).
+### One key, and it is the one you deliver
+
+Those four surfaces carry **exactly one** Jira key: the issue this PR implements.
+
+- **Required:** the target issue's `JIRA_KEY`, in the branch name, the commit
+  subject, and the body's link section.
+- **Also allowed:** the originating ITSM ticket *when linked* (keep its `## ITSM`
+  section + `Refs <ITSM_ISSUE_KEY>` footer) — it is a different project and the
+  workflow depends on that link.
 - **Safe — never matches:** a Sentry short ID (e.g. `BAC-QCB`, no digits after
   the dash). Keep the `## Sentry` reference and `Fixes <SENTRY_ID>` footer.
-- **Forbidden:** any unrelated work item (sibling-project issue, unrelated task,
-  "similar to …" aside). Reference those in Jira, not the PR.
+- **Forbidden:** every other key — a spun-out follow-up, a blocked-by or
+  related ticket, a "same class as …" or "supersedes …" aside, a sibling-project
+  issue.
 
-Before opening: re-read freeform sections and commit bodies, and confirm no
-`ABC-123`-shaped key beyond the allowed set has crept in.
+### Related issues go in a separate PR comment
+
+When the reader genuinely needs the context — a follow-up you filed from the
+review, the ticket this one supersedes, a sibling in the same class — post it as
+a **comment on the PR after creating it**, never in the title, body, branch or
+commits:
+
+```bash
+gh pr comment "$PR_URL" --body "Spun out of this review: BAC-1234 (…), BAC-1235 (…)."
+```
+
+Comments are not part of the development-information sync, so the keys stay
+readable without being linked or transitioned. (Believed reliable, not
+independently verified here — if you ever see a ticket move at the timestamp of
+a PR *comment* rather than a create/merge event, say so and this rule needs
+revisiting.)
+
+### Never label a PR with a parent or epic key
+
+The inverse mistake costs just as much: a PR that delivers a child issue must
+**not** be titled or branched with the epic/parent key. A child delivered under
+its parent's key is invisible to every key-based check — nobody can tell the
+ticket shipped, and it sits in a stale status for weeks while its code is live.
+The parent advances when its children do, not by borrowing their PRs.
+
+Before opening: re-read the branch name, every commit subject and body, and the
+PR title and body, and confirm no `ABC-123`-shaped key beyond the allowed set has
+crept in. Move each one you find into a post-creation comment.
 
 ## Creating the PR
 
@@ -59,6 +99,12 @@ gh pr create \
 ## Testing
 - <tests added, or why none was feasible>" \
   --base "$DEFAULT_BRANCH"
+```
+
+Then post any related-issue references as a comment, never in the body:
+
+```bash
+gh pr comment "$PR_URL" --body "Spun out of this review: BAC-1234 (…)."
 ```
 
 A calling workflow adds its own body sections (e.g. an `## ITSM` / `## Sentry`
