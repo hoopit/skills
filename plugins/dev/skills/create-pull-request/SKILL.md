@@ -42,13 +42,18 @@ Awaiting release is pushed to Ready for QA — past the release automation's
   workflow depends on that link.
 - **Inert — never matches:** a Sentry short ID (e.g. `BAC-QCB`, no digits after
   the dash). Keep the `## Sentry` reference and `Fixes <SENTRY_ID>` footer.
-- **Everything else moves to a comment:** a spun-out follow-up, a blocked-by or
+- **Everything else drops the hyphen:** a spun-out follow-up, a blocked-by or
   related ticket, a "same class as …" or "supersedes …" aside, a sibling-project
   issue.
 
-Comments sit outside the linked surfaces, so a key there stays readable to a
-reviewer without being transitioned. Post them after creating the PR — see
-**Creating the PR** below.
+Write a non-primary issue with a space where the hyphen goes — `ABC 123`, not
+`ABC-123`. The scan matches letters-dash-digits, so the spaced form is inert: a
+reviewer still reads it and can paste it into Jira, and nothing is linked or
+transitioned. It is not a clickable key, which is the point.
+
+```
+Spun out of this review: ABC 123 (co-guardian partial invoice), ABC 124.
+```
 
 ### A child's PR carries the child's key
 
@@ -61,7 +66,7 @@ its children do.
 ### Before you open the PR
 
 Re-read every linked surface and confirm each `ABC-123`-shaped key on it is in
-the allowed set. Move each one that is not into a post-creation comment.
+the allowed set. Drop the hyphen from every one that is not.
 
 ## Creating the PR
 
@@ -82,12 +87,6 @@ gh pr create \
 ## Testing
 - <tests added, or why none was feasible>" \
   --base "$DEFAULT_BRANCH"
-```
-
-Then post any related-issue keys as a comment:
-
-```bash
-gh pr comment "$PR_URL" --body "Spun out of this review: BAC-1234 (…)."
 ```
 
 A calling workflow adds its own body sections (e.g. an `## ITSM` / `## Sentry`
