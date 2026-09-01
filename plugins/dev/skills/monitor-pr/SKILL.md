@@ -35,8 +35,9 @@ renders and the user sees which PR you resolved:
 gh pr view <PR> --repo <OWNER_REPO> --json url --jq .url
 ```
 
-Rounds run only in an existing worktree for the PR branch. Confirm one exists, and stop
-here if it does not:
+Rounds run only in an existing worktree for the PR branch. Confirm one exists; if it
+does not, the watch cannot arm — say so through `AskUserQuestion` (Step 5) rather than
+just printing it:
 
 ```bash
 BRANCH=$(gh pr view <PR> --repo <OWNER_REPO> --json headRefName --jq .headRefName)
@@ -71,6 +72,9 @@ The script polls every 60 s and prints only:
   check, or a conflict. Other CI may still be running; the round re-queries checks.
   With `ONCE=1` the script exits after this line.
 - `PR_CLOSED state=MERGED|CLOSED` — the script exits.
+- `WATCH_ERROR fetch_failures=N last=…` — GitHub could not be reached five polls in a
+  row (expired auth, network, deleted PR); the script exits non-zero. The watch is dead:
+  go to Step 5.
 
 For a repo whose reviewer statuses have other names, prefix `GATE_CHECKS=<a>,<b>`.
 
@@ -119,8 +123,8 @@ Otherwise two outcomes end the watch early — `TaskStop` the monitor and say wh
 - The report has an `OPEN THREADS` section: those need a human decision; present them.
 - The same check is "still failing" in two consecutive rounds.
 
-Failing those, idle until the next `ROUND`. On `PR_CLOSED`, print a tally — rounds,
-threads resolved, checks fixed, conflicts merged — and stop.
+Failing those, idle until the next `ROUND`. On `PR_CLOSED state=MERGED`, print a tally —
+rounds, threads resolved, checks fixed, conflicts merged — and stop.
 
 Whenever the watch ends — `--single` done, an early stop, or `PR_CLOSED` — drop the label
 again, so it only ever marks PRs under an active watch:
@@ -128,3 +132,39 @@ again, so it only ever marks PRs under an active watch:
 ```bash
 gh pr edit <PR> --repo <OWNER_REPO> --remove-label monitored
 ```
+
+## Step 5 — Never stop monitoring silently
+
+A watch that dies while the user is looking elsewhere is worse than one that never
+armed: they believe the PR is being worked when nothing is. So **every** end of the
+watch except the two clean ones — the PR merged, or `--single`'s single round done —
+goes through `AskUserQuestion` after the label is dropped. That puts a prompt in front
+of the user instead of a line they scroll past, and turns "monitoring stopped" into a
+decision.
+
+That covers, at least:
+
+- no worktree for the branch (Step 1) — nothing ever armed
+- `OPEN THREADS` in a round report
+- the same check still failing in two consecutive rounds
+- `PR_CLOSED state=CLOSED` — the PR was closed unmerged
+- `WATCH_ERROR` from the script
+- the `Monitor` task exiting, failing, or being killed on its own, and any round that
+  errors out in a way you cannot work around (auth expired, worktree gone, push
+  rejected, the worker dying twice)
+
+Ask one question, headed `Monitoring` and naming the PR and the real reason in the
+question text. Offer the options that actually apply, most likely first — typically:
+
+- **Re-arm the watch** — for a transient stop (task killed, auth refreshed, a flake);
+  go back to Step 2 with the same target.
+- **Stop, I'll take it** — the user handles the blocker; end the skill.
+- **Keep going anyway** — only where continuing is coherent, e.g. re-arming past a
+  check that is failing for reasons outside this PR.
+
+Print the blocker's details (the open threads, the failing check's log excerpt) before
+asking, so the answer is an informed one. Act on the answer immediately: re-arm means
+re-running Step 2 including the label; stop means stopping there.
+
+Never substitute a plain "monitoring has stopped" line for the question, and never end
+the turn on an abnormal stop without having asked.

@@ -3,6 +3,7 @@
 # Usage: watch-pr.sh <owner/repo> <pr_number> [interval_seconds=60]
 # Env:   GATE_CHECKS — comma-separated check names that must all be non-pending (default "CodeRabbit,codex-review").
 #        ONCE=1      — exit right after the first ROUND line.
+#        MAX_FETCH_FAILS — consecutive `gh pr view` failures before giving up (default 5).
 #
 # A round fires when every gate check on the current head is present and not pending, and the
 # actionable set holds something not in the previously fired round: a thread key (id:commentCount,
@@ -10,6 +11,7 @@
 set -u
 REPO=$1; PR=$2; INTERVAL=${3:-60}
 GATE_CHECKS=${GATE_CHECKS:-CodeRabbit,codex-review}
+MAX_FETCH_FAILS=${MAX_FETCH_FAILS:-5}
 OWNER=${REPO%/*}; NAME=${REPO#*/}
 
 QUERY='query($owner:String!,$name:String!,$pr:Int!,$endCursor:String){
@@ -19,11 +21,18 @@ QUERY='query($owner:String!,$name:String!,$pr:Int!,$endCursor:String){
       nodes{ id isResolved comments{totalCount} }
     } } } }'
 
-fired_threads=""; fired_fail=""; fired_conflict=0; fired_head=""
+fired_threads=""; fired_fail=""; fired_conflict=0; fired_head=""; fetch_fails=0
 while true; do
-  meta=$(gh pr view "$PR" --repo "$REPO" --json state,mergeable,headRefOid \
-           --jq '"\(.state) \(.mergeable) \(.headRefOid)"' 2>/dev/null) \
-    || { sleep "$INTERVAL"; continue; }
+  if ! meta=$(gh pr view "$PR" --repo "$REPO" --json state,mergeable,headRefOid \
+                --jq '"\(.state) \(.mergeable) \(.headRefOid)"' 2>&1); then
+    fetch_fails=$((fetch_fails + 1))
+    if [ "$fetch_fails" -ge "$MAX_FETCH_FAILS" ]; then
+      echo "WATCH_ERROR fetch_failures=$fetch_fails last=$(tr '\n' ' ' <<<"$meta")"
+      exit 1
+    fi
+    sleep "$INTERVAL"; continue
+  fi
+  fetch_fails=0
   read -r state mergeable head <<<"$meta"
   if [ "$state" != "OPEN" ]; then echo "PR_CLOSED state=$state"; exit 0; fi
 
