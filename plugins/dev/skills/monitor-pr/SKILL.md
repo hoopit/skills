@@ -66,17 +66,20 @@ Monitor(
 
 The script polls every 60 s and prints only:
 
-- `ROUND head=… unresolved=N new_threads=K failing=<names> conflicting=0|1` — both
-  reviewer statuses are present and non-pending on the current head, and there is work
-  the previous round did not see: a new or newly-replied-to unresolved thread, a red
-  check, or a conflict. Other CI may still be running; the round re-queries checks.
-  With `ONCE=1` the script exits after this line.
+- `ROUND head=… unresolved=N new_threads=K failing=<names> conflicting=0|1
+  [pending_gates=<names>]` — there is work the previous round did not see: a new or
+  newly-replied-to unresolved thread, a red check, or a conflict. Other CI may still be
+  running; the round re-queries checks. `pending_gates` appears only when the round
+  fired past `GATE_TIMEOUT` (default 900s) with a reviewer still pending or never
+  reported — note that in the round report (Step 4) so the user knows review may be
+  incomplete. With `ONCE=1` the script exits after the first `ROUND` line.
 - `PR_CLOSED state=MERGED|CLOSED` — the script exits.
 - `WATCH_ERROR fetch_failures=N last=…` — GitHub could not be reached five polls in a
   row (expired auth, network, deleted PR); the script exits non-zero. The watch is dead:
   go to Step 5.
 
-For a repo whose reviewer statuses have other names, prefix `GATE_CHECKS=<a>,<b>`.
+For a repo whose reviewer statuses have other names, prefix `GATE_CHECKS=<a>,<b>`. Tune
+the timeout with `GATE_TIMEOUT=<seconds>`.
 
 Tell the user in one line that the watch is armed and what opens a round.
 
@@ -116,7 +119,9 @@ One round at a time: a `ROUND` that lands mid-round is worked after the current 
 ## Step 4 — Report
 
 Print the round's report under a `Round N — <trigger>` heading. With `--single`, that is
-the end.
+the end. A `ROUND` line carrying `pending_gates` opened past its timeout with a reviewer
+still pending or unreported — say so under the heading, naming which, so the user knows
+this round may not reflect a finished review.
 
 A `QUESTIONS` section is a fork, not an ending: the watch stays armed and the questions
 go to the user in Step 5. One outcome ends the watch on its own — the same check "still
