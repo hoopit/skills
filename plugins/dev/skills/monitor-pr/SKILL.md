@@ -12,8 +12,8 @@ check and merge conflict the PR has at that point, ending in exactly one push.
 
 Flags:
 
-- default — keep working rounds until the PR is merged or closed, or a round leaves
-  something only a human can settle.
+- default — keep working rounds until the PR is merged or closed. A decision only a
+  human can settle becomes a question (Step 5); the watch keeps running while it waits.
 - `--single` — wait for one round, work it, report, done.
 - `--subagent[=<model>]` — run rounds in a `hoopit-dev:monitor-pr-worker` instead of yourself,
   reusing it across rounds until it nears its context limit, then rotating to a fresh
@@ -118,13 +118,17 @@ One round at a time: a `ROUND` that lands mid-round is worked after the current 
 Print the round's report under a `Round N — <trigger>` heading. With `--single`, that is
 the end.
 
-Otherwise two outcomes end the watch early — `TaskStop` the monitor and say why:
+A `QUESTIONS` section is a fork, not an ending: the watch stays armed and the questions
+go to the user in Step 5. One outcome ends the watch on its own — the same check "still
+failing" in two consecutive rounds; `TaskStop` the monitor, then ask.
 
-- The report has an `OPEN THREADS` section: those need a human decision; present them.
-- The same check is "still failing" in two consecutive rounds.
+Failing that, idle until the next `ROUND`.
 
-Failing those, idle until the next `ROUND`. On `PR_CLOSED state=MERGED`, print a tally —
-rounds, threads resolved, checks fixed, conflicts merged — and stop.
+On `PR_CLOSED state=MERGED`, print a tally — rounds, threads resolved, checks fixed,
+conflicts merged — and stop. Two things outlive the PR and are carried into that tally:
+commits the worktree holds and the remote does not (push them, saying plainly that this
+opens a follow-up PR against the default branch), and any question still unanswered
+(restate it as an open item).
 
 Whenever the watch ends — `--single` done, an early stop, or `PR_CLOSED` — drop the label
 again, so it only ever marks PRs under an active watch:
@@ -133,38 +137,60 @@ again, so it only ever marks PRs under an active watch:
 gh pr edit <PR> --repo <OWNER_REPO> --remove-label monitored
 ```
 
-## Step 5 — Never stop monitoring silently
+## Step 5 — Ask in rounds
 
-A watch that dies while the user is looking elsewhere is worse than one that never
-armed: they believe the PR is being worked when nothing is. So **every** end of the
-watch except the two clean ones — the PR merged, or `--single`'s single round done —
-goes through `AskUserQuestion` after the label is dropped. That puts a prompt in front
-of the user instead of a line they scroll past, and turns "monitoring stopped" into a
-decision.
+Every question this skill puts to the user goes through here, in the format
+`mattpocock-skills:grilling` defines — invoke that skill when it is installed. Number
+each question and give each one your recommended answer:
 
-That covers, at least:
+```
+❓ **Q1** - **<title>**: <body; name each alternative>
 
-- no worktree for the branch (Step 1) — nothing ever armed
-- `OPEN THREADS` in a round report
-- the same check still failing in two consecutive rounds
-- `PR_CLOSED state=CLOSED` — the PR was closed unmerged
-- `WATCH_ERROR` from the script
-- the `Monitor` task exiting, failing, or being killed on its own, and any round that
-  errors out in a way you cannot work around (auth expired, worktree gone, push
-  rejected, the worker dying twice)
+➡️ <your recommended answer>
+```
 
-Ask one question, headed `Monitoring` and naming the PR and the real reason in the
-question text. Offer the options that actually apply, most likely first — typically:
+Facts are yours to find, decisions are the user's: anything answerable from the PR, the
+logs, the diff or the code you look up yourself, so what reaches the user is only what
+they alone can settle.
 
-- **Re-arm the watch** — for a transient stop (task killed, auth refreshed, a flake);
-  go back to Step 2 with the same target.
-- **Stop, I'll take it** — the user handles the blocker; end the skill.
-- **Keep going anyway** — only where continuing is coherent, e.g. re-arming past a
-  check that is failing for reasons outside this PR.
+Two paths reach the user, and they differ in timing and in what they offer.
 
-Print the blocker's details (the open threads, the failing check's log excerpt) before
-asking, so the answer is an informed one. Act on the answer immediately: re-arm means
-re-running Step 2 including the label; stop means stopping there.
+**A fork** — a decision the round turned up. Collect every fork the round produced, let
+the round finish its push (settled work ships while the question waits), then ask them
+as one round of questions. The watch stays armed meanwhile and the answer ships in the
+next round's push. A question left unanswered rejoins the next round's question set, so
+it stays in front of the user.
 
-Never substitute a plain "monitoring has stopped" line for the question, and never end
-the turn on an abnormal stop without having asked.
+**A stop** — the watch itself has ended. Ask immediately, on its own, once the label is
+dropped. A stop covers: no worktree for the branch (Step 1), `WATCH_ERROR`, `PR_CLOSED
+state=CLOSED`, the same check failing two rounds running, the `Monitor` task exiting or
+being killed, and any round that errors out beyond working around (auth expired,
+worktree gone, push rejected, the worker dying twice). A watch always ends in front of
+the user: the question is the last thing the turn does, and it names the real reason.
+
+The chat round carries the substance; `AskUserQuestion` carries the attention. Fire it
+once per round of questions, headed `Monitoring`, its text naming the PR and how many
+questions wait above it — `PR #16619 — 3 questions from round 4`. Each path has its own
+options, because they answer different things:
+
+| Path | Options |
+| --- | --- |
+| Fork | **Answer in chat** (recommended) · **Take all your recommendations** · **Stop monitoring, I'll take it from here** |
+| Stop | **Re-arm the watch** (a transient stop — go back to Step 2, label included) · **Stop, I'll take it** · **Keep going anyway** (re-arm past a check failing for reasons outside this PR) |
+
+Print the blocker's details — the open threads, the failing check's log excerpt — before
+asking, so the answer is an informed one, and act on it immediately.
+
+Under `--subagent` the worker reports forks and the session asks them: a question from a
+background agent reaches nobody.
+
+### Write down what an answer settles
+
+An answer that settles a term or a decision gets captured while it is fresh: invoke
+`mattpocock-skills:domain-modeling` and follow it — resolved terms into `CONTEXT.md` as
+they resolve, an ADR under `docs/adr/` when the decision is hard to reverse, surprising
+without context, and the result of a real trade-off. Create either file when the repo
+has none.
+
+Write and commit in the session, in the PR's worktree; the next round's push carries the
+commit, which puts the ADR under review alongside the rest of the PR.

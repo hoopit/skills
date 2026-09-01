@@ -61,12 +61,20 @@ exactly once, in step 4, so reviewers and CI see the round as a single new head.
    gh workflow run codex-review-manual.yml -f pr=<PR> --repo <OWNER_REPO>
    ```
 
-Stop and report instead of guessing when a fix would change behaviour the PR did not
-intend — a reviewer disagreement you cannot settle, a conflict whose intent on either
-side is unclear, a test that encodes a product decision.
+A **fork** is a decision inside the round that belongs to the user: a reviewer
+disagreement you cannot settle, a conflict whose intent on either side is unclear, a
+test that encodes a product decision, a fix with two valid shapes. Report a fork rather
+than guessing at it — then finish the rest of the round, so the settled work still
+ships in this round's push.
 
 Return only a report: conflicts merged (or none), threads resolved, checks fixed /
-still failing / pending, commits pushed (SHAs) — one line each, no preamble. Then, if
-any thread stays open, an `OPEN THREADS` section with one bullet per thread: file:line,
-the reviewer's point in a phrase, and the decision a human must make — written for the
-user, who will act on them.
+still failing / pending, commits pushed (SHAs) — one line each, no preamble. Then, for
+every fork the round turned up, a `QUESTIONS` section with one entry each:
+
+```
+Q - <title>: <the decision, with each alternative named; file:line for a thread>
+➡️ <your recommended answer>
+```
+
+Write them for the user and leave them there: the session that dispatched you puts
+them to the user and brings back the answers.
