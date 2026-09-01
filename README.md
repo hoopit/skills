@@ -74,6 +74,7 @@ Day-to-day dev workflows and CLIs: Jira/Sentry issues, PR review, Atlassian, Cir
 | `fix-sentry-issue` | Auto | Fix a Sentry issue end-to-end — fetch details, create or link a Jira ticket (with a native bidirectional Sentry↔Jira link), then ship the fix (branch, fix, test, review, PR) via implement-and-ship-fix. |
 | `handle-jira-issue` | Auto | Handle any Jira issue end-to-end — an ITSM ticket (single- or multi-project) or a project issue (BAC/WEB/FA). |
 | `implement-and-ship-fix` | Auto | Ship a fix for an already-identified bug end-to-end — worktree, minimal fix, regression test, review gate, push, PR. |
+| `monitor-pr` | Auto | Watch a single pull request and work each review round — merge conflicts, unresolved review threads, failing checks — one push per round, until it is merged. |
 | `review-gate` | Auto | Run independent code reviewers (the mattpocock-skills two-axis /review + Codex) on the committed branch changes before a PR, aggregate and de-dup findings, fix what is valid, and BLOCK the PR (with notes) on any disputed Critical/High finding. |
 | `review-github-comments` | Auto | Review and resolve all review comments on a GitHub PR — fetch comments, evaluate each one, apply fixes where needed, and reply to resolve them. |
 | `review-jira-attachments` | Auto | Download and analyze the files attached to a Jira issue — HAR network captures, screenshots, logs, PDFs — via the Jira REST API, because acli cannot download attachments. |
