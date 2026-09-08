@@ -36,6 +36,28 @@ installed from their own marketplace (`mattpocock-skills@claude-plugins-official
 enabled for this repo in `.claude/settings.json`), never re-packaged into a plugin
 here. Reference them by namespaced name (`mattpocock-skills:code-review`).
 
+## Comments and docs describe the present
+
+Write what is true now. A comment must never narrate what an earlier version of
+itself said, what was removed, or when something changed — `git log`, the commit
+message and the pull request description carry that. A comment that reports a
+change is stale the moment someone reads it without that change in mind, and it
+costs the next reader time working out whether the "now" it describes is still
+now.
+
+- ✅ `Callers must hold the lock before entering.`
+- ❌ `The lock used to be taken by the caller; moved in here on 2026-05-02.`
+- ✅ `This token must exist only as a secret of the automation environment.`
+- ❌ `The org-level copy is now deleted, so this is finally a real boundary.`
+
+This binds code comments, workflow and config comments, doc comments, `CLAUDE.md`
+/ `AGENTS.md` and everything under `docs/` alike. The one exception is a document
+whose genre *is* the historical record — an ADR's Context and Decision, or a
+changelog — where the dated narrative is the point.
+
+When the text you are replacing carried a warning, keep the warning as a rule
+that still binds and drop only the status report wrapped around it.
+
 ## `/plugin` uninstall says "plugin doesn't exist"
 
 `installed_plugins.json` records a plugin per `projectPath`. A plugin enabled in a
