@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Print one ROUND line each time the PR's reviewers have finished (or a timeout elapses) and
-# there is new work; exit when it leaves OPEN.
+# there is new work, and one GREEN line the first time a head has nothing left to do; exit when
+# the PR leaves OPEN.
 # Usage: watch-pr.sh <owner/repo> <pr_number> [interval_seconds=60]
 # Env:   GATE_CHECKS     — comma-separated check names that must all be non-pending (default
 #                          "CodeRabbit,codex-review").
@@ -9,7 +10,7 @@
 #                          can go missing entirely on a head (skipped, rate-limited) rather than
 #                          just pending, so waiting on it forever would idle the watch past visible
 #                          comments; the timeout bounds that wait instead of requiring it be exact.
-#        ONCE=1          — exit right after the first ROUND line.
+#        ONCE=1          — exit right after the first ROUND or GREEN line.
 #        MAX_FETCH_FAILS — consecutive `gh pr view` failures before giving up (default 5).
 #
 # A round fires once the actionable set holds something not in the previously fired round — a
@@ -18,6 +19,10 @@
 # present and not pending, or that actionable item has been waiting behind the gate for
 # GATE_TIMEOUT seconds. Threads/checks are polled every cycle regardless of gate state, so a
 # comment posted before its own check reports is never missed, only delayed.
+#
+# A head goes GREEN once the gate is open and it has nothing actionable, no failing check, no
+# check still pending and no conflict — fired once per head, so a quiet PR asks to be merged
+# exactly once.
 set -u
 REPO=$1; PR=$2; INTERVAL=${3:-60}
 GATE_CHECKS=${GATE_CHECKS:-CodeRabbit,codex-review}
@@ -32,11 +37,11 @@ QUERY='query($owner:String!,$name:String!,$pr:Int!,$endCursor:String){
       nodes{ id isResolved comments{totalCount} }
     } } } }'
 
-fired_threads=""; fired_fail=""; fired_conflict=0; fired_head=""; fetch_fails=0
+fired_threads=""; fired_fail=""; fired_conflict=0; fired_head=""; fired_green=""; fetch_fails=0
 gate_wait_start=0
 while true; do
-  if ! meta=$(gh pr view "$PR" --repo "$REPO" --json state,mergeable,headRefOid \
-                --jq '"\(.state) \(.mergeable) \(.headRefOid)"' 2>&1); then
+  if ! meta=$(gh pr view "$PR" --repo "$REPO" --json state,mergeable,headRefOid,reviewDecision \
+                --jq '"\(.state) \(.mergeable) \(.headRefOid) \(if (.reviewDecision // "") == "" then "NONE" else .reviewDecision end)"' 2>&1); then
     fetch_fails=$((fetch_fails + 1))
     if [ "$fetch_fails" -ge "$MAX_FETCH_FAILS" ]; then
       echo "WATCH_ERROR fetch_failures=$fetch_fails last=$(tr '\n' ' ' <<<"$meta")"
@@ -45,7 +50,7 @@ while true; do
     sleep "$INTERVAL"; continue
   fi
   fetch_fails=0
-  read -r state mergeable head <<<"$meta"
+  read -r state mergeable head review <<<"$meta"
   if [ "$state" != "OPEN" ]; then echo "PR_CLOSED state=$state"; exit 0; fi
 
   if [ "$head" != "$fired_head" ]; then fired_fail=""; fired_conflict=0; fired_head=$head; gate_wait_start=0; fi
@@ -59,6 +64,7 @@ while true; do
   done
   gate_open=1; [ -n "$pending_gates" ] && gate_open=0
   failing=$(jq -r '.[] | select(.bucket=="fail") | .name' <<<"$checks" | sort)
+  running=$(jq -r '.[] | select(.bucket=="pending") | .name' <<<"$checks" | grep -c .)
 
   threads=$(gh api graphql --paginate -f query="$QUERY" \
       -F owner="$OWNER" -F name="$NAME" -F pr="$PR" \
@@ -90,6 +96,10 @@ while true; do
   if [ "$actionable" = 1 ]; then
     echo "ROUND head=${head:0:7} unresolved=$(grep -c . <<<"$threads") new_threads=$new_threads failing=${failing:+$(paste -sd, - <<<"$failing")} conflicting=$conflicting${pending_gates:+ pending_gates=$pending_gates}"
     fired_threads=$threads; fired_fail=$failing; fired_conflict=$conflicting
+    [ "${ONCE:-0}" = 1 ] && exit 0
+  elif [ "$fired_green" != "$head" ] && [ -z "$failing" ] && [ "$running" = 0 ] && [ "$conflicting" = 0 ]; then
+    echo "GREEN head=${head:0:7} unresolved=$(grep -c . <<<"$threads") review=$review"
+    fired_green=$head
     [ "${ONCE:-0}" = 1 ] && exit 0
   fi
   sleep "$INTERVAL"

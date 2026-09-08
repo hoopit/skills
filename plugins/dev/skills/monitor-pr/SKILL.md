@@ -72,11 +72,17 @@ The script polls every 60 s and prints only:
   running; the round re-queries checks. `pending_gates` appears only when the round
   fired past `GATE_TIMEOUT` (default 900s) with a reviewer still pending or never
   reported — note that in the round report (Step 4) so the user knows review may be
-  incomplete. With `ONCE=1` the script exits after the first `ROUND` line.
+  incomplete.
+- `GREEN head=… unresolved=N review=<decision>` — this head has nothing left to do: every
+  check passed, none still running, no conflict. Fired once per head; the merge decision
+  goes to the user (Step 5).
 - `PR_CLOSED state=MERGED|CLOSED` — the script exits.
 - `WATCH_ERROR fetch_failures=N last=…` — GitHub could not be reached five polls in a
   row (expired auth, network, deleted PR); the script exits non-zero. The watch is dead:
   go to Step 5.
+
+With `ONCE=1` the script exits after its first `ROUND` or `GREEN` line, so `--single` on an
+already-quiet PR asks the merge question instead of waiting forever.
 
 For a repo whose reviewer statuses have other names, prefix `GATE_CHECKS=<a>,<b>`. Tune
 the timeout with `GATE_TIMEOUT=<seconds>`.
@@ -127,6 +133,9 @@ A `QUESTIONS` section is a fork, not an ending: the watch stays armed and the qu
 go to the user in Step 5. One outcome ends the watch on its own — the same check "still
 failing" in two consecutive rounds; `TaskStop` the monitor, then ask.
 
+A `GREEN` line has no report of its own — it carries one question, and that question is
+whether to merge (Step 5).
+
 Failing that, idle until the next `ROUND`.
 
 On `PR_CLOSED state=MERGED`, print a tally — rounds, threads resolved, checks fixed,
@@ -158,13 +167,29 @@ Facts are yours to find, decisions are the user's: anything answerable from the 
 logs, the diff or the code you look up yourself, so what reaches the user is only what
 they alone can settle.
 
-Two paths reach the user, and they differ in timing and in what they offer.
+Three paths reach the user, and they differ in timing and in what they offer.
 
 **A fork** — a decision the round turned up. Collect every fork the round produced, let
 the round finish its push (settled work ships while the question waits), then ask them
 as one round of questions. The watch stays armed meanwhile and the answer ships in the
 next round's push. A question left unanswered rejoins the next round's question set, so
 it stays in front of the user.
+
+**Green** — a `GREEN` line: the PR has nothing left to do. Merging is the one thing this
+watch never does on its own, so ask, quoting the line's own facts back. Recommend merging
+when it reads `unresolved=0` and `review` is `APPROVED` or `NONE` — `NONE` means the repo
+requires no approval, not that one is missing. Recommend holding on `REVIEW_REQUIRED` or
+`CHANGES_REQUESTED`, or on any unresolved thread, naming which. On *Merge it*, merge with a
+method the repo actually allows:
+
+```bash
+gh repo view <OWNER_REPO> --json squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed
+gh pr merge <PR> --repo <OWNER_REPO> --<squash|merge|rebase>
+```
+
+The watch then sees `PR_CLOSED state=MERGED` on its next poll and Step 4 tallies it, so leave
+the monitor running. On *Not yet*, the watch stays armed and asks again the next time a head
+goes green.
 
 **A stop** — the watch itself has ended. Ask immediately, on its own, once the label is
 dropped. A stop covers: no worktree for the branch (Step 1), `WATCH_ERROR`, `PR_CLOSED
@@ -181,6 +206,7 @@ options, because they answer different things:
 | Path | Options |
 | --- | --- |
 | Fork | **Answer in chat** (recommended) · **Take all your recommendations** · **Stop monitoring, I'll take it from here** |
+| Green | **Merge it** · **Not yet — keep watching** · **Stop monitoring, I'll take it from here** |
 | Stop | **Re-arm the watch** (a transient stop — go back to Step 2, label included) · **Stop, I'll take it** · **Keep going anyway** (re-arm past a check failing for reasons outside this PR) |
 
 Print the blocker's details — the open threads, the failing check's log excerpt — before
