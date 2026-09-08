@@ -54,6 +54,8 @@ Call after the fix is committed on the branch, **before** push/PR. Return exactl
      the diff yourself inline. For this fallback look for: correctness/logic bugs, security,
      data-integrity/regressions, missed edge cases, and repo conventions (read the relevant
      `$REPO/.claude/skills/*` for the area you touched).
+   A subagent sitting at `idle` with no result has **not** failed — see Notes. Wait for it rather
+   than falling back.
    Note in the PR which mode ran (`mattpocock-skills:code-review` · independent subagent · self-review).
    `mattpocock-skills:code-review` findings aren't pre-labelled by severity — assign each a severity when you
    triage (step 5): a missing/incorrect spec requirement, or any correctness/security/data-integrity
@@ -103,3 +105,7 @@ Solution:
   above — equivalent independence, minus the structured two-axis split.
 - `codex` may be slow (minutes) and needs its own auth (codex setup); an auth/`error` result is
   treated as a skipped reviewer, not a gate failure.
+- **A reviewer subagent at `idle` with no result is not a dead one.** It usually means the work
+  finished and the result has not been handed back yet, and delivery can lag the work by a long way.
+  `SendMessage` it and wait. Spawning replacements or dropping to self-review on that signal throws
+  away the independent axis while its findings are still in flight.
