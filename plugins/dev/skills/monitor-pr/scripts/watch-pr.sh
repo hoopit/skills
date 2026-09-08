@@ -20,9 +20,10 @@
 # GATE_TIMEOUT seconds. Threads/checks are polled every cycle regardless of gate state, so a
 # comment posted before its own check reports is never missed, only delayed.
 #
-# A head goes GREEN once the gate is open and it has nothing actionable, no failing check, no
-# check still pending and no conflict — fired once per head, so a quiet PR asks to be merged
-# exactly once.
+# A head goes GREEN once the gate is open and it has nothing left at all — no unresolved thread,
+# no failing check, none still pending, no conflict — fired once per head, so a quiet PR asks to
+# be merged exactly once. Requiring zero unresolved threads (not merely zero *new* ones) is what
+# keeps a GREEN from firing mid-round, while the session is still working threads it has seen.
 set -u
 REPO=$1; PR=$2; INTERVAL=${3:-60}
 GATE_CHECKS=${GATE_CHECKS:-CodeRabbit,codex-review}
@@ -97,8 +98,9 @@ while true; do
     echo "ROUND head=${head:0:7} unresolved=$(grep -c . <<<"$threads") new_threads=$new_threads failing=${failing:+$(paste -sd, - <<<"$failing")} conflicting=$conflicting${pending_gates:+ pending_gates=$pending_gates}"
     fired_threads=$threads; fired_fail=$failing; fired_conflict=$conflicting
     [ "${ONCE:-0}" = 1 ] && exit 0
-  elif [ "$fired_green" != "$head" ] && [ -z "$failing" ] && [ "$running" = 0 ] && [ "$conflicting" = 0 ]; then
-    echo "GREEN head=${head:0:7} unresolved=$(grep -c . <<<"$threads") review=$review"
+  elif [ "$fired_green" != "$head" ] && [ -z "$threads" ] && [ -z "$failing" ] \
+       && [ "$running" = 0 ] && [ "$conflicting" = 0 ]; then
+    echo "GREEN head=${head:0:7} review=$review"
     fired_green=$head
     [ "${ONCE:-0}" = 1 ] && exit 0
   fi
