@@ -159,20 +159,28 @@ CodeRabbit reviews **on every push, by itself** — the push is the only trigger
 and a fresh COMMENTED review from it leaves the old `CHANGES_REQUESTED` standing regardless.
 Dismissal is what clears the block.
 
-For each `CHANGES_REQUESTED` review from `coderabbitai[bot]`:
-- **If you fixed or explained every thread from that review**, dismiss it, saying which:
-  ```bash
-  gh api -X PUT repos/<owner>/<repo>/pulls/<pr_number>/reviews/<review_id>/dismissals \
-    -f message="Addressed in <short-sha>; threads resolved." -f event=DISMISS
-  ```
-  When the round pushed nothing because every finding was declined, dismiss with that as the
-  message (`Findings declined, see thread replies; no code change.`) — the replies carry the
-  reasoning, and CodeRabbit re-reviews whenever the next push lands.
-- **If any thread from that review is still `open`**, leave the review in place — the
-  block is legitimate — and say so in the summary.
+**Always dismiss** every `CHANGES_REQUESTED` review from `coderabbitai[bot]` at the end of
+the round — unconditionally, including when threads are still `open`:
+```bash
+gh api -X PUT repos/<owner>/<repo>/pulls/<pr_number>/reviews/<review_id>/dismissals \
+  -f message="<what happened>" -f event=DISMISS
+```
+A bot's merge block is not a signal a human chose to raise, and an open thread is already
+visible as an open thread — the `CHANGES_REQUESTED` state on top of it only blocks the PR
+while adding nothing a reviewer can act on. CodeRabbit re-reviews on the next push regardless,
+so dismissing loses nothing.
 
-Never dismiss a `CHANGES_REQUESTED` review from a **human** reviewer; only they (or a re-review)
-should clear it. Mention it in the summary as still pending.
+Make the message say which case it was, since that is the only record of the round's reasoning:
+- fixed — `Addressed in <short-sha>; threads resolved.`
+- declined — `Findings declined, see thread replies; no code change.`
+- still `open` — `Dismissed; <n> thread(s) left open for discussion, see replies.`
+
+Then say in the summary that you dismissed it, and name any thread you left open — a dismissed
+review must never be how an unresolved question disappears.
+
+⚠️ Never dismiss a `CHANGES_REQUESTED` review from a **human** reviewer, or from any bot other
+than CodeRabbit; only they (or a re-review) should clear it. Mention it in the summary as still
+pending.
 
 ### 6. Report summary
 One classified row per thread — every thread, not only the interesting ones. The
