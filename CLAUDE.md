@@ -18,8 +18,8 @@ Skills here are distributed across **all** Hoopit projects (the `api` / backend,
 
 - **Hoopit org-level facts are allowed.** The Jira instance
   (`hoopit.atlassian.net`), the shared `AI:` custom-field / option ids, the `ITSM`
-  triage project, and Sentry org `hoopit` are identical in every project — a skill
-  may name them (or keep them in shared config).
+  triage project, Sentry org `hoopit`, and the `codex-review-manual.yml` workflow are
+  identical in every project — a skill may name them (or keep them in shared config).
 - **Per-project facts must never be hardcoded to one project.** A skill must behave
   correctly whether it's installed into `api`, `web-admin`, or `flutter-app`.
   Anything that differs per project — GitHub repo slug, default branch, Jira project
