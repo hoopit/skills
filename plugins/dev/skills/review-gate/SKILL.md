@@ -30,7 +30,9 @@ Return exactly one verdict:
 ## Steps
 
 1. **Base branch.** Resolve `$DEFAULT_BRANCH` from the repo's CLAUDE.md *Workflow skills config*
-   (e.g. `master`). Run from inside the worktree being reviewed.
+   (e.g. `master`). Run from inside the worktree being reviewed. Every reviewer's findings land in
+   one directory this pass owns, so set `GATE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/review-gate.XXXXXX")`
+   and keep it for the whole pass.
 2. **External reviewer (Codex, skip-if-unavailable).** Run the bundled script:
    ```bash
    bash "$(find ~/.claude/plugins -path '*review-gate/scripts/run_external_reviewers.sh' | head -1)" "$DEFAULT_BRANCH"
@@ -52,14 +54,20 @@ Return exactly one verdict:
      Standards and Spec agents. That agent (`plugins/dev/agents/code-reviewer.md`) is pinned to
      Opus at high effort, so review quality never inherits a low `/effort` or a smaller session
      model. Only fall back to `general-purpose` with `model: "opus"` if the agent type isn't found.
+     **Give each axis its own `FINDINGS_FILE`** — `$GATE_DIR/standards.md` and
+     `$GATE_DIR/spec.md` — on the same prompt as the skill's brief. The reviewer writes its
+     findings there and returns a `FINDINGS <path> · <n> findings` receipt; you read the file.
+     That is what makes a lost report survivable (Notes), so pass the path even when you expect
+     the report to arrive normally.
    - **Fallback — if that skill isn't installed** (e.g. only `hoopit-dev`, not `mattpocock-skills`):
      if the Agent/Task tool is available, spawn a fresh `hoopit-dev:code-reviewer` subagent (same
-     pinned reviewer as above) to review the change **cold** — give it only the repo path and `git diff "$DEFAULT_BRANCH"...HEAD`; otherwise review
-     the diff yourself inline. For this fallback look for: correctness/logic bugs, security,
+     pinned reviewer as above, `FINDINGS_FILE` included — `$GATE_DIR/independent.md`) to review the
+     change **cold**: give it only the repo path and `git diff "$DEFAULT_BRANCH"...HEAD`; otherwise
+     review the diff yourself inline. For this fallback look for: correctness/logic bugs, security,
      data-integrity/regressions, missed edge cases, and repo conventions (read the relevant
      `$REPO/.claude/skills/*` for the area you touched).
-   A subagent sitting at `idle` with no result has **not** failed — see Notes. Wait for it rather
-   than falling back.
+   A subagent sitting at `idle` with no result has **not** failed, and a result that never
+   arrives is recoverable — see Notes. Work that ladder rather than falling back.
    Note in the PR which mode ran (`mattpocock-skills:code-review` · independent subagent · self-review).
    `mattpocock-skills:code-review` findings aren't pre-labelled by severity — assign each a severity when you
    triage (step 5): a missing/incorrect spec requirement, or any correctness/security/data-integrity
@@ -111,5 +119,21 @@ Solution:
   treated as a skipped reviewer, not a gate failure.
 - **A reviewer subagent at `idle` with no result is not a dead one.** It usually means the work
   finished and the result has not been handed back yet, and delivery can lag the work by a long way.
-  `SendMessage` it and wait. Spawning replacements or dropping to self-review on that signal throws
-  away the independent axis while its findings are still in flight.
+  Spawning replacements or dropping to self-review on that signal throws away the independent axis
+  while its findings are still in flight. Recover the review in this order, stopping at the first
+  that yields it:
+  1. **`SendMessage` the agent by name** and wait — a send resumes it from its transcript, so
+     re-emitting the report costs it one round.
+  2. **Read its `FINDINGS_FILE`.** The reviewer writes findings before it finishes, so the file
+     stands whether or not the message ever lands. This is why step 3 passes the path.
+  3. **Pull the report out of its transcript.** The reviewer's own transcript is at
+     `~/.claude/projects/<cwd with / → ->/<this session id>/subagents/agent-<agentId>.jsonl`,
+     where `agentId` came back in the spawn result. Extract only the assistant text — never
+     `Read` the JSONL, whose tool traffic will swamp your context:
+
+     ```bash
+     jq -r 'select(.type=="assistant") | .message.content[]? | select(.type=="text") | .text' "$f"
+     ```
+
+  `TaskOutput` is not on this ladder: it is deprecated for agent tasks, and its output file is a
+  symlink to that same JSONL.
