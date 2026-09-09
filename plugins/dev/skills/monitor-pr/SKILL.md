@@ -106,7 +106,7 @@ Agent(
   model: "<--subagent's model, else opus>",
   name: "pr-<PR>-worker",
   description: "round PR #<PR>",
-  prompt: "PR_URL=<PR_URL> OWNER_REPO=<OWNER_REPO> PR=<PR> REPO_ROOT=<REPO_ROOT>\nROUND: <the ROUND line verbatim>",
+  prompt: "PR_URL=<PR_URL> OWNER_REPO=<OWNER_REPO> PR=<PR> REPO_ROOT=<REPO_ROOT> LEDGER=<SKILL_DIR>/LEDGER.md\nROUND: <the ROUND line verbatim>",
 )
 ```
 
@@ -114,7 +114,7 @@ Each completion notification reports `subagent_tokens`; keep a running total per
 Next round while the total is under 100k:
 
 ```
-SendMessage(to: "pr-<PR>-worker", message: "ROUND: <the ROUND line verbatim>")
+SendMessage(to: "pr-<PR>-worker", message: "ROUND: <the ROUND line verbatim>\nANSWERED: <each fork the user settled since the last round, and the choice>")
 ```
 
 At 100k or above, rotate: spawn a fresh worker with the full prompt (use a new name,
@@ -124,10 +124,14 @@ One round at a time: a `ROUND` that lands mid-round is worked after the current 
 
 ## Step 4 — Report
 
-Print the round's report under a `Round N — <trigger>` heading. With `--single`, that is
+Print the round's report under a `Round N — <trigger>` heading. It is the round's
+**delta** — what this round did; the **ledger** the round wrote into the PR description
+holds the PR's cumulative state, so the two never need to say the same thing twice. Link
+the PR once beneath the heading so the ledger is one click away. With `--single`, that is
 the end. A `ROUND` line carrying `pending_gates` opened past its timeout with a reviewer
 still pending or unreported — say so under the heading, naming which, so the user knows
-this round may not reflect a finished review.
+this round may not reflect a finished review. A round that reports `Ledger: not updated`
+says so too, with the reason — the ledger is then behind by a round.
 
 A `QUESTIONS` section is a fork, not an ending: the watch stays armed and the questions
 go to the user in Step 5. One outcome ends the watch on its own — the same check "still
@@ -136,7 +140,8 @@ failing" in two consecutive rounds; `TaskStop` the monitor, then ask.
 Failing that, idle until the next `ROUND`.
 
 On `PR_CLOSED state=MERGED`, print a tally — rounds, threads resolved, checks fixed,
-conflicts merged — and stop. Two things outlive the PR and are carried into that tally:
+conflicts merged — and stop. The ledger stays on the merged PR as the record of what was
+judged along the way. Two things outlive the PR and are carried into that tally:
 commits the worktree holds and the remote does not (push them, saying plainly that this
 opens a follow-up PR against the default branch), and any question still unanswered
 (restate it as an open item).
@@ -170,7 +175,9 @@ Three paths reach the user, and they differ in timing and in what they offer.
 the round finish its push (settled work ships while the question waits), then ask them
 as one round of questions. The watch stays armed meanwhile and the answer ships in the
 next round's push. A question left unanswered rejoins the next round's question set, so
-it stays in front of the user.
+it stays in front of the user. An answer settles a ledger row: pass it into the next
+round so the row becomes `answered: <the choice>`, which is how the PR shows the decision
+to a reviewer who was never asked.
 
 **Green** — a `GREEN` line. The merge is the user's call, always: ask. Recommend it when
 `review` reads `APPROVED` or `NONE` — `NONE` means the repo requires no approval, not that

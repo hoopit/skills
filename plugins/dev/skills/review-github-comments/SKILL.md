@@ -7,9 +7,10 @@ description: Review and resolve all review comments on a GitHub PR — fetch com
 
 ## Caller-owned rounds
 A calling skill (e.g. `monitor-pr`) may say it **owns the round**. It then manages the
-whole lifecycle — worktree, `agent-working` label, push, and any re-review trigger —
-and you do only the comment work: steps 2–4 plus the commit in step 5. Skip steps 1a,
-1b, 5a, and step 5's push.
+whole lifecycle — worktree, `agent-working` label, push, the ledger and any re-review
+trigger — and you do only the comment work: steps 2–4 plus the commit in step 5. Skip
+steps 1a, 1b, 5a, and step 5's push. Your step 6 rows are what the caller writes into
+the ledger.
 
 ## Prerequisites
 - The `gh` CLI must be authenticated.
@@ -88,15 +89,18 @@ Cross-reference `databaseId` with the REST comment IDs to build a map of `commen
 
 1. **Read the comment** — understand the reviewer's finding, suggestion, or question.
 2. **Locate the relevant code** — use the `path` and `line`/`original_line` fields to find the file and line(s) in the local codebase.
-3. **Evaluate the comment** — determine whether:
-   - **(a) The issue is valid and actionable** — a real bug, improvement, or style fix that should be applied.
-   - **(b) The issue is invalid or not applicable** — the reviewer's suggestion is incorrect, outdated, or doesn't apply to the current context.
-   - **(c) Unclear or needs more investigation** — you have findings to share but aren't confident enough to resolve it.
+3. **Decide**, and reply in the same move. The three decisions are the ledger's — see
+   "Classifying an item" in [`../monitor-pr/LEDGER.md`](../monitor-pr/LEDGER.md), which
+   also defines the `source`, `severity`, `why` and `scope` your step 6 row carries:
+   - **`applied`** — a real bug, improvement or style fix. Apply it, reply saying what
+     changed, **resolve the thread**.
+   - **`declined`** — incorrect, outdated, or not applicable here. Reply with the
+     evidence that makes it wrong, **resolve the thread**.
+   - **`open`** — you have findings but not the confidence to settle it. Reply with them
+     and **leave the thread unresolved** for discussion.
 
-4. **Take action based on evaluation:**
-   - **Case (a) — Valid & actionable:** Apply the code fix, then reply to the comment explaining what was changed. **Resolve the thread.**
-   - **Case (b) — Invalid / not applicable:** Reply to the comment explaining why the suggestion doesn't apply or is incorrect. **Resolve the thread.**
-   - **Case (c) — Uncertain / needs discussion:** Reply to the comment with your findings, analysis, or questions. **Do NOT resolve the thread** — leave it open for further discussion.
+Classify every thread as you go, whatever it decided — the row is what the ledger
+filters, and a thread with no row is a thread that was dropped.
 
 ### 4. Reply to and resolve comment threads
 
@@ -161,17 +165,19 @@ For each `CHANGES_REQUESTED` review from `coderabbitai[bot]`:
   When the round pushed nothing because every finding was declined, dismiss with that as the
   message (`Findings declined, see thread replies; no code change.`) — the replies carry the
   reasoning, and CodeRabbit re-reviews whenever the next push lands.
-- **If any thread from that review is still open (case c)**, leave the review in place — the
+- **If any thread from that review is still `open`**, leave the review in place — the
   block is legitimate — and say so in the summary.
 
 Never dismiss a `CHANGES_REQUESTED` review from a **human** reviewer; only they (or a re-review)
 should clear it. Mention it in the summary as still pending.
 
 ### 6. Report summary
-Print a summary table of all processed comments:
+One classified row per thread — every thread, not only the interesting ones. The
+decision carries resolution: `applied` and `declined` are resolved, `open` is not.
 
-| # | File | Reviewer | Action | Resolved? |
-|---|------|----------|--------|-----------|
-| 1 | `path/to/file` | coderabbitai | Applied fix | ✅ Yes |
-| 2 | `path/to/other` | coderabbitai | Invalid — explained why | ✅ Yes |
-| 3 | `path/to/another` | coderabbitai | Shared findings, needs discussion | ❌ No |
+| # | Source | Sev | Where | Decision | Why | Scope |
+|---|--------|-----|-------|----------|-----|-------|
+| 1 | CodeRabbit | Low | `api/urls.py:12` | applied | trailing slash missing | |
+| 2 | CodeRabbit | Med | `api/serializers.py:41` | declined | already `select_related('team')`; `test_roster_queries` pins the count | |
+| 3 | @ola | High | `api/models.py:12` | applied | `owner` must be nullable for legacy rows | +2 files, +1 migration |
+| 4 | codex | High | `api/views.py:88` | open | lock placement has two valid shapes | |
