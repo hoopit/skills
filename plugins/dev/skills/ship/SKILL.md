@@ -144,8 +144,10 @@ link hygiene. Add to the body it specifies:
 ## Step 8 — Monitor the PR
 
 Start the **`monitor-pr`** skill on the new PR with `--subagent`, so its rounds run in
-workers rather than this session. It watches to the merge and cleans up the worktree
-itself, so this skill's work ends here.
+workers rather than this session. It works rounds on its own budget and comes back to the
+user when that budget is spent, when a decision only they can settle turns up, or when
+the PR merges — and on the merge it cleans up the worktree itself. This skill's work ends
+here.
 
 Report the PR url and the armed watch back to the caller, which owns the final result
 block.

@@ -1,6 +1,6 @@
 ---
 name: monitor-pr
-description: Watch a single pull request and work each review round — merge conflicts, unresolved review threads, failing checks — one push per round, until it is merged, hits a decision only the user can settle, or spends its round budget. Then clean up the worktree and report what is left open. Use only when explicitly asked to monitor a PR.
+description: Watch a single pull request and work each review round — merge conflicts, unresolved review threads, failing checks — one push per round, on a round budget, until it is merged. Use only when explicitly asked to monitor a PR.
 argument-hint: "<PR url or number> [--rounds <N>] [--subagent[=<model>]]"
 ---
 
@@ -123,9 +123,13 @@ Agent(
   model: "<--subagent's model, else opus>",
   name: "pr-<PR>-worker",
   description: "round PR #<PR>",
-  prompt: "PR_URL=<PR_URL> OWNER_REPO=<OWNER_REPO> PR=<PR> REPO_ROOT=<REPO_ROOT> LEDGER=<SKILL_DIR>/LEDGER.md\nROUND: <the ROUND line verbatim>",
+  prompt: "PR_URL=<PR_URL> OWNER_REPO=<OWNER_REPO> PR=<PR> REPO_ROOT=<REPO_ROOT> LEDGER=<SKILL_DIR>/LEDGER.md\nROUND: <the ROUND line verbatim>\nANSWERED: <every fork the user has settled, and the choice>",
 )
 ```
+
+`ANSWERED` goes on **both** prompts. A fresh worker knows nothing the last one was told,
+so a re-arm after a hard fork, or a rotation, would otherwise drop the very answer that
+unblocked the watch. Carry every answer the PR has collected, not only the newest.
 
 Each completion notification reports `subagent_tokens`; keep a running total per worker.
 Next round while the total is under 100k:
@@ -133,6 +137,8 @@ Next round while the total is under 100k:
 ```
 SendMessage(to: "pr-<PR>-worker", message: "ROUND: <the ROUND line verbatim>\nANSWERED: <each fork the user settled since the last round, and the choice>")
 ```
+
+The worker already holds the earlier answers, so this one carries only what is new.
 
 At 100k or above, rotate: spawn a fresh worker with the full prompt (use a new name,
 e.g. `pr-<PR>-worker-2`) and start its total at zero.
@@ -176,11 +182,6 @@ the merged PR as the record of what was judged along the way. One thing outlives
 and is carried into the tally: commits the worktree holds and the remote does not — push
 them, saying plainly that this opens a follow-up PR against the default branch.
 
-**Clean up.** The branch is spent, so invoke `clean-up-worktree` for it; its own merge
-gate and safety checks stand, and its confirmation is the one place this is approved.
-Skip it — saying why — when the tally just pushed commits past the merge: that branch is
-live work again, not spent.
-
 **Report what is left open.** The merge closes the PR, not the thinking, so sweep three
 places and list what survives:
 
@@ -192,6 +193,17 @@ places and list what survives:
 Offer to file them where this repo's `CLAUDE.md` says work items live — one line per
 proposed item, title and a sentence — and file only what the user picks. An empty sweep
 is worth saying out loud: *nothing left open.*
+
+**Clean up, last.** The branch is spent, so invoke `clean-up-worktree` for it; its own
+merge gate and safety checks stand, and its confirmation is the one place this is
+approved. Skip it — saying why — when the tally just pushed commits past the merge: that
+branch is live work again, not spent.
+
+This goes last because it is the one irreversible move, and because the worktree it
+removes may be the directory this session is running in — `ship` arms the watch from
+inside it. Once it is gone, the shell has no working directory and nothing further runs.
+Finish the tally and the sweep first, then hand the user the `cd` to the main worktree
+that `clean-up-worktree` reports.
 
 ## Step 5 — Ask in rounds
 
@@ -240,7 +252,8 @@ poll and Step 4a lands it, and on *keep watching* a PR that moves again still ha
 **Budget spent** — the last round of `--rounds` is worked and reported. Stop, then ask
 whether to spend another budget, saying what is still outstanding and whether the rounds
 are converging: fewer findings each round argues for more, the same finding recurring
-argues for the user.
+argues for the user. *Another N rounds* re-arms the watch (back to Step 2, label
+included) with a fresh budget.
 
 **A stop** — the watch ended on something going wrong. Ask immediately, on its own, once
 the label is dropped. A stop covers: no worktree for the branch (Step 1), `WATCH_ERROR`,
