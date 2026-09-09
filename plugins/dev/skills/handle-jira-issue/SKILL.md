@@ -1,13 +1,13 @@
 ---
 name: handle-jira-issue
-description: Handle any Jira issue end-to-end — an ITSM ticket (single- or multi-project) or a project issue (BAC/WEB/FA). Fetch details (from the linked ITSM ticket when one exists), resolve or create the platform issue in each affected repo, then ship one PR per affected repo via implement-and-ship-fix. Use whenever the user or an automation names a Jira issue to fix.
+description: Handle any Jira issue end-to-end — an ITSM ticket (single- or multi-project) or a project issue (BAC/WEB/FA). Fetch details (from the linked ITSM ticket when one exists), resolve or create the platform issue in each affected repo, then ship one PR per affected repo via implement-and-ship. Use whenever the user or an automation names a Jira issue to fix.
 ---
 
 # Handle Jira Issue Workflow
 
 Triggered when the user says something like "fix this issue" and provides any Jira issue key or link — either an ITSM ticket (e.g. `ITSM-1234`) or a project issue (e.g. `BAC-6934`, `WEB-1234`, `FA-987`), or a full Jira URL (e.g. `https://hoopit.atlassian.net/browse/ITSM-1234`).
 
-This skill owns the Jira-specific work — classify the input, read the report, resolve the affected repos, resolve or create each repo's platform issue — then hands off to the **`implement-and-ship-fix`** skill for the generic branch → fix → test → review → PR flow, **once per affected repo**. A project issue targets exactly one repo; an ITSM ticket may be implemented by platform issues in **one or several** projects, which live in separate git repos, and ships one PR per affected repo, each linked back to the same ITSM ticket.
+This skill owns the Jira-specific work — classify the input, read the report, resolve the affected repos, resolve or create each repo's platform issue — then hands off to the **`implement-and-ship`** skill, **once per affected repo**, for the branch → implement → test → review → PR flow. A project issue targets exactly one repo; an ITSM ticket may be implemented by platform issues in **one or several** projects, which live in separate git repos, and ships one PR per affected repo, each linked back to the same ITSM ticket.
 
 ## Configuration — read from CLAUDE.md, never hardcode
 
@@ -214,17 +214,16 @@ After 2a–2c you have a list of **(`TARGET_REPO`, `TARGET_KEY`)** pairs — one
 ## Step 3 — Ship one fix per affected repo
 
 For **each** (`TARGET_REPO`, `TARGET_KEY`) pair, hand off to the
-**`implement-and-ship-fix`** skill, which owns the generic
-branch → fix → regression test → review gate → push → PR flow (including branch
-naming, commit footer, and PR link hygiene). Pass it:
+**`implement-and-ship`** skill, which takes one repo from the branch to a monitored
+PR. Pass it:
 
 - `TARGET_REPO` — that repo's sibling directory.
-- `JIRA_KEY` = `TARGET_KEY`.
-- `DETAILS_KEY` — the ITSM ticket when linked, else `TARGET_KEY` (Step 1's source).
-- `ITSM_ISSUE_KEY` — set **only when a linked ITSM ticket exists** (drives the
-  `Refs <ITSM_ISSUE_KEY>` commit footer and the PR `## ITSM` section); leave unset
-  for a project issue with no ITSM link.
-- `JIRA_BASE_URL`, `DEFAULT_BRANCH` — from `TARGET_REPO`'s CLAUDE.md.
+- `BRIEF` — the report you read in Step 1: symptoms, any attachments you analysed, and
+  the issue to read fuller detail from (the ITSM ticket when linked, else `TARGET_KEY`).
+- `WORK_ITEM` — `TARGET_KEY` and its `$JIRA_BASE_URL/browse/<TARGET_KEY>` url, tracked
+  in Jira.
+- **Only when a linked ITSM ticket exists:** ask for a `Refs <ITSM_ISSUE_KEY>` commit
+  footer and an `## ITSM` PR section linking that ticket.
 
 Each call produces its own worktree, branch, and PR. When several repos are affected,
 handle them **independently and best-effort**: if one repo's fix must stop (per Step 1's
@@ -232,5 +231,5 @@ return-to-caller rule), that repo's platform issue is escalated and the others s
 ship. Report every repo's outcome (PR url / blocked) back to whoever invoked you.
 
 You've done the Jira-specific work (read the report + attachments in Step 1, resolved
-the affected repos and their `TARGET_KEY`s in Step 2); `implement-and-ship-fix` takes
-each repo from the branch through the open PR.
+the affected repos and their `TARGET_KEY`s in Step 2); `implement-and-ship` takes each
+repo from the branch through the open PR.

@@ -1,13 +1,13 @@
 ---
 name: fix-sentry-issue
-description: Fix a Sentry issue end-to-end — fetch details, create or link a Jira ticket (with a native bidirectional Sentry↔Jira link), then ship the fix (branch, fix, test, review, PR) via implement-and-ship-fix. Use when the user links to a sentry issue.
+description: Fix a Sentry issue end-to-end — fetch details, create or link a Jira ticket (with a native bidirectional Sentry↔Jira link), then ship the fix (branch, fix, test, review, PR) via implement-and-ship. Use when the user links to a sentry issue.
 ---
 
 # Fix Sentry Issue Workflow
 
 Triggered when the user says something like "fix this sentry issue" and provides a Sentry URL or issue ID (e.g. `BAC-QCB` or `https://hoopit.sentry.io/issues/...`).
 
-This skill owns the Sentry-specific work — fetch the issue, create or link a Jira ticket with a native two-way link — then hands off to the **`implement-and-ship-fix`** skill for the generic branch → fix → test → review → PR flow.
+This skill owns the Sentry-specific work — fetch the issue, create or link a Jira ticket with a native two-way link — then hands off to the **`implement-and-ship`** skill for the branch → implement → test → review → PR flow.
 
 ## Configuration — read from CLAUDE.md, never hardcode
 
@@ -150,17 +150,17 @@ acli jira workitem comment create \
 
 ## Step 3 — Ship the fix
 
-Hand off to the **`implement-and-ship-fix`** skill, which owns the generic
-branch → fix → regression test → review gate → push → PR flow (including branch
-naming, commit footer, and PR link hygiene). Pass it:
+Hand off to the **`implement-and-ship`** skill, which takes the repo from the branch
+to a monitored PR. Pass it:
 
 - `TARGET_REPO` — the repo you were invoked in (resolved from cwd + its CLAUDE.md).
-- `JIRA_KEY` — the Jira issue from Step 2.
-- `DETAILS_KEY` — the Sentry issue (Step 1's source of the error, stacktrace, and event context).
-- `SENTRY_ID` — the short id (e.g. `BAC-QCB`), and `SENTRY_URL` — its Sentry issue URL.
-  These drive the `Fixes <SENTRY_ID>` commit footer and the PR `## Sentry` section.
-- `JIRA_BASE_URL`, `DEFAULT_BRANCH` — from `TARGET_REPO`'s CLAUDE.md.
+- `BRIEF` — the error, stacktrace, and event context you fetched in Step 1, and the
+  Sentry issue to read fuller detail from.
+- `WORK_ITEM` — the Jira issue from Step 2 and its `$JIRA_BASE_URL/browse/<JIRA_KEY>`
+  url, tracked in Jira.
+- Ask for a `Fixes <SENTRY_ID>` commit footer and a `## Sentry` PR section linking
+  `SENTRY_URL` (`SENTRY_ID` is the short id, e.g. `BAC-QCB`).
 
 You've done the Sentry-specific work (fetched the issue + event in Step 1, created or
 linked the Jira issue and its native Sentry↔Jira link in Step 2);
-`implement-and-ship-fix` takes it from the branch through the open PR.
+`implement-and-ship` takes it from the branch through the open PR.
