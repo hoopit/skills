@@ -150,13 +150,19 @@ link hygiene. Add to the body it specifies:
   budget, the findings still standing and that they chose to ship over them;
 - any extra sections the caller asked for.
 
-## Step 8 — Monitor the PR
+## Step 8 — Hand the PR on
 
-Start the **`monitor-pr`** skill on the new PR with `--subagent`, so its rounds run in
-workers rather than this session. It works rounds on its own budget and comes back to the
-user when that budget is spent, when a decision only they can settle turns up, or when
-the PR merges — and on the merge it cleans up the worktree itself. This skill's work ends
-here.
+Someone has to work the PR's review rounds to the merge. Who, depends on whether a human
+is there:
 
-Report the PR url and the armed watch back to the caller, which owns the final result
-block.
+- **A human is there** — start the **`monitor-pr`** skill on the new PR with `--subagent`,
+  so its rounds run in workers rather than this session. It works rounds on its own budget
+  and comes back to the user when that budget is spent, when a decision only they can
+  settle turns up, or when the PR merges — and on the merge it cleans up the worktree
+  itself.
+- **Running unattended under a caller** — arm nothing. A watch that runs to the merge
+  outlives a one-shot run, and the worktree it needs is removed the moment that run
+  returns. Hand the PR back; the caller's contract owns everything after it opens.
+
+Either way this skill's work ends here. Report the PR url — and the watch, if you armed
+one — back to the caller, which owns the final result block.

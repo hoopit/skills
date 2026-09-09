@@ -11,22 +11,20 @@ This skill owns the Sentry-specific work — fetch the issue, create or link a J
 
 ## Configuration — read from CLAUDE.md, never hardcode
 
-This skill is project-agnostic. Run it from inside the affected repo, then read
-its **`## Agent skills` → `### Workflow skills config`** block in `CLAUDE.md` and
-use those values throughout — **do not hardcode or guess them**. If a value you
-need is missing (or marked TODO), **stop and ask the user to add it** to CLAUDE.md.
+This skill is project-agnostic. Run it from inside the affected repo and read its
+**`## Agent skills` → `### Workflow skills config`** block in `CLAUDE.md`; if a value you
+need is missing or marked TODO, **stop and ask the user to add it** rather than assuming a
+default.
 
 - `JIRA_PROJECT` — the repo's **Jira project key** (e.g. `BAC`).
 - `JIRA_BASE_URL` — the **Jira base URL** (e.g. `https://hoopit.atlassian.net`).
 - `SENTRY_ORG` — the **Sentry org** (e.g. `hoopit`).
 - `SENTRY_PROJECT` — the **Sentry project** slug.
-- `DEFAULT_BRANCH` — the repo's **default branch** (e.g. `master`).
 - `SENTRY_JIRA_INTEGRATION_ID` — the numeric id of the Sentry↔Jira integration, used to create the native two-way issue link (e.g. `12493`). If it's missing from CLAUDE.md, derive it once with the command in Step 2c and add it.
 
-Wherever the steps below show `BAC`, `hoopit`, `https://hoopit.atlassian.net`, or
-`master`, substitute `$JIRA_PROJECT`, `$SENTRY_ORG`, `$JIRA_BASE_URL`, and
-`$DEFAULT_BRANCH`. Resolve the repo from where you are invoked (cwd) and its
-CLAUDE.md — not from the Sentry ID prefix.
+Wherever the steps below show `BAC`, `hoopit`, or `https://hoopit.atlassian.net`,
+substitute `$JIRA_PROJECT`, `$SENTRY_ORG`, and `$JIRA_BASE_URL`. Resolve the repo from
+where you are invoked (cwd) and its CLAUDE.md — not from the Sentry ID prefix.
 
 ## Step 1 — Fetch Sentry issue details
 
