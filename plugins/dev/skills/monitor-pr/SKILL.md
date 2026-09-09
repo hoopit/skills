@@ -52,16 +52,15 @@ renders and the user sees which PR you resolved:
 gh pr view <PR> --repo <OWNER_REPO> --json url --jq .url
 ```
 
-Rounds run only in an existing worktree for the PR branch, and only on a PR whose head
-is not the default branch — a same-repo back-merge PR has the default branch *as* its
-head, and working it would push there. Either one means the watch cannot arm: say so
-through `AskUserQuestion` (Step 5) rather than just printing it.
+Rounds run in a worktree for the PR branch — the round creates one when none exists — and
+only on a PR whose head is not the default branch: a same-repo back-merge PR has the
+default branch *as* its head, and working it would push there. That one means the watch
+cannot arm: say so through `AskUserQuestion` (Step 5) rather than just printing it.
 
 ```bash
 BRANCH=$(gh pr view <PR> --repo <OWNER_REPO> --json headRefName --jq .headRefName)
 DEFAULT_BRANCH=$(gh repo view <OWNER_REPO> --json defaultBranchRef --jq .defaultBranchRef.name)
 [[ "$BRANCH" == "$DEFAULT_BRANCH" ]] && echo "BACK_MERGE — do not arm"
-git worktree list --porcelain | grep -B2 "refs/heads/$BRANCH"
 ```
 
 The worker checks this again each round; catching it here just saves arming a watch that
@@ -262,8 +261,8 @@ argues for the user. *Another N rounds* re-arms the watch (back to Step 2, label
 included) with a fresh budget.
 
 **A stop** — the watch ended on something going wrong. Ask immediately, on its own, once
-the label is dropped. A stop covers: no worktree for the branch or a back-merge head (Step 1),
-`WATCH_ERROR`, `PR_CLOSED state=CLOSED`, the same check failing two rounds running, the `Monitor` task
+the label is dropped. A stop covers: a back-merge head (Step 1), a PR branch the round
+could not put in a worktree, `WATCH_ERROR`, `PR_CLOSED state=CLOSED`, the same check failing two rounds running, the `Monitor` task
 exiting or being killed, and any round that errors out beyond working around (auth
 expired, worktree gone, push rejected, the worker dying twice). A watch always ends in
 front of the user: the question is the last thing the turn does, and it names the real
