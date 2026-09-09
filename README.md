@@ -76,7 +76,7 @@ Day-to-day dev workflows and CLIs: Jira/Sentry issues, PR review, Atlassian, Cir
 | `review-gate` | Auto | Run independent code reviewers (the mattpocock-skills two-axis /review + Codex) on the committed branch changes before a PR, aggregate and de-dup findings, fix what is valid, and BLOCK the PR (with notes) on any disputed Critical/High finding. |
 | `review-github-comments` | Auto | Review and resolve all review comments on a GitHub PR — fetch comments, evaluate each one, apply fixes where needed, and reply to resolve them. |
 | `review-jira-attachments` | Auto | Download and analyze the files attached to a Jira issue — HAR network captures, screenshots, logs, PDFs — via the Jira REST API, because acli cannot download attachments. |
-| `ship` | Auto | Take one understood piece of work in one repo from a branch to a monitored PR — worktree, implementation, tests, review gate, PR, monitor-pr. |
+| `ship` | Auto | Take one understood piece of work in one repo from a branch to a monitored PR. |
 
 #### `hoopit-misc`
 
