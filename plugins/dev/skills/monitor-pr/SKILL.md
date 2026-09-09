@@ -1,7 +1,7 @@
 ---
 name: monitor-pr
 description: Watch a single pull request and work each review round — merge conflicts, unresolved review threads, failing checks — one push per round, until it is merged, hits a decision only the user can settle, or spends its round budget. Then clean up the worktree and report what is left open. Use only when explicitly asked to monitor a PR.
-argument-hint: "<PR url or number> [--rounds <N>] [--single] [--subagent[=<model>]]"
+argument-hint: "<PR url or number> [--rounds <N>] [--subagent[=<model>]]"
 ---
 
 # Monitor PR
@@ -31,7 +31,7 @@ is a soft fork by default; grade it hard only when its answer reaches the work i
 
 Flags:
 
-- `--rounds <N>` — the round budget. Default 5. `--single` is `--rounds 1`.
+- `--rounds <N>` — the round budget. Default 5.
 - `--subagent[=<model>]` — run rounds in a `hoopit-dev:monitor-pr-worker` instead of yourself,
   reusing it across rounds until it nears its context limit, then rotating to a fresh
   one. The model defaults to `opus`; `--subagent=fable` (or `sonnet`, `haiku`) overrides
