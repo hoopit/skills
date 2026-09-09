@@ -66,7 +66,6 @@ Day-to-day dev workflows and CLIs: Jira/Sentry issues, PR review, Atlassian, Cir
 | Skill | Invoke | Description |
 |-------|--------|-------------|
 | `atlassian-cli` | Auto | Use when working with Jira or Confluence from command line, including authentication, searching issues with JQL, bulk operations, sprint reports, or creating/updating work items using acli |
-| `babysit-prs` | Auto | Babysit your open PRs — sweep for merge conflicts, failing checks, and unresolved review comments; fix what's safe, report the rest. |
 | `circleci-tests` | Auto | Fetch failing tests from a CircleCI job URL. |
 | `clean-up-worktree` | Auto | After this conversation's PR is merged, delete the branch and worktree this conversation worked in — and nothing else. |
 | `create-pull-request` | Auto | Create GitHub PRs that link the work item they deliver and keep Jira keys off unrelated tickets. |
