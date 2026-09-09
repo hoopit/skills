@@ -84,12 +84,35 @@ allowed on a commit.
 
 ## Step 6 — Review gate
 
-From inside the worktree, run the **`review-gate`** skill against `$DEFAULT_BRANCH`. It
-returns exactly one verdict:
+A **round** is one run of the **`review-gate`** skill from inside the worktree against
+`$DEFAULT_BRANCH`, plus the fix commits that run makes. Work rounds until the gate comes
+back clean, on a budget of **5**.
 
-- **`PASS`** → keep its notes block for the PR body; continue.
-- **`BLOCK: <reason>`** → **do not push, do not open a PR.** Return the block and its
-  findings to the caller, which owns the escalate / escape-hatch response.
+Each round returns one verdict:
+
+- **`PASS`, no fixes made** — clean. Keep the gate's notes block for the PR body and go
+  to Step 7.
+- **`PASS` after fixes** — the reviewers never saw the fixed code, and a fix is where the
+  next round's findings come from. Run another round: clean means nothing left, not
+  nothing new.
+- **`BLOCK: <reason>`** — **do not push, do not open a PR.** Ask.
+
+At the budget with the gate still unclean, stop and ask. Whether the rounds are
+converging is the substance of that question: fewer findings each round argues for
+another budget, the same finding surviving every round argues for the user.
+
+Both paths reach the user the same way. Put the substance in chat first — the blocking
+or surviving findings, your reasoning, what you would do about each — then fire
+`AskUserQuestion` headed `Review gate` to carry the attention:
+
+| Path | Options |
+| --- | --- |
+| `BLOCK` | **Answer in chat** (recommended) · **Take all your recommendations** · **Open the PR anyway, with the block in its body** |
+| Budget spent | **Another 5 rounds** · **Open the PR anyway, with the findings in its body** · **Answer in chat** |
+
+Running unattended under a caller that has its own escape hatch, return the verdict to
+the caller instead — a question asked with nobody there stops the work and reaches no
+one.
 
 ## Step 7 — Push and open the PR
 
@@ -102,8 +125,9 @@ link hygiene. Add to the body it specifies:
 
 - the `WORK_ITEM` link section — or, unset, a line saying the change is untracked;
 - a `## Testing` line covering the tests added, or why none was feasible;
-- the review-gate notes: which reviewers ran, findings addressed, findings skipped and
-  why;
+- the review-gate notes across every round: which reviewers ran, findings addressed,
+  findings skipped and why — and, when the user chose to open past a block or a spent
+  budget, the findings still standing and that they chose to ship over them;
 - any extra sections the caller asked for.
 
 ## Step 8 — Monitor the PR

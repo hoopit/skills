@@ -14,10 +14,14 @@ absent) — engine diversity is the point.
 
 ## Contract
 
-Call after the fix is committed on the branch, **before** push/PR. Return exactly one verdict:
+Call after the fix is committed on the branch, **before** push/PR. One call is **one pass** — review,
+fix, report — and the caller decides whether to run another (`ship` Step 6 works rounds on a budget).
+Return exactly one verdict:
 
 - **`PASS`** — every *valid* finding is fixed; anything left is Low/Medium that you deliberately
-  skipped with a one-line justification. Caller opens the PR and pastes the gate notes into it.
+  skipped with a one-line justification. Say whether this pass **made fix commits**: fixed code no
+  reviewer has seen is what the caller's next round is for. Caller opens the PR and pastes the gate
+  notes into it.
 - **`BLOCK: <reason>`** — there is a **disputed Critical/High** finding (you judge it invalid/not worth
   fixing), or a valid Critical/High that isn't safe to fix here. You may **not** unilaterally dismiss a
   Critical/High. Caller must NOT open the PR — surface the blocking findings; in an unattended loop the
@@ -63,22 +67,22 @@ Call after the fix is committed on the branch, **before** push/PR. Return exactl
 4. **Aggregate + de-dup.** Merge findings from every reviewer that ran; collapse duplicates (same
    location + same issue → one finding, keep the highest severity and note which reviewers raised it).
 5. **Triage each finding (judgment on all):**
-   - **Valid → fix it.** Commit each fix separately (convention below). After fixing, re-run the
-     affected reviewer(s); loop until no new *valid* Critical/High remains.
+   - **Valid → fix it.** Commit each fix separately (convention below). Re-reviewing the fixed
+     code is the caller's next round, not a loop inside this pass.
    - **Fix the class, not the instance.** When a finding reveals a *class* of defect (one
      unvalidated field among several consumed, one call site among many, one write path of
      several), sweep for every instance of the class and fix them all — following it past the
      diff into unchanged fields, call sites, consumers, and sibling write paths, which carry
-     the same defect while the gate still reads `PASS`. Narrow fixes are what re-trigger the
-     next review round, and they tend to introduce the round's new findings. When the tail of
-     the sweep is too large for this change, fix what this change touches and `BLOCK` on the
-     rest (the too-large rule below).
+     the same defect while the gate still reads `PASS`. Narrow fixes are what spend the caller's
+     round budget, and they tend to introduce the next round's findings. When the tail of the
+     sweep is too large for this change, fix what this change touches and `BLOCK` on the rest
+     (the too-large rule below).
    - **Invalid Low/Medium → skip**, recording a one-line reason (collected for the PR).
    - **Invalid (disputed) Critical/High → `BLOCK`.** Record the finding + your reasoning. Do not skip it.
    - **Valid but unsafe / too large to fix in this change → `BLOCK`** with that reason.
 6. **Return the verdict:**
-   - `PASS` + a notes block for the PR: which reviewers ran (and which were skipped/unavailable),
-     findings fixed, findings skipped (with reasons).
+   - `PASS` + whether this pass made fix commits + a notes block for the PR: which reviewers ran
+     (and which were skipped/unavailable), findings fixed, findings skipped (with reasons).
    - `BLOCK: <one-line reason>` + the blocking findings and your reasoning.
 
 ## Fix commit convention
