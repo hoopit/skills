@@ -1,6 +1,7 @@
 ---
 name: ship
 description: Take one understood piece of work in one repo from a branch to a monitored PR — worktree, implementation, tests, review gate, PR, monitor-pr. Tracker-agnostic and project-agnostic. Use when the repo and the work are both known: a caller skill resolved them (fix-sentry-issue, handle-jira-issue), or the user handed you a bug, feature, or chore to implement and ship.
+argument-hint: "<the work, or the item tracking it> [--rounds <N>]"
 ---
 
 # Ship
@@ -16,6 +17,10 @@ you set them yourself from what the user gave you.
 
 One invocation ships **one PR in one repo**. Work spanning several repos runs this skill
 once per repo, independently.
+
+Flags:
+
+- `--rounds <N>` — the review-gate round budget (Step 6). Default 5.
 
 ## Inputs
 
@@ -94,7 +99,7 @@ allowed on a commit.
 
 A **round** is one run of the **`review-gate`** skill from inside the worktree against
 `$DEFAULT_BRANCH`, plus the fix commits that run makes. Work rounds until the gate comes
-back clean, on a budget of **5**.
+back clean, on a budget of `--rounds`.
 
 Hand the gate `WORK_ITEM` and `BRIEF` as its **spec** — without them its Spec axis
 self-skips and half the review silently disappears. The spec is all it gets: keep your
@@ -121,7 +126,7 @@ or surviving findings, your reasoning, what you would do about each — then fir
 | Path | Options |
 | --- | --- |
 | `BLOCK` | **Answer in chat** (recommended) · **Take all your recommendations** · **Open the PR anyway, with the block in its body** |
-| Budget spent | **Another 5 rounds** · **Open the PR anyway, with the findings in its body** · **Answer in chat** |
+| Budget spent | **Another `--rounds` rounds** · **Open the PR anyway, with the findings in its body** · **Answer in chat** |
 
 An answer settles the findings it covers and rounds resume with the budget left intact;
 *Open the PR anyway* carries the standing findings into the PR body (Step 7).
