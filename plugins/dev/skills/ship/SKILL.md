@@ -161,8 +161,8 @@ is there:
   settle turns up, or when the PR merges — and on the merge it cleans up the worktree
   itself.
 - **Running unattended under a caller** — arm nothing. A watch that runs to the merge
-  outlives a one-shot run, and the worktree it needs is removed the moment that run
-  returns. Hand the PR back; the caller's contract owns everything after it opens.
+  outlives a one-shot run. Hand the PR back; the caller's contract owns everything after
+  it opens.
 
 Either way this skill's work ends here. Report the PR url — and the watch, if you armed
 one — back to the caller, which owns the final result block.
