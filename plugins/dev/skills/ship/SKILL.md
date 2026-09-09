@@ -96,6 +96,11 @@ A **round** is one run of the **`review-gate`** skill from inside the worktree a
 `$DEFAULT_BRANCH`, plus the fix commits that run makes. Work rounds until the gate comes
 back clean, on a budget of **5**.
 
+Hand the gate `WORK_ITEM` and `BRIEF` as its **spec** — without them its Spec axis
+self-skips and half the review silently disappears. The spec is all it gets: keep your
+investigation and your fix's reasoning to yourself, because cold eyes are what the gate
+is for.
+
 Each round returns one verdict:
 
 - **`PASS`, no fixes made** — clean. Keep the gate's notes block for the PR body and go
@@ -121,9 +126,8 @@ or surviving findings, your reasoning, what you would do about each — then fir
 An answer settles the findings it covers and rounds resume with the budget left intact;
 *Open the PR anyway* carries the standing findings into the PR body (Step 7).
 
-Running unattended under a caller that has its own escape hatch, return the verdict to
-the caller instead — a question asked with nobody there stops the work and reaches no
-one.
+Running unattended under a caller, hand the verdict back to it instead — a question
+asked with nobody there stops the work and reaches no one.
 
 ## Step 7 — Push and open the PR
 

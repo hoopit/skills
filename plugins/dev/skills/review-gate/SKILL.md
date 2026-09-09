@@ -24,8 +24,8 @@ Return exactly one verdict:
   notes into it.
 - **`BLOCK: <reason>`** — there is a **disputed Critical/High** finding (you judge it invalid/not worth
   fixing), or a valid Critical/High that isn't safe to fix here. You may **not** unilaterally dismiss a
-  Critical/High. Caller must NOT open the PR — surface the blocking findings; in an unattended loop the
-  caller takes its escape hatch (Jira comment + transition to **Escalated** + return `BLOCKED`).
+  Critical/High. Caller must NOT open the PR — surface the blocking findings; unattended, the
+  caller hands back per its own contract, which owns what an escalation writes to the tracker.
 
 ## Steps
 

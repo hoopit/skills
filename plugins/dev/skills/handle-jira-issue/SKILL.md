@@ -11,12 +11,11 @@ This skill owns the Jira-specific work — classify the input, read the report, 
 
 ## Configuration — read from CLAUDE.md, never hardcode
 
-This skill is project-agnostic. Every Hoopit-specific identifier (Jira keys, the
-Jira base URL, the ITSM project key, repo names) comes from the
-**`## Agent skills` → `### Workflow skills config`** block in each repo's
-`CLAUDE.md`. **Do not hardcode or guess these** — read them from CLAUDE.md. If a
-value you need is missing from the relevant repo's CLAUDE.md, **stop and ask the
-user to add it** rather than assuming a default.
+This skill is project-agnostic. Every per-project identifier — Jira key, Jira base URL,
+ITSM project key, repo name — comes from the **`## Agent skills` →
+`### Workflow skills config`** block in that repo's `CLAUDE.md`. Read them from there;
+if one you need is missing, **stop and ask the user to add it** rather than assuming a
+default.
 
 The repos are sibling directories under a common parent (`HOOPIT_ROOT`); derive
 it from the repo this skill is invoked in:
@@ -45,10 +44,6 @@ Call the resulting set of keys the **project keys**; every "is this a project is
 test below means "is its prefix one of them?". Wherever the steps show `BAC` / `WEB` /
 `FA`, they are examples of that set, never the set itself.
 
-For each affected repo, read the rest of its Workflow skills config —
-**Jira base URL**, **ITSM project key**, **Default branch** — from that repo's
-CLAUDE.md and use them in place of the literals below.
-
 Variables used throughout this skill:
 - `ITSM_ISSUE_KEY` — the ITSM ticket, **if one exists**. May be unset.
 - `DETAILS_KEY` — the issue you read the bug report / symptoms / attachments from: the **ITSM ticket when one exists**, otherwise the project issue itself.
@@ -58,11 +53,9 @@ Variables used throughout this skill:
   - `TARGET_PROJECT` — the Jira project key the fix is tracked under.
   - `TARGET_REPO` — the repo whose CLAUDE.md declares `TARGET_PROJECT`.
   - `TARGET_KEY` — the platform issue key in `TARGET_PROJECT` (e.g. `BAC-6934`). Becomes that repo's working `JIRA_KEY`.
-  - `DEFAULT_BRANCH` — `TARGET_REPO`'s default branch from CLAUDE.md (e.g. `master`).
 
-> Wherever the steps below show `https://hoopit.atlassian.net`, `ITSM`, or
-> `master`, substitute `$JIRA_BASE_URL`, `$ITSM_PROJECT`, and `$DEFAULT_BRANCH`
-> from CLAUDE.md.
+> Wherever the steps below show `https://hoopit.atlassian.net` or `ITSM`, substitute
+> `$JIRA_BASE_URL` and `$ITSM_PROJECT` from CLAUDE.md.
 
 ### Implementation links
 
@@ -85,6 +78,16 @@ acli jira workitem view <KEY> --fields 'issuelinks' --json
 
 Inspect **both** `inwardIssue.key` and `outwardIssue.key` across all entries in the
 `fields.issuelinks` array.
+
+## Hand back rather than guess
+
+Whenever you cannot proceed on a repo — the report is not understandable or reproducible,
+no affected repo can be determined, `ship` comes back blocked — **hand back**: ask the
+user when a human is there, and when dispatched by an automation report per the caller's
+contract. That contract, not this skill, owns the request-info / escalate decision and
+what an escalation writes to Jira.
+
+A hand-back is **per repo**. The other affected repos still ship.
 
 ## Determine the scenario
 
@@ -139,7 +142,7 @@ Focus on:
 
 Use the findings to narrow down which endpoint, view, component, or screen — and therefore which repo(s) — is involved before starting the investigation.
 
-If the issue cannot be understood or reproduced from the available information, stop and return to whoever invoked you: ask the user when working interactively, or report back per the caller's contract when dispatched by an automation (the caller owns the request-info / escalate decision).
+If the issue cannot be understood or reproduced from the available information, **hand back**.
 
 ## Step 2 — Resolve the affected repos and their platform issues
 
@@ -166,8 +169,7 @@ change.
 
 If no repo can be determined from the links or the investigation, default to whichever
 repo the current working directory sits inside; if the cwd is outside all project repos
-too (or clearly describes a different layer than the ticket suggests), stop and return
-to whoever invoked you, as in Step 1.
+too (or clearly describes a different layer than the ticket suggests), **hand back**.
 
 ### 2c — Ensure each affected repo has a platform issue
 
@@ -225,10 +227,9 @@ PR. Pass it:
 - **Only when a linked ITSM ticket exists:** ask for a `Refs <ITSM_ISSUE_KEY>` commit
   footer and an `## ITSM` PR section linking that ticket.
 
-Each call produces its own worktree, branch, and PR. When several repos are affected,
-handle them **independently and best-effort**: if one repo's fix must stop (per Step 1's
-return-to-caller rule), that repo's platform issue is escalated and the others still
-ship. Report every repo's outcome (PR url / blocked) back to whoever invoked you.
+Each call produces its own worktree, branch, and PR. Affected repos are handled
+**independently and best-effort**. Report every repo's outcome (PR url / handed back)
+back to whoever invoked you.
 
 You've done the Jira-specific work (read the report + attachments in Step 1, resolved
 the affected repos and their `TARGET_KEY`s in Step 2); `ship` takes each
