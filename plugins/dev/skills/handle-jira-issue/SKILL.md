@@ -215,22 +215,44 @@ After 2a–2c you have a list of **(`TARGET_REPO`, `TARGET_KEY`)** pairs — one
 
 ## Step 3 — Ship one fix per affected repo
 
-For **each** (`TARGET_REPO`, `TARGET_KEY`) pair, hand off to the
-**`ship`** skill, which takes one repo from the branch to a monitored
-PR. Pass it:
+Every affected repo gets the same **dispatch brief**, whether you ship it here or hand it
+to another session — the inputs the **`ship`** skill takes:
 
 - `TARGET_REPO` — that repo's sibling directory.
-- `BRIEF` — the report you read in Step 1: symptoms, any attachments you analysed, and
-  the issue to read fuller detail from (the ITSM ticket when linked, else `TARGET_KEY`).
-- `WORK_ITEM` — `TARGET_KEY` and its `$JIRA_BASE_URL/browse/<TARGET_KEY>` url, tracked
-  in Jira.
-- **Only when a linked ITSM ticket exists:** ask for a `Refs <ITSM_ISSUE_KEY>` commit
-  footer and an `## ITSM` PR section linking that ticket.
+- `BRIEF` — the report you read in Step 1: symptoms, what the attachments showed, and the
+  issue to read fuller detail from (`DETAILS_KEY`).
+- `WORK_ITEM` — `TARGET_KEY` and its `$JIRA_BASE_URL/browse/<TARGET_KEY>` url, tracked in
+  Jira.
+- **Only when a linked ITSM ticket exists:** a `Refs <ITSM_ISSUE_KEY>` commit footer and an
+  `## ITSM` PR section linking that ticket.
 
-Each call produces its own worktree, branch, and PR. Affected repos are handled
-**independently and best-effort**. Report every repo's outcome (PR url / handed back)
-back to whoever invoked you.
+**One affected repo** — run `ship` here with that brief. It takes the repo from the branch
+to a monitored PR, and your work ends when it reports back.
 
-You've done the Jira-specific work (read the report + attachments in Step 1, resolved
-the affected repos and their `TARGET_KEY`s in Step 2); `ship` takes each
-repo from the branch through the open PR.
+**Two or more affected repos** — one session per repo, never one session juggling several.
+Which lane you take depends on where you are running:
+
+| Where you are running | Lane |
+| --- | --- |
+| Unattended, dispatched by an automation | Run `ship` here, once per repo, in sequence: one repo fully shipped before the next begins |
+| Interactively inside Herdr (`HERDR_ENV=1`) | Fan out — [`references/fan-out.md`](references/fan-out.md) |
+| Anywhere else | **Halt.** Print each repo's dispatch brief as a ready-to-paste prompt, tell the user to open one session per repo, and hand back |
+
+Take the rows in order: whether a human is there decides before the environment does. An
+automation's loop often runs in a Herdr pane and its subagents inherit `HERDR_ENV=1`, so
+that variable alone never means fan out — an unattended caller owns a per-repo result
+contract, and a session spawned in a pane reports to nobody.
+
+That halt is deliberate, and it is not a failure to report as one. Every alternative on
+offer degrades the work: a subagent per repo cannot spawn the cold reviewers the review
+gate depends on, and one session shipping repo B has already read repo A — the same
+context that makes the second repo cheaper makes its review worse. Handing the briefs to
+fresh sessions costs the user a paste and keeps every repo's review honest.
+
+Each repo produces its own worktree, branch, and PR. Repos are handled **independently and
+best-effort**. Report every repo's outcome — PR url, dispatched agent, or handed back — to
+whoever invoked you.
+
+You've done the Jira-specific work (read the report + attachments in Step 1, resolved the
+affected repos and their `TARGET_KEY`s in Step 2); `ship` takes each repo from the branch
+through the open PR.
