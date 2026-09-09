@@ -1,13 +1,13 @@
 ---
 name: fix-sentry-issue
-description: Fix a Sentry issue end-to-end — fetch details, create or link a Jira ticket (with a native bidirectional Sentry↔Jira link), then ship the fix (branch, fix, test, review, PR) via implement. Use when the user links to a sentry issue.
+description: Fix a Sentry issue end-to-end — fetch details, create or link a Jira ticket (with a native bidirectional Sentry↔Jira link), then ship the fix (branch, fix, test, review, PR) via ship. Use when the user links to a sentry issue.
 ---
 
 # Fix Sentry Issue Workflow
 
 Triggered when the user says something like "fix this sentry issue" and provides a Sentry URL or issue ID (e.g. `BAC-QCB` or `https://hoopit.sentry.io/issues/...`).
 
-This skill owns the Sentry-specific work — fetch the issue, create or link a Jira ticket with a native two-way link — then hands off to the **`implement`** skill for the branch → code → test → review → PR flow.
+This skill owns the Sentry-specific work — fetch the issue, create or link a Jira ticket with a native two-way link — then hands off to the **`ship`** skill for the branch → code → test → review → PR flow.
 
 ## Configuration — read from CLAUDE.md, never hardcode
 
@@ -150,7 +150,7 @@ acli jira workitem comment create \
 
 ## Step 3 — Ship the fix
 
-Hand off to the **`implement`** skill, which takes the repo from the branch
+Hand off to the **`ship`** skill, which takes the repo from the branch
 to a monitored PR. Pass it:
 
 - `TARGET_REPO` — the repo you were invoked in (resolved from cwd + its CLAUDE.md).
@@ -163,4 +163,4 @@ to a monitored PR. Pass it:
 
 You've done the Sentry-specific work (fetched the issue + event in Step 1, created or
 linked the Jira issue and its native Sentry↔Jira link in Step 2);
-`implement` takes it from the branch through the open PR.
+`ship` takes it from the branch through the open PR.

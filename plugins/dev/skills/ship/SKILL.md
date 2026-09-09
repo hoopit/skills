@@ -1,9 +1,9 @@
 ---
-name: implement
-description: Take one understood piece of work in one repo from a branch to a monitored PR — worktree, implementation, tests, review gate, PR, monitor-pr. Tracker-agnostic and project-agnostic. Use when the work to do and the repo are already known, whether a caller skill resolved them (fix-sentry-issue, handle-jira-issue) or you were handed them directly.
+name: ship
+description: Take one understood piece of work in one repo from a branch to a monitored PR — worktree, implementation, tests, review gate, PR, monitor-pr. Tracker-agnostic and project-agnostic.
 ---
 
-# Implement
+# Ship
 
 The shared spine of every shipping workflow: given a **known repo** and an
 **understood piece of work**, take it from a branch to an open PR with a watch on it.

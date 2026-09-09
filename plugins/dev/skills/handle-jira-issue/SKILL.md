@@ -1,13 +1,13 @@
 ---
 name: handle-jira-issue
-description: Handle any Jira issue end-to-end — an ITSM ticket (single- or multi-project) or a project issue (BAC/WEB/FA). Fetch details (from the linked ITSM ticket when one exists), resolve or create the platform issue in each affected repo, then ship one PR per affected repo via implement. Use whenever the user or an automation names a Jira issue to fix.
+description: Handle any Jira issue end-to-end — an ITSM ticket (single- or multi-project) or a project issue (BAC/WEB/FA). Fetch details (from the linked ITSM ticket when one exists), resolve or create the platform issue in each affected repo, then ship one PR per affected repo via ship. Use whenever the user or an automation names a Jira issue to fix.
 ---
 
 # Handle Jira Issue Workflow
 
 Triggered when the user says something like "fix this issue" and provides any Jira issue key or link — either an ITSM ticket (e.g. `ITSM-1234`) or a project issue (e.g. `BAC-6934`, `WEB-1234`, `FA-987`), or a full Jira URL (e.g. `https://hoopit.atlassian.net/browse/ITSM-1234`).
 
-This skill owns the Jira-specific work — classify the input, read the report, resolve the affected repos, resolve or create each repo's platform issue — then hands off to the **`implement`** skill, **once per affected repo**, for the branch → code → test → review → PR flow. A project issue targets exactly one repo; an ITSM ticket may be implemented by platform issues in **one or several** projects, which live in separate git repos, and ships one PR per affected repo, each linked back to the same ITSM ticket.
+This skill owns the Jira-specific work — classify the input, read the report, resolve the affected repos, resolve or create each repo's platform issue — then hands off to the **`ship`** skill, **once per affected repo**, for the branch → code → test → review → PR flow. A project issue targets exactly one repo; an ITSM ticket may be implemented by platform issues in **one or several** projects, which live in separate git repos, and ships one PR per affected repo, each linked back to the same ITSM ticket.
 
 ## Configuration — read from CLAUDE.md, never hardcode
 
@@ -214,7 +214,7 @@ After 2a–2c you have a list of **(`TARGET_REPO`, `TARGET_KEY`)** pairs — one
 ## Step 3 — Ship one fix per affected repo
 
 For **each** (`TARGET_REPO`, `TARGET_KEY`) pair, hand off to the
-**`implement`** skill, which takes one repo from the branch to a monitored
+**`ship`** skill, which takes one repo from the branch to a monitored
 PR. Pass it:
 
 - `TARGET_REPO` — that repo's sibling directory.
@@ -231,5 +231,5 @@ return-to-caller rule), that repo's platform issue is escalated and the others s
 ship. Report every repo's outcome (PR url / blocked) back to whoever invoked you.
 
 You've done the Jira-specific work (read the report + attachments in Step 1, resolved
-the affected repos and their `TARGET_KEY`s in Step 2); `implement` takes each
+the affected repos and their `TARGET_KEY`s in Step 2); `ship` takes each
 repo from the branch through the open PR.

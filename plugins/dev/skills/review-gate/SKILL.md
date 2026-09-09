@@ -1,6 +1,6 @@
 ---
 name: review-gate
-description: Run independent code reviewers (the mattpocock-skills two-axis /review + Codex) on the committed branch changes before a PR, aggregate and de-dup findings, fix what is valid, and BLOCK the PR (with notes) on any disputed Critical/High finding. Use right before opening a PR; implement Step 6 calls it. Codex is skipped if not installed locally; an independent review always runs (mattpocock-skills /review, else a cold subagent, else inline self-review).
+description: Run independent code reviewers (the mattpocock-skills two-axis /review + Codex) on the committed branch changes before a PR, aggregate and de-dup findings, fix what is valid, and BLOCK the PR (with notes) on any disputed Critical/High finding. Use right before opening a PR; the ship skill's Step 6 calls it. Codex is skipped if not installed locally; an independent review always runs (mattpocock-skills /review, else a cold subagent, else inline self-review).
 ---
 
 # Review Gate
