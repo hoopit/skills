@@ -54,9 +54,10 @@ exactly once, in step 4, so reviewers and CI see the round as a single new head.
    locally until green, commit. Pending checks are reported as pending, not awaited. A
    check that is red only because it needs the merge from axis 1 needs no separate fix.
 4. **Push.** `git push` once, if anything was committed. If the round committed
-   **nothing** — no merge, no comment fixes, no check fixes — and no thread stays open,
+   **nothing** — no merge, no comment fixes, no check fixes — and no hard fork is open,
    the reviewers have nothing new to look at: start the next review round yourself and
-   note it in the report:
+   note it in the report. An `open` thread is no reason to hold the re-review back; only
+   a hard fork is, because only it can make the head not worth reviewing:
 
    ```bash
    gh workflow run codex-review-manual.yml -f pr=<PR> --repo <OWNER_REPO>
@@ -73,6 +74,12 @@ test that encodes a product decision, a fix with two valid shapes. Report a fork
 than guessing at it — then finish the rest of the round, so the settled work still
 ships in this round's push.
 
+Grade every fork, because the grade decides whether the watch keeps running. A fork is
+**hard** when its answer could invalidate work already done or reviews already run —
+the approach may be thrown away, so reviewing the current head is wasted attention. It
+is **soft** when the answer cannot reach the work that way: the round ships, the next
+round carries the answer. Grade soft unless you can name what the answer would undo.
+
 Return only a report — the round's delta, where the ledger you just wrote holds the
 PR's cumulative state. No preamble:
 
@@ -86,7 +93,8 @@ Ledger: updated | not updated (<reason>)
 Then, for every fork the round turned up, a `QUESTIONS` section with one entry each:
 
 ```
-Q - <title>: <the decision, with each alternative named; file:line for a thread>
+Q - [hard|soft] <title>: <the decision, with each alternative named; file:line for a thread>
+   <for a hard fork: what the answer would invalidate>
 ➡️ <your recommended answer>
 ```
 

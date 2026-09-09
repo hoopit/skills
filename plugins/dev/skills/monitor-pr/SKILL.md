@@ -1,7 +1,7 @@
 ---
 name: monitor-pr
-description: Watch a single pull request and work each review round — merge conflicts, unresolved review threads, failing checks — one push per round, until it is merged. Use only when explicitly asked to monitor a PR.
-argument-hint: "<PR url or number> [--single] [--subagent[=<model>]]"
+description: Watch a single pull request and work each review round — merge conflicts, unresolved review threads, failing checks — one push per round, until it goes green, hits a decision only the user can settle, or spends its round budget. Use only when explicitly asked to monitor a PR.
+argument-hint: "<PR url or number> [--rounds <N>] [--single] [--subagent[=<model>]]"
 ---
 
 # Monitor PR
@@ -10,12 +10,26 @@ A **round** is one batch of work on a PR: it opens once `CodeRabbit` and `codex-
 have both reported on the current head, and covers every unresolved thread, failing
 check and merge conflict the PR has at that point, ending in exactly one push.
 
+## When the watch stops
+
+Rounds run until one of three things ends the watch, and each ends in front of the user
+(Step 5):
+
+- **the round budget is spent** — `--rounds` rounds have been worked;
+- **green** — a `GREEN` line: nothing unresolved, nothing failing, nothing running;
+- **a hard fork** — a question whose answer could invalidate work already done or
+  reviews already run.
+
+That last one is the whole test for whether a question stops the watch. A **hard fork**
+makes the current head not worth reviewing — the answer may throw the approach away — so
+spending rounds past it burns reviewer attention on work that may not survive. Every
+other question is a **soft fork**: it rides along, the round ships its settled work, the
+answer lands in the next round's push, and the watch never pauses for it. An open thread
+is a soft fork by default; grade it hard only when its answer reaches the work itself.
+
 Flags:
 
-- default — keep working rounds until the PR is merged or closed. A decision only a
-  human can settle becomes a question (Step 5); the watch keeps running while it waits.
-- `--single` — work the first `ROUND`, report, done; on an already-green PR, ask the
-  merge question instead.
+- `--rounds <N>` — the round budget. Default 5. `--single` is `--rounds 1`.
 - `--subagent[=<model>]` — run rounds in a `hoopit-dev:monitor-pr-worker` instead of yourself,
   reusing it across rounds until it nears its context limit, then rotating to a fresh
   one. The model defaults to `opus`; `--subagent=fable` (or `sonnet`, `haiku`) overrides
@@ -59,7 +73,7 @@ gh pr edit <PR> --repo <OWNER_REPO> --add-label monitored
 
 ```
 Monitor(
-  command: "ONCE=<1 with --single, else 0> bash <SKILL_DIR>/scripts/watch-pr.sh <OWNER_REPO> <PR> 60",
+  command: "ONCE=<1 when the budget is 1, else 0> bash <SKILL_DIR>/scripts/watch-pr.sh <OWNER_REPO> <PR> 60",
   description: "monitor-pr #<PR>",
   persistent: true,
 )
@@ -82,12 +96,13 @@ The script polls every 60 s and prints only:
   row (expired auth, network, deleted PR); the script exits non-zero. The watch is dead:
   go to Step 5.
 
-With `ONCE=1` the script exits after its first `ROUND` or `GREEN` line.
+With `ONCE=1` the script exits after its first `ROUND` or `GREEN` line. For any larger
+budget the script runs on and the session `TaskStop`s it when the budget is spent.
 
 For a repo whose reviewer statuses have other names, prefix `GATE_CHECKS=<a>,<b>`. Tune
 the timeout with `GATE_TIMEOUT=<seconds>`.
 
-Tell the user in one line that the watch is armed and what opens a round.
+Tell the user in one line that the watch is armed, what opens a round, and the budget.
 
 ## Step 3 — Work each `ROUND`
 
@@ -127,17 +142,20 @@ One round at a time: a `ROUND` that lands mid-round is worked after the current 
 Print the round's report under a `Round N — <trigger>` heading. It is the round's
 **delta** — what this round did; the **ledger** the round wrote into the PR description
 holds the PR's cumulative state, so the two never need to say the same thing twice. Link
-the PR once beneath the heading so the ledger is one click away. With `--single`, that is
-the end. A `ROUND` line carrying `pending_gates` opened past its timeout with a reviewer
+the PR once beneath the heading so the ledger is one click away, and put the budget in
+the heading — `Round 3/5 — <trigger>` — so the user can see the watch running out before
+it does. A `ROUND` line carrying `pending_gates` opened past its timeout with a reviewer
 still pending or unreported — say so under the heading, naming which, so the user knows
 this round may not reflect a finished review. A round that reports `Ledger: not updated`
 says so too, with the reason — the ledger is then behind by a round.
 
-A `QUESTIONS` section is a fork, not an ending: the watch stays armed and the questions
-go to the user in Step 5. One outcome ends the watch on its own — the same check "still
-failing" in two consecutive rounds; `TaskStop` the monitor, then ask.
+Then grade the round's `QUESTIONS`. A section of **soft** forks is not an ending: the
+watch stays armed, the questions go to the user in Step 5, and the next `ROUND` is worked
+whether or not they have been answered. A **hard** fork ends the watch — `TaskStop` the
+monitor, then ask — as does the same check "still failing" in two consecutive rounds.
 
-Failing that, idle until the next `ROUND`.
+Count the round. At the budget, `TaskStop` the monitor and take the budget path in Step
+5. Below it, idle until the next `ROUND`.
 
 On `PR_CLOSED state=MERGED`, print a tally — rounds, threads resolved, checks fixed,
 conflicts merged — and stop. The ledger stays on the merged PR as the record of what was
@@ -146,8 +164,8 @@ commits the worktree holds and the remote does not (push them, saying plainly th
 opens a follow-up PR against the default branch), and any question still unanswered
 (restate it as an open item).
 
-Whenever the watch ends — `--single` done, an early stop, or `PR_CLOSED` — drop the label
-again, so it only ever marks PRs under an active watch:
+Whenever the watch ends — budget spent, green, a hard fork, an error stop, or
+`PR_CLOSED` — drop the label again, so it only ever marks PRs under an active watch:
 
 ```bash
 gh pr edit <PR> --repo <OWNER_REPO> --remove-label monitored
@@ -169,35 +187,45 @@ Facts are yours to find, decisions are the user's: anything answerable from the 
 logs, the diff or the code you look up yourself, so what reaches the user is only what
 they alone can settle.
 
-Three paths reach the user, and they differ in timing and in what they offer.
+Five paths reach the user. Only the first leaves the watch running.
 
-**A fork** — a decision the round turned up. Collect every fork the round produced, let
-the round finish its push (settled work ships while the question waits), then ask them
-as one round of questions. The watch stays armed meanwhile and the answer ships in the
-next round's push. A question left unanswered rejoins the next round's question set, so
-it stays in front of the user. An answer settles a ledger row: pass it into the next
-round so the row becomes `answered: <the choice>`, which is how the PR shows the decision
-to a reviewer who was never asked.
+**A soft fork** — a decision the round turned up whose answer cannot invalidate the work.
+Collect every soft fork the round produced, let the round finish its push (settled work
+ships while the question waits), then ask them as one round of questions. The watch stays
+armed meanwhile and the answer ships in the next round's push. A question left unanswered
+rejoins the next round's question set, so it stays in front of the user. An answer settles
+a ledger row: pass it into the next round so the row becomes `answered: <the choice>`,
+which is how the PR shows the decision to a reviewer who was never asked.
 
-**Green** — a `GREEN` line. The merge is the user's call, always: ask. Recommend it when
-`review` reads `APPROVED` or `NONE` — `NONE` means the repo requires no approval, not that
-one is missing — and recommend holding on `REVIEW_REQUIRED` or `CHANGES_REQUESTED`, naming
-the reviewer the PR is waiting on. On *Merge it*, merge with a method the repo allows:
+**A hard fork** — the answer could invalidate work already done or reviews already run,
+so further rounds would review something that may not survive. Stop the watch, then ask
+it alongside the round's soft forks. An answer re-arms the watch (back to Step 2) with
+the rest of the budget intact; the next round carries all the answers.
+
+**Green** — a `GREEN` line. The watch has done its job: stop it, then ask. The merge is
+the user's call, always. Recommend it when `review` reads `APPROVED` or `NONE` — `NONE`
+means the repo requires no approval, not that one is missing — and recommend holding on
+`REVIEW_REQUIRED` or `CHANGES_REQUESTED`, naming the reviewer the PR is waiting on. On
+*Merge it*, merge with a method the repo allows, then print the merge tally directly —
+the monitor is already stopped, so no `PR_CLOSED` line is coming:
 
 ```bash
 gh repo view <OWNER_REPO> --json squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed
 gh pr merge <PR> --repo <OWNER_REPO> --<squash|merge|rebase>
 ```
 
-The watch then sees `PR_CLOSED state=MERGED` on its next poll and Step 4 tallies it, so leave
-the monitor running.
+**Budget spent** — the last round of `--rounds` is worked and reported. Stop, then ask
+whether to spend another budget, saying what is still outstanding and whether the rounds
+are converging: fewer findings each round argues for more, the same finding recurring
+argues for the user.
 
-**A stop** — the watch itself has ended. Ask immediately, on its own, once the label is
-dropped. A stop covers: no worktree for the branch (Step 1), `WATCH_ERROR`, `PR_CLOSED
-state=CLOSED`, the same check failing two rounds running, the `Monitor` task exiting or
-being killed, and any round that errors out beyond working around (auth expired,
-worktree gone, push rejected, the worker dying twice). A watch always ends in front of
-the user: the question is the last thing the turn does, and it names the real reason.
+**A stop** — the watch ended on something going wrong. Ask immediately, on its own, once
+the label is dropped. A stop covers: no worktree for the branch (Step 1), `WATCH_ERROR`,
+`PR_CLOSED state=CLOSED`, the same check failing two rounds running, the `Monitor` task
+exiting or being killed, and any round that errors out beyond working around (auth
+expired, worktree gone, push rejected, the worker dying twice). A watch always ends in
+front of the user: the question is the last thing the turn does, and it names the real
+reason.
 
 The chat round carries the substance; `AskUserQuestion` carries the attention. Fire it
 once per round of questions, headed `Monitoring`, its text naming the PR and how many
@@ -206,8 +234,10 @@ options, because they answer different things:
 
 | Path | Options |
 | --- | --- |
-| Fork | **Answer in chat** (recommended) · **Take all your recommendations** · **Stop monitoring, I'll take it from here** |
-| Green | **Merge it** · **Not yet — keep watching** · **Stop monitoring, I'll take it from here** |
+| Soft fork | **Answer in chat** (recommended) · **Take all your recommendations** · **Stop monitoring, I'll take it from here** |
+| Hard fork | **Answer in chat** (recommended) · **Take all your recommendations** · **Stop monitoring, I'll take it from here** — the first two re-arm the watch |
+| Green | **Merge it** · **Keep watching another <N> rounds** · **Stop, I'll take it** |
+| Budget spent | **Another <N> rounds** · **Stop, I'll take it** · **Answer in chat** (when questions are outstanding) |
 | Stop | **Re-arm the watch** (a transient stop — go back to Step 2, label included) · **Stop, I'll take it** · **Keep going anyway** (re-arm past a check failing for reasons outside this PR) |
 
 Print the blocker's details — the open threads, the failing check's log excerpt — before
