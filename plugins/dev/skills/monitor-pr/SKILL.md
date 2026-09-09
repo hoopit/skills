@@ -1,6 +1,6 @@
 ---
 name: monitor-pr
-description: Watch a single pull request and work each review round — merge conflicts, unresolved review threads, failing checks — one push per round, until it goes green, hits a decision only the user can settle, or spends its round budget. Use only when explicitly asked to monitor a PR.
+description: Watch a single pull request and work each review round — merge conflicts, unresolved review threads, failing checks — one push per round, until it is merged, hits a decision only the user can settle, or spends its round budget. Then clean up the worktree and report what is left open. Use only when explicitly asked to monitor a PR.
 argument-hint: "<PR url or number> [--rounds <N>] [--single] [--subagent[=<model>]]"
 ---
 
@@ -12,15 +12,17 @@ check and merge conflict the PR has at that point, ending in exactly one push.
 
 ## When the watch stops
 
-Rounds run until one of three things ends the watch, and each ends in front of the user
+The watch runs to the merge. Two things end it early, and each ends in front of the user
 (Step 5):
 
 - **the round budget is spent** — `--rounds` rounds have been worked;
-- **green** — a `GREEN` line: nothing unresolved, nothing failing, nothing running;
 - **a hard fork** — a question whose answer could invalidate work already done or
   reviews already run.
 
-That last one is the whole test for whether a question stops the watch. A **hard fork**
+A `GREEN` line is not one of them: it puts the merge decision to the user and the watch
+keeps running, because a PR can go green and then move again.
+
+That second one is the whole test for whether a question stops the watch. A **hard fork**
 makes the current head not worth reviewing — the answer may throw the approach away — so
 spending rounds past it burns reviewer attention on work that may not survive. Every
 other question is a **soft fork**: it rides along, the round ships its settled work, the
@@ -157,19 +159,39 @@ monitor, then ask — as does the same check "still failing" in two consecutive 
 Count the round. At the budget, `TaskStop` the monitor and take the budget path in Step
 5. Below it, idle until the next `ROUND`.
 
-On `PR_CLOSED state=MERGED`, print a tally — rounds, threads resolved, checks fixed,
-conflicts merged — and stop. The ledger stays on the merged PR as the record of what was
-judged along the way. Two things outlive the PR and are carried into that tally:
-commits the worktree holds and the remote does not (push them, saying plainly that this
-opens a follow-up PR against the default branch), and any question still unanswered
-(restate it as an open item).
-
-Whenever the watch ends — budget spent, green, a hard fork, an error stop, or
-`PR_CLOSED` — drop the label again, so it only ever marks PRs under an active watch:
+Whenever the watch ends — budget spent, a hard fork, an error stop, or `PR_CLOSED` —
+drop the label again, so it only ever marks PRs under an active watch:
 
 ```bash
 gh pr edit <PR> --repo <OWNER_REPO> --remove-label monitored
 ```
+
+## Step 4a — Land the merge
+
+The PR is merged — a `PR_CLOSED state=MERGED` line, or a merge the Green path in Step 5
+just performed with no monitor left to report it. Three things follow, in order.
+
+**Tally.** Rounds, threads resolved, checks fixed, conflicts merged. The ledger stays on
+the merged PR as the record of what was judged along the way. One thing outlives the PR
+and is carried into the tally: commits the worktree holds and the remote does not — push
+them, saying plainly that this opens a follow-up PR against the default branch.
+
+**Clean up.** The branch is spent, so invoke `clean-up-worktree` for it; its own merge
+gate and safety checks stand, and its confirmation is the one place this is approved.
+Skip it — saying why — when the tally just pushed commits past the merge: that branch is
+live work again, not spent.
+
+**Report what is left open.** The merge closes the PR, not the thinking, so sweep three
+places and list what survives:
+
+- the ledger's `open` and `fork` rows — a finding nobody settled, a question nobody
+  answered;
+- questions this session asked and the user never came back to;
+- TODOs and follow-ups written into the PR description outside the ledger block.
+
+Offer to file them where this repo's `CLAUDE.md` says work items live — one line per
+proposed item, title and a sentence — and file only what the user picks. An empty sweep
+is worth saying out loud: *nothing left open.*
 
 ## Step 5 — Ask in rounds
 
@@ -187,7 +209,7 @@ Facts are yours to find, decisions are the user's: anything answerable from the 
 logs, the diff or the code you look up yourself, so what reaches the user is only what
 they alone can settle.
 
-Five paths reach the user. Only the first leaves the watch running.
+Five paths reach the user. The first two leave the watch running.
 
 **A soft fork** — a decision the round turned up whose answer cannot invalidate the work.
 Collect every soft fork the round produced, let the round finish its push (settled work
@@ -202,17 +224,18 @@ so further rounds would review something that may not survive. Stop the watch, t
 it alongside the round's soft forks. An answer re-arms the watch (back to Step 2) with
 the rest of the budget intact; the next round carries all the answers.
 
-**Green** — a `GREEN` line. The watch has done its job: stop it, then ask. The merge is
-the user's call, always. Recommend it when `review` reads `APPROVED` or `NONE` — `NONE`
-means the repo requires no approval, not that one is missing — and recommend holding on
-`REVIEW_REQUIRED` or `CHANGES_REQUESTED`, naming the reviewer the PR is waiting on. On
-*Merge it*, merge with a method the repo allows, then print the merge tally directly —
-the monitor is already stopped, so no `PR_CLOSED` line is coming:
+**Green** — a `GREEN` line. The merge is the user's call, always: ask. Recommend it when
+`review` reads `APPROVED` or `NONE` — `NONE` means the repo requires no approval, not that
+one is missing — and recommend holding on `REVIEW_REQUIRED` or `CHANGES_REQUESTED`, naming
+the reviewer the PR is waiting on. On *Merge it*, merge with a method the repo allows:
 
 ```bash
 gh repo view <OWNER_REPO> --json squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed
 gh pr merge <PR> --repo <OWNER_REPO> --<squash|merge|rebase>
 ```
+
+Leave the monitor running either way: on a merge it sees `PR_CLOSED state=MERGED` next
+poll and Step 4a lands it, and on *keep watching* a PR that moves again still has a watch.
 
 **Budget spent** — the last round of `--rounds` is worked and reported. Stop, then ask
 whether to spend another budget, saying what is still outstanding and whether the rounds
@@ -236,7 +259,7 @@ options, because they answer different things:
 | --- | --- |
 | Soft fork | **Answer in chat** (recommended) · **Take all your recommendations** · **Stop monitoring, I'll take it from here** |
 | Hard fork | **Answer in chat** (recommended) · **Take all your recommendations** · **Stop monitoring, I'll take it from here** — the first two re-arm the watch |
-| Green | **Merge it** · **Keep watching another <N> rounds** · **Stop, I'll take it** |
+| Green | **Merge it** · **Not yet — keep watching** · **Stop monitoring, I'll take it from here** |
 | Budget spent | **Another <N> rounds** · **Stop, I'll take it** · **Answer in chat** (when questions are outstanding) |
 | Stop | **Re-arm the watch** (a transient stop — go back to Step 2, label included) · **Stop, I'll take it** · **Keep going anyway** (re-arm past a check failing for reasons outside this PR) |
 
