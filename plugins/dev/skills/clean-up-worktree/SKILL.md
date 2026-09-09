@@ -6,7 +6,7 @@ description: After this conversation's PR is merged, delete the branch and workt
 # Cleaning Up After This Conversation's Merged PR
 
 Removes the worktree directory and local branch of **the work this conversation did**, once
-GitHub confirms its PR is merged. Counterpart to the worktree made in `implement-and-ship`
+GitHub confirms its PR is merged. Counterpart to the worktree made in `implement`
 Step 2 — or by the repo's own `create-worktree` skill, when it has one.
 
 ## Scope — one target
