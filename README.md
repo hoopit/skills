@@ -69,7 +69,7 @@ Day-to-day dev workflows and CLIs: Jira/Sentry issues, PR review, Atlassian, Cir
 | `circleci-tests` | Auto | Fetch failing tests from a CircleCI job URL. |
 | `clean-up-worktree` | Auto | After this conversation's PR is merged, delete the branch and worktree this conversation worked in — and nothing else. |
 | `create-pull-request` | Auto | Create GitHub PRs that link the work item they deliver and keep Jira keys off unrelated tickets. |
-| `curate-memory` | Manual | Review, prune, and promote Claude Code agent memories — delete stale/shipped ones, and move durable team-relevant knowledge into the right shared home (a path-scoped rule, a directory CLAUDE.md, root CLAUDE.md, or leave it a skill). |
+| `curate-memory` | Manual | Curate agent memory as a short-lived working set — measure each memory's age and last use, then expire what is finished and graduate durable, generic knowledge into checked-in context (a path-scoped rule, a CLAUDE.md, an ADR, a doc, a skill). |
 | `fix-sentry-issue` | Auto | Fix a Sentry issue end-to-end — fetch details, create or link a Jira ticket (with a native bidirectional Sentry↔Jira link), then ship the fix (branch, fix, test, review, PR) via ship. |
 | `handle-jira-issue` | Auto | Handle any Jira issue end-to-end — an ITSM ticket (single- or multi-project) or a project issue (BAC/WEB/FA). |
 | `monitor-pr` | Auto | Watch a single pull request and work each review round — merge conflicts, unresolved review threads, failing checks — one push per round, on a round budget, until it is merged. |
