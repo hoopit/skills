@@ -25,9 +25,9 @@ once per repo, independently.
 - `WORK_ITEM` *(optional)* — the tracked item this delivers: its key/id, canonical URL,
   and which tracker it lives in. Unset for ad-hoc work; the PR then says so.
 
-Everything else is read at runtime from `TARGET_REPO` — `DEFAULT_BRANCH` and tracker
-config from its `CLAUDE.md` *Workflow skills config*, conventions from the repo itself.
-Never carry a project's facts into this skill.
+Every other fact this skill needs is read at runtime from `TARGET_REPO` —
+`DEFAULT_BRANCH` and tracker config from its `CLAUDE.md` *Workflow skills config*,
+conventions from the repo itself.
 
 ## Step 1 — Investigate against the code
 
@@ -41,6 +41,11 @@ the request-info / escalate decision.
 
 ## Step 2 — Create the branch as a worktree
 
+Name the branch after the work item's source: mirror the shape the repo already uses
+(`git branch -r`), and carry the item's key when its tracker uses keys — the key on the
+branch is what a tracker integration scans to attach the PR (`create-pull-request` owns
+which keys are allowed there).
+
 Follow `$TARGET_REPO/.claude/skills/create-worktree` when it exists — it owns the repo's
 venv / isolated test DB / direnv / FVM setup. Otherwise create a plain worktree off the
 default branch:
@@ -50,27 +55,30 @@ cd "$TARGET_REPO" && git fetch origin
 git worktree add -b "$BRANCH" ".worktrees/$(echo "$BRANCH" | tr '/' '-')" "origin/$DEFAULT_BRANCH"
 ```
 
-Name the branch after the work item's source: mirror the shape the repo already uses
-(`git branch -r`), and carry the item's key when its tracker uses keys — the key on the
-branch is what a tracker integration scans to attach the PR. `create-pull-request` owns
-which keys may appear on that surface.
-
 Every later step runs from the worktree.
 
 ## Step 3 — Implement
 
+A bug's test comes first: go to Step 4, write the test that reproduces it, and watch it
+go **red** before you write the fix. The fix is what turns it green.
+
 Apply the minimal, targeted change. Follow the conventions of the code around you, and
 read the skills in `$TARGET_REPO/.claude/skills/` covering the area you touch. Cleaning
 up code you are already editing is fine; refactoring beyond the change is not.
+
+Done when the change stands on its own: you can say which behaviour it alters and every
+edit in the worktree serves it.
 
 ## Step 4 — Test
 
 Your judgement, against the repo's bar — follow its testing skills (`writing-tests` /
 `running-tests`) and the conventions of the tests beside the code you touched.
 
-A bug is not fixed until a test goes **red** on it: write the test first, watch it fail,
-then confirm the fix turns it green. Other work earns whatever coverage the repo expects
-of it. Run the new tests and the ones around them.
+A bug is not fixed until a test has gone **red** on it. Write that test before the fix.
+With the fix already in place, stash it (`git stash`), watch the test fail, restore it
+(`git stash pop`) and watch it pass — an unproven regression test is one that may be
+asserting nothing. Other work earns whatever coverage the repo expects of it. Run the new
+tests and the ones around them.
 
 If the repo offers no realistic way to test this change automatically, say so explicitly
 in the PR body — never silently.
@@ -110,6 +118,9 @@ or surviving findings, your reasoning, what you would do about each — then fir
 | `BLOCK` | **Answer in chat** (recommended) · **Take all your recommendations** · **Open the PR anyway, with the block in its body** |
 | Budget spent | **Another 5 rounds** · **Open the PR anyway, with the findings in its body** · **Answer in chat** |
 
+An answer settles the findings it covers and rounds resume with the budget left intact;
+*Open the PR anyway* carries the standing findings into the PR body (Step 7).
+
 Running unattended under a caller that has its own escape hatch, return the verdict to
 the caller instead — a question asked with nobody there stops the work and reaches no
 one.
@@ -133,7 +144,8 @@ link hygiene. Add to the body it specifies:
 ## Step 8 — Monitor the PR
 
 Start the **`monitor-pr`** skill on the new PR with `--subagent`, so its rounds run in
-workers rather than this session.
+workers rather than this session. It watches to the merge and cleans up the worktree
+itself, so this skill's work ends here.
 
-Report the PR url and the watch back to the caller, which owns worktree cleanup (skill
-`clean-up-worktree`, once the PR is merged) and the final result block.
+Report the PR url and the armed watch back to the caller, which owns the final result
+block.
