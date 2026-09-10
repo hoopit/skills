@@ -41,11 +41,14 @@ Set by the caller; unset, the pass is a full review of the whole branch.
   `full` rather than guessing a fixed point.
 - `SPEC` *(optional)* — the originating issue / brief the change is meant to deliver, for the Spec
   axis (step 3).
-- `CHALLENGE` *(optional)* — focus text for a **challenge** pass: Codex runs its adversarial
-  review, which questions the approach, its assumptions and its trade-offs rather than
-  hunting defects, weighted on this focus. Set it when the change is a design with more than
-  one defensible shape — name the shape taken and the alternatives set aside — or when a
-  caller is stepping back from a mechanism that has been patched before.
+- `CHALLENGE` *(optional)* — focus text for the **challenge**: Codex's adversarial review,
+  which questions the approach, its assumptions and its trade-offs rather than hunting
+  defects, run alongside its standard review and weighted on this focus. Every `full` pass
+  runs the challenge — the author is the wrong judge of whether the approach needs one —
+  with a focus derived from `SPEC` and one line naming the shape the diff takes, unless the
+  caller sets `CHALLENGE` with a sharper one: the shape taken and the alternatives set
+  aside, or the mechanism a caller is stepping back from. A `light` pass runs it only when
+  `CHALLENGE` is set.
 
 A `light` pass trusts the previous verdict on everything before `REVIEWED_AT`, which holds only
 while a `full` pass covered it — so the caller owns which scope runs, and `ship` Step 6 carries
@@ -61,14 +64,16 @@ that policy.
    whole pass.
 2. **External reviewer (Codex, skip-if-unavailable).** Run the bundled script:
    ```bash
-   bash "$(find ~/.claude/plugins -path '*review-gate/scripts/run_external_reviewers.sh' | head -1)" "$REVIEW_BASE" ${CHALLENGE:+--challenge "$CHALLENGE"}
+   bash "$(find ~/.claude/plugins -path '*review-gate/scripts/run_external_reviewers.sh' | head -1)" "$REVIEW_BASE" --challenge "$CHALLENGE"
    ```
-   It prints `codex=<ran|error|unavailable>[:file]`, and on `error`/`unavailable` a second line
-   `codex_reason=<what went wrong>`. Read the `:file` for Codex's findings. `error`/`unavailable`
+   Pass `--challenge` on every `full` pass and on a `light` pass that was given one; leave it
+   off otherwise. It prints `codex=<ran|error|unavailable>[:file]` and, with a challenge,
+   `codex_challenge=…` on its own line — read each `:file` for that reviewer's findings — and
+   for either that did not run a `<name>_reason=<what went wrong>` line. `error`/`unavailable`
    is **skipped, never fatal — and alerted at once**: the moment the script returns, print
-   `🔴 Codex unavailable — <codex_reason>` and fire `PushNotification` with that line, because
-   the user wants to know the external engine is out while the gate is still running, not from
-   a note in the PR. Then run the rest of the pass. The script is the whole external-reviewer
+   `🔴 Codex unavailable — <reason>` and fire `PushNotification` with that line, because the
+   user wants to know the external engine is out while the gate is still running, not from a
+   note in the PR. Then run the rest of the pass. The script is the whole external-reviewer
    step: Codex is the only external engine this gate runs locally.
 3. **Independent review (always).** Prefer a cold, independent reviewer over grading your own
    work. Under `full` run both axes; under `light` run the **Standards** axis only — a pass over a
@@ -120,12 +125,17 @@ that policy.
      round budget, and they tend to introduce the next round's findings. When the tail of the
      sweep is too large for this change, fix what this change touches and `BLOCK` on the rest
      (the too-large rule below).
-   - **Challenge findings** (Codex under `CHALLENGE`) are cases to defend against, not
+   - **Challenge findings** (Codex's adversarial review) are cases to defend against, not
      defects found. One earns a fix when you can name the caller or sequence that reaches
      it; otherwise record it as *challenged, holds because <evidence>*. A challenge finding
      never `BLOCK`s on its own.
    - **Invalid Low/Medium → skip**, recording a one-line reason (collected for the PR).
    - **Invalid (disputed) Critical/High → `BLOCK`.** Record the finding + your reasoning. Do not skip it.
+     A dispute rests on a claim — *no caller reaches this*, *prod holds no such row* — so put
+     the claim to the challenge before the block stands: run the script again with
+     `--challenge-only --challenge "<the finding, and the claim that makes it invalid here>"`. A challenge that
+     breaks the claim turns the dispute into a fix; one that does not is recorded beside the
+     block as *challenged, holds because <evidence>*, which is what the user weighs.
    - **Valid but unsafe / too large to fix in this change → `BLOCK`** with that reason.
 6. **Return the verdict:**
    - `PASS` + the scope and its fixed point + whether this pass made fix commits + a notes block

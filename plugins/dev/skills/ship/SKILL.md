@@ -110,10 +110,10 @@ is for.
 code no reviewer has seen. Before each round record `REVIEWED_AT` — the commit `HEAD`
 stands at as that round's reviewers start.
 
-- **Round 1 runs `full`**: the whole branch against `$DEFAULT_BRANCH`, both axes — and
-  with `CHALLENGE` when the work is a design with more than one defensible shape. The
-  focus names the shape you took and the ones you set aside, so Codex's adversarial
-  review questions the approach before a PR reviewer does, while changing it is cheap.
+- **Round 1 runs `full`**: the whole branch against `$DEFAULT_BRANCH`, both axes. A
+  `full` pass challenges the approach as well as the code; hand it the shape you took and
+  the ones you set aside as `CHALLENGE`, so the focus is yours rather than derived, and
+  the approach is questioned while changing it is still cheap.
 - A later round runs **`full`** when the commits since `REVIEWED_AT` are substantial —
   they touch a file no reviewer has seen, they exceed ~50 changed lines, or one of them
   fixed a Critical/High finding. `git diff --stat "$REVIEWED_AT"..HEAD` settles the first

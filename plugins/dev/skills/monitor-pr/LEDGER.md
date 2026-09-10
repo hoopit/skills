@@ -16,7 +16,7 @@ Every review thread, failing check and merge conflict lands in exactly one tier:
 ## Classifying an item
 
 - **source** — `CodeRabbit`, `codex`, `@<login>` for a human reviewer, `CI/<check name>`,
-  `conflict`.
+  `conflict`, `challenge` for a finding of Codex's adversarial review.
 - **severity** — `Critical` / `High` / `Med` / `Low`, as the *source* framed it. Lower it
   only with the reason in `why`.
 - **decision** — `applied`, `declined`, `open` (replied to, thread left unresolved),
@@ -53,7 +53,9 @@ Every thread, check and conflict the round touched ends as a row or inside the t
 tally counts are what show nothing was dropped. The tally also carries the two counts
 that show whether the rounds converge — **findings in code a round added** and **design
 reversals** (a step back that replaced a shape or removed a mechanism) — because a PR
-whose rounds keep finding defects in their own fixes is spending its budget on churn.
+whose rounds keep finding defects in their own fixes is spending its budget on churn, and
+the challenge's score — **challenge findings weighed** and how many **held** — so a
+reviewer can see the judgements were tested, not just asserted.
 
 ## The block
 
@@ -79,7 +81,8 @@ Sections appear only when they hold something. `R<N>` is the round the item ente
 
 ### Routine
 14 nits applied (naming, formatting, docstrings) · 2 checks fixed (`test-api`, `lint`) ·
-1 conflict merged · 1 finding in code a round added · 1 design reversal
+1 conflict merged · 1 finding in code a round added · 1 design reversal ·
+3 challenge findings weighed, 0 held
 <!-- agent-ledger:end -->
 ```
 

@@ -285,7 +285,28 @@ so further rounds would review something that may not survive. Stop the watch, t
 it alongside the round's soft forks. An answer re-arms the watch (back to Step 2) with
 the rest of the budget intact; the next round carries all the answers.
 
-**Green** — a `GREEN` line. The merge is the user's call, always: ask. Recommend it when
+**Green** — a `GREEN` line. Before the merge question, the PR gets the read nobody else
+gives it: the GitHub reviewers see each push and the rounds see each thread, so once per
+head that carries pushes since the last one, challenge the whole PR. From the PR's
+worktree, with the ledger's judgement rows — the declines, the step-back picks — as the
+focus:
+
+```bash
+bash "$(find ~/.claude/plugins -path '*review-gate/scripts/run_external_reviewers.sh' | head -1)" \
+  <DEFAULT_BRANCH> --challenge-only --challenge "Merge readiness. Judgements to break: <the ledger's judgement rows, one line each>"
+```
+
+Read the file its `codex_challenge=` line names. A finding holds only when you can name
+the caller or sequence that reaches it; the rest go into the ledger's tally as weighed
+and not held. A holding finding opens a round rather than a question — the same work a
+reviewer thread would open — under `--subagent` as
+`ROUND: CHALLENGE head=<sha> findings=<n>` with the findings and your reachability read in
+`GUIDANCE`, inline by working them yourself as the worker briefing says. Its push brings
+the next `GREEN`, and that one carries the merge question. A `codex_challenge_reason`
+line is relayed as Step 4's `CODEX DOWN`, and the merge question goes ahead without the
+challenge.
+
+The merge is the user's call, always: ask. Recommend it when
 `review` reads `APPROVED` or `NONE` — `NONE` means the repo requires no approval, not that
 one is missing — and recommend holding on `REVIEW_REQUIRED` or `CHANGES_REQUESTED`, naming
 the reviewer the PR is waiting on. A `GREEN` carrying `pending_gates` went green with a
