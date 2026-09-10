@@ -10,8 +10,7 @@ You handle one round on a PR. Your prompt carries `PR_URL`, `OWNER_REPO`, `PR`,
 `REPO_ROOT`, `LEDGER` (the path to the ledger reference), `PR_STATE` (the path to
 `pr-state.sh`), the `ROUND` line that triggered you, `ANSWERED` (what the user has
 settled) and `GUIDANCE` (the session's scope and facts for the round). Guidance narrows
-a round; it never chooses a shape for it — a choice between remedies is the step back's
-to probe, below.
+a round; a choice between remedies is the step back's to probe, below.
 
 A round opens on the **first** feedback that lands — one new thread, one red check, one
 conflict — rather than on a finished review, so more is usually still arriving while you
@@ -97,19 +96,20 @@ gh pr diff <PR> --repo <OWNER_REPO>
 
 Done when you can say in one line what the PR promises — the body and the work item it
 links say so — and, for each new thread, whether it lands in the PR's original change or
-in a fix an earlier round made, and which round; the ledger's round numbers tell you. A
-fix rests on code it does not touch more often than not: before committing one, name each
-such assumption and read the code it rests on.
+in a fix an earlier round made, and which round; the ledger's round numbers tell you.
 
-**Step back.** A patch to a patch is where a PR's churn comes from, so two triggers stop
-the patching and open a design check instead. Test every fix in axes 2 and 3 against them:
+**A fix rests on code it does not touch.** Before committing one, name each such
+assumption and read the code it rests on.
+
+**Step back.** A patch to a patch is where a PR's churn comes from, so two triggers turn a
+fix into a design check. Test every fix in axes 2 and 3 against them:
 
 - the fix **adds a mechanism** — a guard, a branch, a function, an exemption, a case the
   flagged lines did not have — rather than changing what was flagged;
 - the finding lands in code an earlier round added, and that mechanism already carries
   one correction: this row would say `fixes R<k>` and a row in the ledger already does.
 
-On a trigger, do not patch. Restate what the PR promises. Put the shapes on the table: the
+On a trigger, restate what the PR promises. Put the shapes on the table: the
 reviewer's remedy, the current shape, the simplest shape that keeps the promise, and
 removing the mechanism outright. Probe each against the repo's ordinary call sequences —
 find the real callers and the framework paths that reach this code — and for each shape
@@ -122,10 +122,9 @@ bash "$(find ~/.claude/plugins -path '*review-gate/scripts/run_external_reviewer
   <the head the round opened on> --challenge "<the mechanism, the shapes weighed, why the pick>" --challenge-only
 ```
 
-Read the file its `codex_challenge=` line names. A challenge finding is a case to
-defend against, not a defect found: it moves the pick only when you can name the caller
-or sequence that reaches it. `error` or `unavailable` is never waited on: carry on, and
-lead your design check with `CODEX DOWN: <the reason line the script printed>`.
+Read the file its `codex_challenge=` line names. A challenge finding that **holds** —
+`LEDGER` says when — moves the pick; the rest are weighed. Codex out is carried on past;
+the report rule below says how it is told.
 
 Then end the turn — no push — with a design check in place of a report:
 
@@ -153,12 +152,8 @@ questioned rather than patched.
    telling it this briefing **owns the round** (its caller-owned mode: comment work and
    commit only) and passing it `LEDGER`. Every unresolved thread ends up resolved or
    carries a reply saying why it stays open; its report hands you one classified row per
-   thread. A `declined` row at Critical or High — a Codex P1 is one — rests on a claim: *no
-   caller reaches this*, *prod holds no such row*. Put the claim to the challenge before the
-   decline stands, with the script the step back uses, `--challenge-only`, and
-   `--challenge "<the finding, and the claim that makes it wrong here>"` as its focus. A
-   challenge that breaks the claim turns the decline into a fix; one
-   that does not goes into the row's `why` as *challenged, holds because <evidence>*.
+   thread. A `declined` row carries what `LEDGER` says a decline carries — the reason in
+   the code on a judgement, the challenge on a Critical/High — before it stands.
 3. **Failing checks.** Re-query `gh pr checks <PR> --json name,bucket,link` and act on
    the `fail` bucket as it stands now: fetch each failure (the `circleci-tests` skill for
    CircleCI jobs, the `link` otherwise), fix it on the PR branch, run the failing tests
@@ -224,8 +219,8 @@ Absorbed: <what the last look pulled in after the round opened> | none
 Ledger: updated | not updated (<reason>)
 ```
 
-Lead the report with `CODEX DOWN: <reason>` when a step back found Codex out, so the
-session relays it before anything else.
+Whatever you return — report or design check — leads with `CODEX DOWN: <reason>` when the
+script printed a reason line, so the session relays it before anything else.
 
 `Absorbed` is what tells the session that a `ROUND` line still queued behind you has
 already been worked.

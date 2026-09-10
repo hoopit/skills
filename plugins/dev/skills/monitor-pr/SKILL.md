@@ -146,8 +146,8 @@ re-arm from a fresh session recovers them from the ledger's `answered:` rows.
 the worker can tell a user's decision from a session's opinion. It carries scope — apply
 minimally, no migration, file rather than fold — facts the worker cannot see, and a
 demand for a step back on a mechanism the ledger shows patched before. A choice between
-two remedies a reviewer offered is not guidance: that is the worker's design check to
-probe and this session's to answer, below, once the shapes have been probed.
+two remedies a reviewer offered travels the other way: the worker's design check probes
+it and this session answers it, below.
 
 Each completion notification reports `subagent_tokens`; keep a running total per worker.
 Next round while the total is under 100k:
@@ -169,12 +169,11 @@ SendMessage(to: "pr-<PR>-worker", message: "DESIGN: push | reshape to <n> — <w
 ```
 
 Choose among the shapes the worker probed; a shape nobody probed is one more probe to ask
-for, not an answer. A check that opens with `CODEX DOWN: <reason>` is relayed first
-(Step 4) and answered on the probes alone. Inline, the step back is yours to run, and the
-answer is the one you record.
+for, not an answer. Inline, the step back is yours to run, and the answer is the one you
+record.
 
-The worker's worktree is the worker's: verify its work by reading, never by editing there
-— an edit of yours between its commits is a change it did not make and cannot explain.
+The worker's worktree is the worker's: verify its work by reading it — an edit of yours
+between its commits is a change it did not make and cannot explain.
 
 At 100k or above, rotate: spawn a fresh worker with the full prompt (use a new name,
 e.g. `pr-<PR>-worker-2`) and start its total at zero.
@@ -224,11 +223,9 @@ gh pr edit <PR> --repo <OWNER_REPO> --remove-label monitored
 The PR is merged — a `PR_CLOSED state=MERGED` line, or a merge the Green path in Step 5
 just performed with no monitor left to report it. Three things follow, in order.
 
-**Tally.** Rounds, threads resolved, checks fixed, conflicts merged, and the ledger's two
-convergence counts — findings in code a round added, design reversals — which are what
-show whether the rounds earned their budget. The ledger stays on the merged PR as the
-record of what was judged along the way. One thing outlives the PR
-and is carried into the tally: commits the worktree holds and the remote does not — push
+**Tally.** Rounds, threads resolved, checks fixed, conflicts merged, and the ledger's
+convergence counts. The ledger stays on the merged PR as the record of what was judged
+along the way. One thing outlives the PR and is carried into the tally: commits the worktree holds and the remote does not — push
 them, saying plainly that this opens a follow-up PR against the default branch.
 
 **Report what is left open.** The merge closes the PR, not the thinking, so sweep three
@@ -285,26 +282,23 @@ so further rounds would review something that may not survive. Stop the watch, t
 it alongside the round's soft forks. An answer re-arms the watch (back to Step 2) with
 the rest of the budget intact; the next round carries all the answers.
 
-**Green** — a `GREEN` line. Before the merge question, the PR gets the read nobody else
-gives it: the GitHub reviewers see each push and the rounds see each thread, so once per
-head that carries pushes since the last one, challenge the whole PR. From the PR's
-worktree, with the ledger's judgement rows — the declines, the step-back picks — as the
-focus:
+**Green** — a `GREEN` line. Before the merge question, once per head that carries pushes
+since the last one, challenge the whole PR — the read no per-push reviewer gives it. From
+the PR's worktree, with the ledger's judgement rows — the declines, the step-back picks —
+as the focus:
 
 ```bash
 bash "$(find ~/.claude/plugins -path '*review-gate/scripts/run_external_reviewers.sh' | head -1)" \
   <DEFAULT_BRANCH> --challenge-only --challenge "Merge readiness. Judgements to break: <the ledger's judgement rows, one line each>"
 ```
 
-Read the file its `codex_challenge=` line names. A finding holds only when you can name
-the caller or sequence that reaches it; the rest go into the ledger's tally as weighed
-and not held. A holding finding opens a round rather than a question — the same work a
-reviewer thread would open — under `--subagent` as
-`ROUND: CHALLENGE head=<sha> findings=<n>` with the findings and your reachability read in
-`GUIDANCE`, inline by working them yourself as the worker briefing says. Its push brings
-the next `GREEN`, and that one carries the merge question. A `codex_challenge_reason`
-line is relayed as Step 4's `CODEX DOWN`, and the merge question goes ahead without the
-challenge.
+Read the file its `codex_challenge=` line names. A finding that **holds** — the ledger
+says when — opens a round rather than a question, the same work a reviewer thread would
+open: under `--subagent` as `ROUND: CHALLENGE head=<sha> findings=<n>` with the findings
+and your reachability read in `GUIDANCE`, inline by working them yourself as the worker
+briefing says. Its push brings the next `GREEN`, and that one carries the merge question.
+The rest go into the tally as weighed and not held. A `codex_challenge_reason` line is
+Step 4's `CODEX DOWN`, and the merge question goes ahead without the challenge.
 
 The merge is the user's call, always: ask. Recommend it when
 `review` reads `APPROVED` or `NONE` — `NONE` means the repo requires no approval, not that

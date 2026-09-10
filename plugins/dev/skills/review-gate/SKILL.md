@@ -42,15 +42,12 @@ Set by the caller; unset, the pass is a full review of the whole branch.
 - `SPEC` *(optional)* — the originating issue / brief the change is meant to deliver, for the Spec
   axis (step 3).
 - `CHALLENGE` *(optional)* — focus text for the **challenge**: Codex's adversarial review,
-  which questions the approach, its assumptions and its trade-offs rather than hunting
-  defects, run alongside its standard review and weighted on this focus. Every `full` pass
-  runs the challenge — the author is the wrong judge of whether the approach needs one —
-  with a focus derived from `SPEC` and one line naming the shape the diff takes, unless the
-  caller sets `CHALLENGE` with a sharper one: the shape taken and the alternatives set
-  aside, or the mechanism a caller is stepping back from. Findings earlier passes skipped
-  on judgement go into the focus as settled ground, each with its reason — the challenge
-  is the one reviewer that takes instruction, so it is told what stands. A `light` pass
-  runs it only when `CHALLENGE` is set.
+  which questions the approach and its assumptions rather than hunting defects, run
+  beside its standard review. Every `full` pass runs it, on a focus derived from `SPEC`
+  plus one line naming the shape the diff takes, unless the caller sets a sharper one —
+  the shape taken and the alternatives set aside, or the mechanism being stepped back
+  from. Findings earlier passes skipped on judgement go into the focus as settled ground,
+  each with its reason. A `light` pass runs it only when `CHALLENGE` is set.
 
 A `light` pass trusts the previous verdict on everything before `REVIEWED_AT`, which holds only
 while a `full` pass covered it — so the caller owns which scope runs, and `ship` Step 6 carries
@@ -127,30 +124,19 @@ that policy.
      round budget, and they tend to introduce the next round's findings. When the tail of the
      sweep is too large for this change, fix what this change touches and `BLOCK` on the rest
      (the too-large rule below).
-   - **Challenge findings** (Codex's adversarial review) are cases to defend against, not
-     defects found. One earns a fix when you can name the caller or sequence that reaches
-     it; otherwise record it as *challenged, holds because <evidence>*. A challenge finding
-     never `BLOCK`s on its own.
-   - **Invalid Low/Medium → skip**, recording a one-line reason (collected for the PR).
-     A skip is one of two kinds, and only one earns a comment. A finding that **misreads**
-     the code — the N+1 a `select_related` already prevents — gets nothing: the code says
-     so, and a comment restating code is a no-op. A finding that reads the code right and
-     asks for a change **deliberately not made** is a judgement, and the code looks wrong
-     to every fresh reader without the reason — so put the reason in the code: one or two
-     lines at the line the finding pointed at, stating the invariant or the trade-off in
-     the present (*rates are keyed by the account's currency, so a same-currency switch
-     changes no price*), naming no reviewer, round or finding. Commit it like a fix. It is
-     the one channel every reviewer reads — the next pass's cold eyes, Codex, the PR's
-     humans, the maintainer in a year.
-   - **A finding raised again** with its rationale already in the code means the rationale
-     is not doing its job, or the skip is wrong. Rewrite the comment so it answers the
-     finding, or take the finding; a third raise takes it.
+   - **Challenge findings hold** only when a named caller or sequence reaches them
+     (*Classifying an item* in [`../monitor-pr/LEDGER.md`](../monitor-pr/LEDGER.md)). One
+     that holds is fixed; the rest are recorded as *challenged, not reached: <evidence>*.
+     A `BLOCK` needs a disputed Critical/High of the standard kind.
+   - **Invalid Low/Medium → skip**, recording a one-line reason (collected for the PR). A
+     skip on judgement — the finding reads the code right and asks for a change deliberately
+     not made — carries its reason in the code, and a finding raised again is that
+     rationale failing: *What a decline carries* in the same file holds both rules.
    - **Invalid (disputed) Critical/High → `BLOCK`.** Record the finding + your reasoning. Do not skip it.
-     A dispute rests on a claim — *no caller reaches this*, *prod holds no such row* — so put
-     the claim to the challenge before the block stands: run the script again with
-     `--challenge-only --challenge "<the finding, and the claim that makes it invalid here>"`. A challenge that
-     breaks the claim turns the dispute into a fix; one that does not is recorded beside the
-     block as *challenged, holds because <evidence>*, which is what the user weighs.
+     The dispute rests on a claim, and *What a decline carries* puts the claim to the
+     challenge first, with `$REVIEW_BASE` as the base: a broken claim is a fix, a surviving
+     one is recorded beside the block as *claim challenged, stands: <evidence>*, which is
+     what the user weighs.
    - **Valid but unsafe / too large to fix in this change → `BLOCK`** with that reason.
 6. **Return the verdict:**
    - `PASS` + the scope and its fixed point + whether this pass made fix commits + a notes block

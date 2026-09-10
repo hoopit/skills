@@ -16,7 +16,9 @@ Every review thread, failing check and merge conflict lands in exactly one tier:
 ## Classifying an item
 
 - **source** — `CodeRabbit`, `codex`, `@<login>` for a human reviewer, `CI/<check name>`,
-  `conflict`, `challenge` for a finding of Codex's adversarial review.
+  `conflict`, `challenge` for a finding of Codex's adversarial review — which argues
+  against the change by design, so its finding **holds** only when a named caller or
+  sequence reaches it; the rest are weighed and not held.
 - **severity** — `Critical` / `High` / `Med` / `Low`, as the *source* framed it. Lower it
   only with the reason in `why`.
 - **decision** — `applied`, `declined`, `open` (replied to, thread left unresolved),
@@ -34,9 +36,33 @@ Every review thread, failing check and merge conflict lands in exactly one tier:
 - **link** — the thread or check URL. Paraphrase the source's claim in one clause and
   link it; the thread holds the full text.
 
-A `declined` Critical or High also carries the counterfactual in `why` — what fixing it
-as asked would have cost (`~4 files across the serializer layer`). That is the
-justification for declining, so it belongs beside the decline.
+## What a decline carries
+
+A decline is the row a fresh reviewer re-raises, so it carries more than a `why`.
+
+- **On a judgement, the reason goes into the code.** A finding that misreads the code —
+  the N+1 a `select_related` already prevents — is answered by the code itself. A finding
+  that reads the code right and asks for a change deliberately not made leaves the code
+  looking wrong to every fresh reader, and the thread reply reaches none of them: write
+  the reason at the flagged line, one or two lines, as documentation of the code — the
+  invariant or the trade-off, in the present — and commit it with the round. The scope
+  note says where: `rationale at <file:line>`. A finding raised again with its rationale
+  in place means the rationale is failing or the decline is wrong: rewrite the comment so
+  it answers the finding, or take the finding; a third raise takes it.
+- **At Critical or High — a Codex P1 is one — the claim is challenged first.** The decline
+  rests on a claim (*no caller reaches this*, *prod holds no such row*); put it to the
+  challenge before the decline stands:
+
+  ```bash
+  bash "$(find ~/.claude/plugins -path '*review-gate/scripts/run_external_reviewers.sh' | head -1)" \
+    <the branch's base> --challenge-only --challenge "<the finding, and the claim that makes it wrong here>"
+  ```
+
+  A challenge that breaks the claim turns the decline into a fix; one that does not goes
+  into `why` as *claim challenged, stands: <evidence>*.
+- **At Critical or High, `why` also carries the counterfactual** — what fixing it as
+  asked would have cost (`~4 files across the serializer layer`). That is the
+  justification for declining, so it belongs beside the decline.
 
 ## Which items earn a row
 
