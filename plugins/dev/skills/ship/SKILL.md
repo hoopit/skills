@@ -117,7 +117,9 @@ stands at as that round's reviewers start.
 - A later round runs **`full`** when the commits since `REVIEWED_AT` are substantial —
   they touch a file no reviewer has seen, they exceed ~50 changed lines, or one of them
   fixed a Critical/High finding. `git diff --stat "$REVIEWED_AT"..HEAD` settles the first
-  two; the third you already know from the round that made them.
+  two; the third you already know from the round that made them. Its `CHALLENGE` carries
+  the shape again plus every finding earlier rounds skipped on judgement, each with its
+  reason, so the challenge argues with the decisions rather than re-raising them.
 - Every other round runs **`light`** — pass `SCOPE=light` and `REVIEWED_AT`, and the gate
   reviews those commits alone, on the Standards axis.
 

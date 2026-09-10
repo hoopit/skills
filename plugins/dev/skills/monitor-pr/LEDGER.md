@@ -28,8 +28,9 @@ Every review thread, failing check and merge conflict lands in exactly one tier:
 - **why** — one clause. For `declined`, name the evidence that makes the finding wrong
   here — the test, the line, the config — rather than asserting it.
 - **scope** — facts, never a score, and only when the fix reached past the lines the
-  source pointed at: `+2 files`, `+1 migration`, `+dep: <name>`, `public API change`. A
-  fix that changes exactly what was flagged carries no scope note.
+  source pointed at: `+2 files`, `+1 migration`, `+dep: <name>`, `public API change` — and
+  `rationale at <file:line>` on a decline whose reason went into the code. A fix that
+  changes exactly what was flagged carries no scope note.
 - **link** — the thread or check URL. Paraphrase the source's claim in one clause and
   link it; the thread holds the full text.
 

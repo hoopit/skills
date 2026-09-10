@@ -95,7 +95,16 @@ Cross-reference `databaseId` with the REST comment IDs to build a map of `commen
    - **`applied`** — a real bug, improvement or style fix. Apply it, reply saying what
      changed, **resolve the thread**.
    - **`declined`** — incorrect, outdated, or not applicable here. Reply with the
-     evidence that makes it wrong, **resolve the thread**.
+     evidence that makes it wrong, **resolve the thread**. When the finding reads the code
+     right and asks for a change deliberately not made, the code looks wrong to every
+     fresh reader without the reason, and the reply reaches none of them — so put the
+     reason in the code: one or two lines at the flagged line, stating the invariant or
+     the trade-off in the present, naming no reviewer, round or finding. Commit it with
+     the round. A finding misreading the code gets no comment; the code already answers
+     it. The row's scope note says where the reason lives: `rationale at <file:line>`.
+     A finding raised again with its rationale in place means the rationale is not
+     answering it, or the decline is wrong: rewrite the comment or take the finding, and
+     take it on a third raise.
    - **`open`** — you have findings but not the confidence to settle it. Reply with them
      and **leave the thread unresolved** for discussion.
 

@@ -47,8 +47,10 @@ Set by the caller; unset, the pass is a full review of the whole branch.
   runs the challenge — the author is the wrong judge of whether the approach needs one —
   with a focus derived from `SPEC` and one line naming the shape the diff takes, unless the
   caller sets `CHALLENGE` with a sharper one: the shape taken and the alternatives set
-  aside, or the mechanism a caller is stepping back from. A `light` pass runs it only when
-  `CHALLENGE` is set.
+  aside, or the mechanism a caller is stepping back from. Findings earlier passes skipped
+  on judgement go into the focus as settled ground, each with its reason — the challenge
+  is the one reviewer that takes instruction, so it is told what stands. A `light` pass
+  runs it only when `CHALLENGE` is set.
 
 A `light` pass trusts the previous verdict on everything before `REVIEWED_AT`, which holds only
 while a `full` pass covered it — so the caller owns which scope runs, and `ship` Step 6 carries
@@ -130,6 +132,19 @@ that policy.
      it; otherwise record it as *challenged, holds because <evidence>*. A challenge finding
      never `BLOCK`s on its own.
    - **Invalid Low/Medium → skip**, recording a one-line reason (collected for the PR).
+     A skip is one of two kinds, and only one earns a comment. A finding that **misreads**
+     the code — the N+1 a `select_related` already prevents — gets nothing: the code says
+     so, and a comment restating code is a no-op. A finding that reads the code right and
+     asks for a change **deliberately not made** is a judgement, and the code looks wrong
+     to every fresh reader without the reason — so put the reason in the code: one or two
+     lines at the line the finding pointed at, stating the invariant or the trade-off in
+     the present (*rates are keyed by the account's currency, so a same-currency switch
+     changes no price*), naming no reviewer, round or finding. Commit it like a fix. It is
+     the one channel every reviewer reads — the next pass's cold eyes, Codex, the PR's
+     humans, the maintainer in a year.
+   - **A finding raised again** with its rationale already in the code means the rationale
+     is not doing its job, or the skip is wrong. Rewrite the comment so it answers the
+     finding, or take the finding; a third raise takes it.
    - **Invalid (disputed) Critical/High → `BLOCK`.** Record the finding + your reasoning. Do not skip it.
      A dispute rests on a claim — *no caller reaches this*, *prod holds no such row* — so put
      the claim to the challenge before the block stands: run the script again with
