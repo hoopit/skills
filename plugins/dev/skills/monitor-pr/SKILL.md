@@ -212,10 +212,13 @@ Count the round. At the budget, `TaskStop` the monitor and take the budget path 
 5. Below it, idle until the next `ROUND`.
 
 Whenever the watch ends — budget spent, a hard fork, an error stop, or `PR_CLOSED` —
-drop the label again, so it only ever marks PRs under an active watch:
+drop the label again, so it only ever marks PRs under an active watch — and
+`agent-working` with it, which comes off at every hand-back to the user, here and before
+a `GREEN`'s merge question (Step 5): a PR waiting on the user is not being worked, and
+the next round puts it back.
 
 ```bash
-gh pr edit <PR> --repo <OWNER_REPO> --remove-label monitored
+gh pr edit <PR> --repo <OWNER_REPO> --remove-label monitored --remove-label agent-working
 ```
 
 ## Step 4a — Land the merge
@@ -299,6 +302,8 @@ and your reachability read in `GUIDANCE`, inline by working them yourself as the
 briefing says. Its push brings the next `GREEN`, and that one carries the merge question.
 The rest go into the tally as weighed and not held. A `codex_challenge_reason` line is
 Step 4's `CODEX DOWN`, and the merge question goes ahead without the challenge.
+
+Drop `agent-working` before asking (Step 4): the PR is the user's until they answer.
 
 The merge is the user's call, always: ask. Recommend it when
 `review` reads `APPROVED` or `NONE` — `NONE` means the repo requires no approval, not that
