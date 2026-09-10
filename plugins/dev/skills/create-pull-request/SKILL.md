@@ -1,19 +1,22 @@
 ---
 name: create-pull-request
-description: Create GitHub PRs that link the work item they deliver and keep Jira keys off unrelated tickets. Use when naming a branch, writing commit messages, or writing a PR title or body in a Jira-connected repo.
+description: Create GitHub PRs whose title and body lead with the work item they deliver — a GitHub issue or a Jira key — and keep stray Jira keys off unrelated tickets. Use when naming a branch, writing commit messages, or writing a PR title or body.
 ---
 
 # Create a Pull Request
 
-For repos wired to Jira via the **GitHub-for-Jira** integration. Load before you
-name a branch, write commit messages, or write a PR title/body — the workflow
-skills (`handle-jira-issue`, `fix-sentry-issue`) point here at their PR step.
+Load before you name a branch, write commit messages, or write a PR title/body —
+the workflow skills (`handle-jira-issue`, `fix-sentry-issue`) point here at their
+PR step. The linking and title rules bind in every repo; the key-hygiene section
+below applies to repos wired to Jira via the **GitHub-for-Jira** integration.
 
 ## Always link the item you're implementing
 
 Every PR **must** link the work item it delivers, near the top of the body, so a
 reviewer can jump to its source of truth:
 
+- **GitHub issue** — `closes #<id>` in the body, one line per issue it resolves,
+  so merging closes the issue automatically.
 - **Jira** — `https://<org>.atlassian.net/browse/<JIRA_KEY>` (the raw key also
   makes GitHub-for-Jira attach the PR — exactly what you want here).
 - **Sentry** — the issue URL, e.g. `https://<org>.sentry.io/issues/<id>/`.
@@ -23,13 +26,19 @@ If there's genuinely no tracked item (e.g. a pure chore), say so in the body.
 
 ## The title leads with the item
 
-`<ITEM_ID>: <what the change does>` — `BAC-7601: Charge the co-guardian's share
-once`, `GH-16784: Sort the members-joined list by its own join date`. A bare
-`#<id>` renders as plain text in a GitHub title, and the `(#<pr>)` a squash merge
-appends is the PR number, so the prefix is what carries the item into `git log`.
+`<ITEM_ID>: <what the change does>`. The `ITEM_ID` is the tracker's own id, and a
+GitHub issue's takes a `GH-` prefix:
 
-The prefix is a linked surface, so it must be the key you deliver — see below.
-Untracked chore: no prefix.
+| Work item | `ITEM_ID` | Title |
+| --- | --- | --- |
+| Jira `BAC-7601` | `BAC-7601` | `BAC-7601: Charge the co-guardian's share once` |
+| GitHub issue `#16784` | `GH-16784` | `GH-16784: Sort the members-joined list by its own join date` |
+| Untracked chore | none | `Drop the unused venue lookup` |
+
+A bare `#16784` renders as plain text in a GitHub title, and the `(#<pr>)` a squash
+merge appends is the PR number — so `GH-16784` is what carries the issue into `git
+log` and survives the squash. The prefix is a linked surface, so it must be the key
+you deliver — see below.
 
 ## Keep Jira keys on their own ticket (GitHub-for-Jira)
 

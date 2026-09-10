@@ -68,7 +68,7 @@ Day-to-day dev workflows and CLIs: Jira/Sentry issues, PR review, Atlassian, Cir
 | `atlassian-cli` | Auto | Use when working with Jira or Confluence from command line, including authentication, searching issues with JQL, bulk operations, sprint reports, or creating/updating work items using acli |
 | `circleci-tests` | Auto | Fetch failing tests from a CircleCI job URL. |
 | `clean-up-worktree` | Auto | After this conversation's PR is merged, delete the branch and worktree this conversation worked in — and nothing else. |
-| `create-pull-request` | Auto | Create GitHub PRs that link the work item they deliver and keep Jira keys off unrelated tickets. |
+| `create-pull-request` | Auto | Create GitHub PRs whose title and body lead with the work item they deliver — a GitHub issue or a Jira key — and keep stray Jira keys off unrelated tickets. |
 | `curate-memory` | Manual | Curate agent memory as a short-lived working set — measure each memory's age and last use, then expire what is finished and graduate durable, generic knowledge into checked-in context (a path-scoped rule, a CLAUDE.md, an ADR, a doc, a skill). |
 | `fix-sentry-issue` | Auto | Fix a Sentry issue end-to-end — fetch details, create or link a Jira ticket (with a native bidirectional Sentry↔Jira link), then ship the fix (branch, fix, test, review, PR) via ship. |
 | `handle-jira-issue` | Auto | Handle any Jira issue end-to-end — an ITSM ticket (single- or multi-project) or a project issue (BAC/WEB/FA). |
