@@ -97,14 +97,26 @@ allowed on a commit.
 
 ## Step 6 — Review gate
 
-A **round** is one run of the **`review-gate`** skill from inside the worktree against
-`$DEFAULT_BRANCH`, plus the fix commits that run makes. Work rounds until the gate comes
-back clean, on a budget of `--rounds`.
+A **round** is one run of the **`review-gate`** skill from inside the worktree, plus the
+fix commits that run makes. Work rounds until the gate comes back clean, on a budget of
+`--rounds`.
 
-Hand the gate `WORK_ITEM` and `BRIEF` as its **spec** — without them its Spec axis
+Hand the gate `WORK_ITEM` and `BRIEF` as its `SPEC` — without them its Spec axis
 self-skips and half the review silently disappears. The spec is all it gets: keep your
 investigation and your fix's reasoning to yourself, because cold eyes are what the gate
 is for.
+
+**Scope each round.** The two-axis independent review is what the gate spends; aim it at
+code no reviewer has seen. Before each round record `REVIEWED_AT` — the commit `HEAD`
+stands at as that round's reviewers start.
+
+- **Round 1 runs `full`**: the whole branch against `$DEFAULT_BRANCH`, both axes.
+- A later round runs **`full`** when the commits since `REVIEWED_AT` are substantial —
+  they touch a file no reviewer has seen, they exceed ~50 changed lines, or one of them
+  fixed a Critical/High finding. `git diff --stat "$REVIEWED_AT"..HEAD` settles the first
+  two; the third you already know from the round that made them.
+- Every other round runs **`light`** — pass `SCOPE=light` and `REVIEWED_AT`, and the gate
+  reviews those commits alone, on the Standards axis.
 
 Each round returns one verdict:
 
@@ -145,9 +157,10 @@ link hygiene. Add to the body it specifies:
 
 - the `WORK_ITEM` link section — or, unset, a line saying the change is untracked;
 - a `## Testing` line covering the tests added, or why none was feasible;
-- the review-gate notes across every round: which reviewers ran, findings addressed,
-  findings skipped and why — and, when the user chose to open past a block or a spent
-  budget, the findings still standing and that they chose to ship over them;
+- the review-gate notes across every round: the scope it ran at, which reviewers ran,
+  findings addressed, findings skipped and why — and, when the user chose to open past a
+  block or a spent budget, the findings still standing and that they chose to ship over
+  them;
 - any extra sections the caller asked for.
 
 ## Step 8 — Hand the PR on
