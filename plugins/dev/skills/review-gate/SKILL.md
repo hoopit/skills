@@ -41,6 +41,11 @@ Set by the caller; unset, the pass is a full review of the whole branch.
   `full` rather than guessing a fixed point.
 - `SPEC` *(optional)* — the originating issue / brief the change is meant to deliver, for the Spec
   axis (step 3).
+- `CHALLENGE` *(optional)* — focus text for a **challenge** pass: Codex runs its adversarial
+  review, which questions the approach, its assumptions and its trade-offs rather than
+  hunting defects, weighted on this focus. Set it when the change is a design with more than
+  one defensible shape — name the shape taken and the alternatives set aside — or when a
+  caller is stepping back from a mechanism that has been patched before.
 
 A `light` pass trusts the previous verdict on everything before `REVIEWED_AT`, which holds only
 while a `full` pass covered it — so the caller owns which scope runs, and `ship` Step 6 carries
@@ -56,11 +61,15 @@ that policy.
    whole pass.
 2. **External reviewer (Codex, skip-if-unavailable).** Run the bundled script:
    ```bash
-   bash "$(find ~/.claude/plugins -path '*review-gate/scripts/run_external_reviewers.sh' | head -1)" "$REVIEW_BASE"
+   bash "$(find ~/.claude/plugins -path '*review-gate/scripts/run_external_reviewers.sh' | head -1)" "$REVIEW_BASE" ${CHALLENGE:+--challenge "$CHALLENGE"}
    ```
-   It prints `codex=<ran|error|unavailable>[:file]`. Read the `:file` for Codex's findings. Treat
-   `error`/`unavailable` as **skipped** — note it, never fail the gate on it. The script is the whole
-   external-reviewer step: Codex is the only external engine this gate runs locally.
+   It prints `codex=<ran|error|unavailable>[:file]`, and on `error`/`unavailable` a second line
+   `codex_reason=<what went wrong>`. Read the `:file` for Codex's findings. `error`/`unavailable`
+   is **skipped, never fatal — and alerted at once**: the moment the script returns, print
+   `🔴 Codex unavailable — <codex_reason>` and fire `PushNotification` with that line, because
+   the user wants to know the external engine is out while the gate is still running, not from
+   a note in the PR. Then run the rest of the pass. The script is the whole external-reviewer
+   step: Codex is the only external engine this gate runs locally.
 3. **Independent review (always).** Prefer a cold, independent reviewer over grading your own
    work. Under `full` run both axes; under `light` run the **Standards** axis only — a pass over a
    handful of fix commits rarely re-opens the spec question, and a spec answer is what a `full` pass
@@ -111,13 +120,18 @@ that policy.
      round budget, and they tend to introduce the next round's findings. When the tail of the
      sweep is too large for this change, fix what this change touches and `BLOCK` on the rest
      (the too-large rule below).
+   - **Challenge findings** (Codex under `CHALLENGE`) are cases to defend against, not
+     defects found. One earns a fix when you can name the caller or sequence that reaches
+     it; otherwise record it as *challenged, holds because <evidence>*. A challenge finding
+     never `BLOCK`s on its own.
    - **Invalid Low/Medium → skip**, recording a one-line reason (collected for the PR).
    - **Invalid (disputed) Critical/High → `BLOCK`.** Record the finding + your reasoning. Do not skip it.
    - **Valid but unsafe / too large to fix in this change → `BLOCK`** with that reason.
 6. **Return the verdict:**
    - `PASS` + the scope and its fixed point + whether this pass made fix commits + a notes block
-     for the PR: which reviewers ran (and which were skipped/unavailable), findings fixed, findings
-     skipped (with reasons).
+     for the PR: which reviewers ran (and which were skipped/unavailable), the challenge focus
+     when one ran, findings fixed, findings skipped (with reasons), findings challenged and how
+     they hold.
    - `BLOCK: <one-line reason>` + the blocking findings and your reasoning.
 
 ## Fix commit convention

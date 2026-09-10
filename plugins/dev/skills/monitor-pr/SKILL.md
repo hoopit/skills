@@ -38,7 +38,10 @@ Flags:
 - `--subagent[=<model>]` — run rounds in a `hoopit-dev:monitor-pr-worker` instead of yourself,
   reusing it across rounds until it nears its context limit, then rotating to a fresh
   one. The model defaults to `opus`; `--subagent=fable` (or `sonnet`, `haiku`) overrides
-  it. A Sonnet session driving the workers is a cheap long-lived watch.
+  it. `opus` is deliberate: the worker carries the thread labour and the probing, while
+  the design judgement (a round's design check, Step 3) is this session's, on whatever
+  model it runs. Reach for `fable` on a design-heavy PR when the ledger's convergence
+  counts say the rounds are patching their own patches.
 
 ## Step 1 — Resolve the target
 
@@ -130,22 +133,48 @@ Agent(
   model: "<--subagent's model, else opus>",
   name: "pr-<PR>-worker",
   description: "round PR #<PR>",
-  prompt: "PR_URL=<PR_URL> OWNER_REPO=<OWNER_REPO> PR=<PR> REPO_ROOT=<REPO_ROOT> LEDGER=<SKILL_DIR>/LEDGER.md PR_STATE=<SKILL_DIR>/scripts/pr-state.sh\nROUND: <the ROUND line verbatim>\nANSWERED: <every fork the user has settled, and the choice>",
+  prompt: "PR_URL=<PR_URL> OWNER_REPO=<OWNER_REPO> PR=<PR> REPO_ROOT=<REPO_ROOT> LEDGER=<SKILL_DIR>/LEDGER.md PR_STATE=<SKILL_DIR>/scripts/pr-state.sh\nROUND: <the ROUND line verbatim>\nANSWERED: <every fork the user has settled, and the choice>\nGUIDANCE: <this session's scope and facts for the round> | none",
 )
 ```
 
 `ANSWERED` goes on **both** prompts. A fresh worker knows nothing the last one was told,
 so a re-arm after a hard fork, or a rotation, would otherwise drop the very answer that
-unblocked the watch. Carry every answer the PR has collected, not only the newest.
+unblocked the watch. Carry every answer the PR has collected, not only the newest. A
+re-arm from a fresh session recovers them from the ledger's `answered:` rows.
+
+`GUIDANCE` is this session's own direction for the round, kept apart from `ANSWERED` so
+the worker can tell a user's decision from a session's opinion. It carries scope — apply
+minimally, no migration, file rather than fold — facts the worker cannot see, and a
+demand for a step back on a mechanism the ledger shows patched before. A choice between
+two remedies a reviewer offered is not guidance: that is the worker's design check to
+probe and this session's to answer, below, once the shapes have been probed.
 
 Each completion notification reports `subagent_tokens`; keep a running total per worker.
 Next round while the total is under 100k:
 
 ```
-SendMessage(to: "pr-<PR>-worker", message: "ROUND: <the ROUND line verbatim>\nANSWERED: <each fork the user settled since the last round, and the choice>")
+SendMessage(to: "pr-<PR>-worker", message: "ROUND: <the ROUND line verbatim>\nANSWERED: <each fork the user settled since the last round, and the choice>\nGUIDANCE: <this round's direction> | none")
 ```
 
 The worker already holds the earlier answers, so this one carries only what is new.
+
+**A design check.** A worker turn ending in `DESIGN CHECK` is a round paused before its
+push, not a report: a fix tripped the worker briefing's step back, and the worker has
+probed the shapes and put them to Codex's adversarial review. Answer it yourself, at
+once, with the brief and the ledger in hand — the decision is this session's, not the
+user's, and nothing waits on it:
+
+```
+SendMessage(to: "pr-<PR>-worker", message: "DESIGN: push | reshape to <n> — <why>")
+```
+
+Choose among the shapes the worker probed; a shape nobody probed is one more probe to ask
+for, not an answer. A check that opens with `CODEX DOWN: <reason>` is relayed first
+(Step 4) and answered on the probes alone. Inline, the step back is yours to run, and the
+answer is the one you record.
+
+The worker's worktree is the worker's: verify its work by reading, never by editing there
+— an edit of yours between its commits is a change it did not make and cannot explain.
 
 At 100k or above, rotate: spawn a fresh worker with the full prompt (use a new name,
 e.g. `pr-<PR>-worker-2`) and start its total at zero.
@@ -167,6 +196,14 @@ ledger is then behind by a round.
 A round that found nothing to do — the previous round's last look had taken it — is
 reported in one line and does not spend budget.
 
+Two things come before grading. A report or design check whose first line is `CODEX
+DOWN` is relayed the moment it lands: print the line, then `PushNotification` with it —
+the user wants to know the external engine is out as soon as it is, and the round runs
+on without it. Then read the ledger the round wrote and check convergence yourself: a
+row tagged `fixes R<k>` on a mechanism another row already fixes, with no step back
+recorded, is a patch to a patch — the next round's `GUIDANCE` demands the step back on
+it.
+
 Then grade the round's `QUESTIONS`. A section of **soft** forks is not an ending: the
 watch stays armed, the questions go to the user in Step 5, and the next `ROUND` is worked
 whether or not they have been answered. A **hard** fork ends the watch — `TaskStop` the
@@ -187,8 +224,10 @@ gh pr edit <PR> --repo <OWNER_REPO> --remove-label monitored
 The PR is merged — a `PR_CLOSED state=MERGED` line, or a merge the Green path in Step 5
 just performed with no monitor left to report it. Three things follow, in order.
 
-**Tally.** Rounds, threads resolved, checks fixed, conflicts merged. The ledger stays on
-the merged PR as the record of what was judged along the way. One thing outlives the PR
+**Tally.** Rounds, threads resolved, checks fixed, conflicts merged, and the ledger's two
+convergence counts — findings in code a round added, design reversals — which are what
+show whether the rounds earned their budget. The ledger stays on the merged PR as the
+record of what was judged along the way. One thing outlives the PR
 and is carried into the tally: commits the worktree holds and the remote does not — push
 them, saying plainly that this opens a follow-up PR against the default branch.
 
@@ -265,7 +304,9 @@ poll and Step 4a lands it, and on *keep watching* a PR that moves again still ha
 whether to spend another budget, saying what is still outstanding and whether the rounds
 are converging: fewer findings each round argues for more, the same finding recurring
 argues for the user. *Another N rounds* re-arms the watch (back to Step 2, label
-included) with a fresh budget.
+included) with a fresh budget. The turn ends on the `AskUserQuestion`, never on prose: a
+watch that goes dark without one is a watch the user restarts by hand, with its answers
+lost.
 
 **A stop** — the watch ended on something going wrong. Ask immediately, on its own, once
 the label is dropped. A stop covers: a back-merge head (Step 1), a PR branch the round

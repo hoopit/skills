@@ -110,7 +110,10 @@ is for.
 code no reviewer has seen. Before each round record `REVIEWED_AT` — the commit `HEAD`
 stands at as that round's reviewers start.
 
-- **Round 1 runs `full`**: the whole branch against `$DEFAULT_BRANCH`, both axes.
+- **Round 1 runs `full`**: the whole branch against `$DEFAULT_BRANCH`, both axes — and
+  with `CHALLENGE` when the work is a design with more than one defensible shape. The
+  focus names the shape you took and the ones you set aside, so Codex's adversarial
+  review questions the approach before a PR reviewer does, while changing it is cheap.
 - A later round runs **`full`** when the commits since `REVIEWED_AT` are substantial —
   they touch a file no reviewer has seen, they exceed ~50 changed lines, or one of them
   fixed a Critical/High finding. `git diff --stat "$REVIEWED_AT"..HEAD` settles the first
@@ -147,6 +150,11 @@ Running unattended under a caller, hand the verdict back to it instead — a que
 asked with nobody there stops the work and reaches no one.
 
 ## Step 7 — Push and open the PR
+
+The head you push is one the gate has passed. A commit made after the last round's
+reviewers ran — a docstring, a measurement, a line a peer suggested — is code no cold eye
+has seen, and it is where a PR's first review threads come from. Run a `light` round over
+it first, or leave it out.
 
 ```bash
 git push -u origin "$BRANCH"

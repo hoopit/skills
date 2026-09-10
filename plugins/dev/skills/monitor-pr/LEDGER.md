@@ -20,7 +20,11 @@ Every review thread, failing check and merge conflict lands in exactly one tier:
 - **severity** — `Critical` / `High` / `Med` / `Low`, as the *source* framed it. Lower it
   only with the reason in `why`.
 - **decision** — `applied`, `declined`, `open` (replied to, thread left unresolved),
-  `fork` (waiting on the user), or `answered: <the user's choice>`.
+  `fork` (waiting on the user), or `answered: <the user's choice>`. `applied (step back)`
+  marks a fix whose shape a design check chose; `why` then carries the shapes weighed and
+  the counterfactual.
+- **fixes** — `fixes R<k>` when the finding lands in code round *k*'s fix added. This is
+  the tag the step back's second-correction trigger reads, so it is never left off.
 - **why** — one clause. For `declined`, name the evidence that makes the finding wrong
   here — the test, the line, the config — rather than asserting it.
 - **scope** — facts, never a score, and only when the fix reached past the lines the
@@ -40,12 +44,16 @@ A row is earned by judgement. An item is a row when **any** of these holds:
 - its decision is `declined`, `open`, `fork` or `answered`
 - its severity is `Critical` or `High`
 - it carries a scope note
+- it carries a `fixes` tag — a chain of corrections has to be visible to be stopped
 
 The rest is labour — an applied low-severity fix that touched exactly what was flagged, a
 check fixed, a conflict merged — and collapses into the tally.
 
 Every thread, check and conflict the round touched ends as a row or inside the tally; the
-tally counts are what show nothing was dropped.
+tally counts are what show nothing was dropped. The tally also carries the two counts
+that show whether the rounds converge — **findings in code a round added** and **design
+reversals** (a step back that replaced a shape or removed a mechanism) — because a PR
+whose rounds keep finding defects in their own fixes is spending its budget on churn.
 
 ## The block
 
@@ -64,10 +72,14 @@ Sections appear only when they hold something. `R<N>` is the round the item ente
   The queryset already has `select_related('team')`; `test_roster_queries` pins the count.
 - **R4 · applied · @ola · High** — [`api/models.py:12`](<link>) `owner` made nullable.
   *+2 files, +1 migration* — the PR carried no migration before this.
+- **R5 · applied (step back) · codex · P2 · fixes R4** — [`api/models.py:30`](<link>) the
+  null-`owner` guard R4 added refused inserts. Shapes weighed: patch the guard for inserts,
+  or drop it and let the DB constraint carry the rule — the constraint already does, so the
+  guard went. Refusing inserts was the third case the guard would have needed.
 
 ### Routine
 14 nits applied (naming, formatting, docstrings) · 2 checks fixed (`test-api`, `lint`) ·
-1 conflict merged
+1 conflict merged · 1 finding in code a round added · 1 design reversal
 <!-- agent-ledger:end -->
 ```
 

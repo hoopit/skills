@@ -8,7 +8,10 @@ experimental:
 
 You handle one round on a PR. Your prompt carries `PR_URL`, `OWNER_REPO`, `PR`,
 `REPO_ROOT`, `LEDGER` (the path to the ledger reference), `PR_STATE` (the path to
-`pr-state.sh`) and the `ROUND` line that triggered you.
+`pr-state.sh`), the `ROUND` line that triggered you, `ANSWERED` (what the user has
+settled) and `GUIDANCE` (the session's scope and facts for the round). Guidance narrows
+a round; it never chooses a shape for it — a choice between remedies is the step back's
+to probe, below.
 
 A round opens on the **first** feedback that lands — one new thread, one red check, one
 conflict — rather than on a finished review, so more is usually still arriving while you
@@ -81,6 +84,63 @@ Snapshot the PR's state before you start on axis 1 — step 4 diffs against it:
 bash <PR_STATE> <OWNER_REPO> <PR> > /tmp/pr-<PR>-open.txt
 ```
 
+**The PR, whole.** Every thread is judged against the PR, not against the lines it points
+at, so read the whole diff and the ledger before axis 1:
+
+```bash
+gh pr diff <PR> --repo <OWNER_REPO>
+```
+
+Done when you can say in one line what the PR promises — the body and the work item it
+links say so — and, for each new thread, whether it lands in the PR's original change or
+in a fix an earlier round made, and which round; the ledger's round numbers tell you. A
+fix rests on code it does not touch more often than not: before committing one, name each
+such assumption and read the code it rests on.
+
+**Step back.** A patch to a patch is where a PR's churn comes from, so two triggers stop
+the patching and open a design check instead. Test every fix in axes 2 and 3 against them:
+
+- the fix **adds a mechanism** — a guard, a branch, a function, an exemption, a case the
+  flagged lines did not have — rather than changing what was flagged;
+- the finding lands in code an earlier round added, and that mechanism already carries
+  one correction: this row would say `fixes R<k>` and a row in the ledger already does.
+
+On a trigger, do not patch. Restate what the PR promises. Put the shapes on the table: the
+reviewer's remedy, the current shape, the simplest shape that keeps the promise, and
+removing the mechanism outright. Probe each against the repo's ordinary call sequences —
+find the real callers and the framework paths that reach this code — and for each shape
+name every assumption it makes about code outside the diff, then read that code. Commit
+your pick locally and put it to Codex's adversarial review, which challenges an approach
+rather than hunting defects, with the shapes as its focus:
+
+```bash
+bash "$(find ~/.claude/plugins -path '*review-gate/scripts/run_external_reviewers.sh' | head -1)" \
+  <the head the round opened on> --challenge "<the mechanism, the shapes weighed, why the pick>"
+```
+
+It prints `codex=<ran|error|unavailable>[:file]`; read the file. A challenge finding is a
+case to defend against, not a defect found: it moves the pick only when you can name the
+caller or sequence that reaches it. `error` or `unavailable` is never waited on: carry on,
+and lead your design check with `CODEX DOWN: <the codex_reason line the script printed>`.
+
+Then end the turn — no push — with a design check in place of a report:
+
+```
+DESIGN CHECK · <mechanism | second correction> · <the mechanism>
+Promise: <what the PR promises>
+Shapes:
+  1. <shape> — probed against <sequences>: holds | fails on <case>. Assumes <what>, read in <file>.
+  2. …
+Challenge: <n> findings — <each, with your read> | none | unavailable (<reason>)
+Pick: <n> — <why, one clause>
+```
+
+The session that dispatched you answers `DESIGN: push` or `DESIGN: reshape to <n> —
+<why>`, choosing among the shapes you probed. Carry the round on from where it stopped:
+reshape if told, then axis 4. The item's ledger row reads `applied (step back)` and its
+`why` carries the shapes weighed and the counterfactual, so a reviewer sees the design was
+questioned rather than patched.
+
 1. **Merge conflicts.** If `gh pr view <PR_URL> --json mergeable` is `CONFLICTING`,
    merge the default branch into the PR branch — merge, never rebase, the branch is
    already pushed. Resolve with the `resolving-merge-conflicts` skill, run the tests the
@@ -127,7 +187,8 @@ bash <PR_STATE> <OWNER_REPO> <PR> > /tmp/pr-<PR>-open.txt
    ```
 
 5. **Ledger.** Read `LEDGER` and write the ledger block into the PR description as it
-   specifies. Classify every conflict and check the round touched with the same fields
+   specifies. The block is the only region of the description a round writes; the body's
+   own sections belong to the author. Classify every conflict and check the round touched with the same fields
    as the threads; axis 2 already handed you its rows. The round's forks go in as `fork`
    rows, so the ledger shows them open while the session asks them.
 
@@ -149,10 +210,13 @@ PR's cumulative state. No preamble:
 ```
 Pushed <sha> · <n> threads · <n> checks · <conflict merged | no conflict>
 <one line per item that earned a ledger row this round, in the ledger's row format>
-Routine: <the round's tally — nits applied, checks fixed, conflicts merged>
+Routine: <the round's tally — nits applied, checks fixed, conflicts merged · findings in code a round added · design reversals>
 Absorbed: <what the last look pulled in after the round opened> | none
 Ledger: updated | not updated (<reason>)
 ```
+
+Lead the report with `CODEX DOWN: <reason>` when a step back found Codex out, so the
+session relays it before anything else.
 
 `Absorbed` is what tells the session that a `ROUND` line still queued behind you has
 already been worked.
