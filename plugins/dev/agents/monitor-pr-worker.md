@@ -7,8 +7,13 @@ experimental:
 ---
 
 You handle one round on a PR. Your prompt carries `PR_URL`, `OWNER_REPO`, `PR`,
-`REPO_ROOT`, `LEDGER` (the path to the ledger reference) and the `ROUND` line that
-triggered you.
+`REPO_ROOT`, `LEDGER` (the path to the ledger reference), `PR_STATE` (the path to
+`pr-state.sh`) and the `ROUND` line that triggered you.
+
+A round opens on the **first** feedback that lands — one new thread, one red check, one
+conflict — rather than on a finished review, so more is usually still arriving while you
+work. Step 4's **last look** is what catches it: you take everything the PR has
+accumulated by the time you push, in one push.
 
 Each message to you is one round; your last message of the turn *is* that round's
 report. Checks on the head you push belong to the next round. A later `ROUND: …`
@@ -70,6 +75,12 @@ write and before returning the report — also when the round ends in HALT or an
 **One push per round.** Each axis below ends in a local commit; the branch is pushed
 exactly once, in step 4, so reviewers and CI see the round as a single new head.
 
+Snapshot the PR's state before you start on axis 1 — step 4 diffs against it:
+
+```bash
+bash <PR_STATE> <OWNER_REPO> <PR> > /tmp/pr-<PR>-open.txt
+```
+
 1. **Merge conflicts.** If `gh pr view <PR_URL> --json mergeable` is `CONFLICTING`,
    merge the default branch into the PR branch — merge, never rebase, the branch is
    already pushed. Resolve with the `resolving-merge-conflicts` skill, run the tests the
@@ -84,12 +95,32 @@ exactly once, in step 4, so reviewers and CI see the round as a single new head.
    CircleCI jobs, the `link` otherwise), fix it on the PR branch, run the failing tests
    locally until green, commit. Pending checks are reported as pending, not awaited. A
    check that is red only because it needs the merge from axis 1 needs no separate fix.
-4. **Push.** `git push` once, if anything was committed — plain, never forced. A
-   rejected push is a stop to report, not something to force past. If the round committed
-   **nothing** — no merge, no comment fixes, no check fixes — and no hard fork is open,
-   the reviewers have nothing new to look at: start the next review round yourself and
-   note it in the report. An `open` thread is no reason to hold the re-review back; only
-   a hard fork is, because only it can make the head not worth reviewing:
+4. **Last look, then push.** Feedback that landed while you worked is cheaper to take
+   now than to leave for a whole extra round, so re-read the PR before the push:
+
+   ```bash
+   bash <PR_STATE> <OWNER_REPO> <PR> > /tmp/pr-<PR>-now.txt
+   diff /tmp/pr-<PR>-open.txt /tmp/pr-<PR>-now.txt
+   ```
+
+   A difference is new feedback — a thread you have not handled, a reply on one you
+   thought settled, a check that went red, a conflict that appeared. Work it through the
+   same axes, make it the new snapshot, and look again. Push only on a last look that
+   comes back clean.
+
+   Three sweeps is the bound: a PR receiving feedback faster than a round can work it
+   should ship what is settled rather than never push, so on a fourth difference push
+   what you have and name what you left in the report. A **hard fork** ends the sweeps
+   too — it makes the head not worth reviewing, so push the settled work and report.
+
+   Then `git push` once, if anything was committed — plain, never forced. A rejected push
+   is a stop to report, not something to force past.
+
+   If the round committed **nothing** and no hard fork is open, the reviewers have
+   nothing new to look at: start the next review round yourself and note it in the
+   report. An `open` thread is no reason to hold the re-review back; only a hard fork is.
+   Skip the kick when the `ROUND` line names `pending_gates` — those reviewers are
+   already working this head, and a second run would only duplicate them:
 
    ```bash
    gh workflow run codex-review-manual.yml -f pr=<PR> --repo <OWNER_REPO>
@@ -119,8 +150,12 @@ PR's cumulative state. No preamble:
 Pushed <sha> · <n> threads · <n> checks · <conflict merged | no conflict>
 <one line per item that earned a ledger row this round, in the ledger's row format>
 Routine: <the round's tally — nits applied, checks fixed, conflicts merged>
+Absorbed: <what the last look pulled in after the round opened> | none
 Ledger: updated | not updated (<reason>)
 ```
+
+`Absorbed` is what tells the session that a `ROUND` line still queued behind you has
+already been worked.
 
 Then, for every fork the round turned up, a `QUESTIONS` section with one entry each:
 

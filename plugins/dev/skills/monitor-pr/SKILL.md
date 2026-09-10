@@ -6,9 +6,12 @@ argument-hint: "<PR url or number> [--rounds <N>] [--subagent[=<model>]]"
 
 # Monitor PR
 
-A **round** is one batch of work on a PR: it opens once `CodeRabbit` and `codex-review`
-have both reported on the current head, and covers every unresolved thread, failing
-check and merge conflict the PR has at that point, ending in exactly one push.
+A **round** is one batch of work on a PR. It opens on the **first** feedback of any kind
+— a new review thread, a failing check, a merge conflict — and covers everything the PR
+has accumulated by the time it ends: before its single push the round takes a **last
+look** for feedback that landed while it worked, and folds that in too. Opening early and
+closing late is the trade: work starts the minute there is any, and the push still
+carries the whole review.
 
 ## When the watch stops
 
@@ -90,14 +93,13 @@ The script polls every 60 s and prints only:
 
 - `ROUND head=… unresolved=N new_threads=K failing=<names> conflicting=0|1
   [pending_gates=<names>]` — there is work the previous round did not see: a new or
-  newly-replied-to unresolved thread, a red check, or a conflict. Other CI may still be
-  running; the round re-queries checks. `pending_gates` appears only when the round
-  fired past `GATE_TIMEOUT` (default 900s) with a reviewer still pending or never
-  reported — note that in the round report (Step 4) so the user knows review may be
-  incomplete.
-- `GREEN head=… review=<decision>` — this head has nothing left: no unresolved thread, no
-  failing check, none still running, no conflict. Fired once per head; the merge decision
-  goes to the user (Step 5).
+  newly-replied-to unresolved thread, a red check, or a conflict. The round fires on it
+  immediately; `pending_gates` names the reviewers yet to report on this head, and what
+  they post while the round runs is what its last look collects.
+- `GREEN head=… review=<decision> [pending_gates=<names>]` — this head has nothing left:
+  no unresolved thread, no failing check, none still running, no conflict. Fired once per
+  head; the merge decision goes to the user (Step 5). `pending_gates` here means a
+  reviewer never reported at all and `GATE_TIMEOUT` (default 900s) elapsed waiting.
 - `PR_CLOSED state=MERGED|CLOSED` — the script exits.
 - `WATCH_ERROR fetch_failures=N last=…` — GitHub could not be reached five polls in a
   row (expired auth, network, deleted PR); the script exits non-zero. The watch is dead:
@@ -128,7 +130,7 @@ Agent(
   model: "<--subagent's model, else opus>",
   name: "pr-<PR>-worker",
   description: "round PR #<PR>",
-  prompt: "PR_URL=<PR_URL> OWNER_REPO=<OWNER_REPO> PR=<PR> REPO_ROOT=<REPO_ROOT> LEDGER=<SKILL_DIR>/LEDGER.md\nROUND: <the ROUND line verbatim>\nANSWERED: <every fork the user has settled, and the choice>",
+  prompt: "PR_URL=<PR_URL> OWNER_REPO=<OWNER_REPO> PR=<PR> REPO_ROOT=<REPO_ROOT> LEDGER=<SKILL_DIR>/LEDGER.md PR_STATE=<SKILL_DIR>/scripts/pr-state.sh\nROUND: <the ROUND line verbatim>\nANSWERED: <every fork the user has settled, and the choice>",
 )
 ```
 
@@ -148,7 +150,9 @@ The worker already holds the earlier answers, so this one carries only what is n
 At 100k or above, rotate: spawn a fresh worker with the full prompt (use a new name,
 e.g. `pr-<PR>-worker-2`) and start its total at zero.
 
-One round at a time: a `ROUND` that lands mid-round is worked after the current one.
+One round at a time: a `ROUND` that lands mid-round is worked after the current one — and
+often finds nothing, because the running round's last look already absorbed it. Its report
+says so on the `Absorbed` line.
 
 ## Step 4 — Report
 
@@ -157,10 +161,11 @@ Print the round's report under a `Round N — <trigger>` heading. It is the roun
 holds the PR's cumulative state, so the two never need to say the same thing twice. Link
 the PR once beneath the heading so the ledger is one click away, and put the budget in
 the heading — `Round 3/5 — <trigger>` — so the user can see the watch running out before
-it does. A `ROUND` line carrying `pending_gates` opened past its timeout with a reviewer
-still pending or unreported — say so under the heading, naming which, so the user knows
-this round may not reflect a finished review. A round that reports `Ledger: not updated`
-says so too, with the reason — the ledger is then behind by a round.
+it does. A round that reports `Ledger: not updated` says so too, with the reason — the
+ledger is then behind by a round.
+
+A round that found nothing to do — the previous round's last look had taken it — is
+reported in one line and does not spend budget.
 
 Then grade the round's `QUESTIONS`. A section of **soft** forks is not an ending: the
 watch stays armed, the questions go to the user in Step 5, and the next `ROUND` is worked
@@ -244,7 +249,9 @@ the rest of the budget intact; the next round carries all the answers.
 **Green** — a `GREEN` line. The merge is the user's call, always: ask. Recommend it when
 `review` reads `APPROVED` or `NONE` — `NONE` means the repo requires no approval, not that
 one is missing — and recommend holding on `REVIEW_REQUIRED` or `CHANGES_REQUESTED`, naming
-the reviewer the PR is waiting on. On *Merge it*, merge with a method the repo allows:
+the reviewer the PR is waiting on. A `GREEN` carrying `pending_gates` went green with a
+reviewer that never reported on the head: name it and recommend holding until it has.
+On *Merge it*, merge with a method the repo allows:
 
 ```bash
 gh repo view <OWNER_REPO> --json squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed
