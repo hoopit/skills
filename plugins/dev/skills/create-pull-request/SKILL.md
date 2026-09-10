@@ -21,6 +21,16 @@ reviewer can jump to its source of truth:
 
 If there's genuinely no tracked item (e.g. a pure chore), say so in the body.
 
+## The title leads with the item
+
+`<ITEM_ID>: <what the change does>` — `BAC-7601: Charge the co-guardian's share
+once`, `GH-16784: Sort the members-joined list by its own join date`. A bare
+`#<id>` renders as plain text in a GitHub title, and the `(#<pr>)` a squash merge
+appends is the PR number, so the prefix is what carries the item into `git log`.
+
+The prefix is a linked surface, so it must be the key you deliver — see below.
+Untracked chore: no prefix.
+
 ## Keep Jira keys on their own ticket (GitHub-for-Jira)
 
 GitHub-for-Jira scans four **linked surfaces** — the branch name, the commit
@@ -36,7 +46,7 @@ Awaiting release is pushed to Ready for QA — past the release automation's
 ### One key on the linked surfaces, and it is the one you deliver
 
 - **Required:** the target issue's `JIRA_KEY`, in the branch name, the commit
-  subject, and the body's link section.
+  subject, the title's prefix, and the body's link section.
 - **Also allowed:** the originating ITSM ticket *when linked* (keep its `## ITSM`
   section + `Refs <ITSM_ISSUE_KEY>` footer) — a different project, and the
   workflow depends on that link.
@@ -75,7 +85,7 @@ Open the PR with the GitHub CLI, from inside the worktree:
 ```bash
 cd "$WORKTREE_DIR"   # if working in a worktree
 gh pr create \
-  --title "<branch-name>" \
+  --title "<ITEM_ID>: <what the change does>" \
   --body "## Summary
 <what the change does>
 
