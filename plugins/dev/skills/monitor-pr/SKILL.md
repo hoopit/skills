@@ -312,6 +312,32 @@ re-running the challenge on this head, is what turns the recommendation back.
 
 Drop `agent-working` before asking (Step 4): the PR is the user's until they answer.
 
+**The merge briefing.** A `GREEN` asks someone to merge code they have not read, so the
+question carries the read that tells them how hard to look before they do. Six lines, not
+a second PR description:
+
+- what was wrong, and who felt it;
+- what this changes, in a line;
+- the decisions that could have gone the other way — the ledger's judgement rows, read
+  off it rather than re-derived;
+- **Merge risk: low · moderate · high · very high**, with the reason;
+- what to look at first, if they read one thing;
+- anything else that moves the depth of that read — a check that passed on retry, an
+  approval given on an earlier head, a challenge finding weighed and not held.
+
+Rate the risk on blast radius and reversibility, the two things a revert cannot fix:
+
+| Risk | What puts it there |
+| --- | --- |
+| **Low** | Isolated or additive, a test went red on it, and a revert is a full undo. |
+| **Moderate** | Changes behaviour on a path in use, or edits code others share — still fully revertible. |
+| **High** | A revert alone no longer restores it: a data migration, a permissions or money path, a job whose runs land while it is live. |
+| **Very high** | Effects land before anyone can react — a destructive migration, a send to users, a deletion sweep, a credential rotation. |
+
+Risk is not a recommendation. A low-risk PR with a reviewer still owed recommends
+holding; a very-high-risk PR that is approved, green and challenged recommends merging.
+The recommendation answers *may this merge*; the risk answers *how long to look first*.
+
 The merge is the user's call, always: ask. Recommend it when
 `review` reads `APPROVED` or `NONE` — `NONE` means the repo requires no approval, not that
 one is missing — and recommend holding on `REVIEW_REQUIRED` or `CHANGES_REQUESTED`, naming
