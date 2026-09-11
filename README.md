@@ -72,8 +72,8 @@ Day-to-day dev workflows and CLIs: Jira/Sentry issues, PR review, Atlassian, Cir
 | `curate-memory` | Manual | Curate agent memory as a short-lived working set. |
 | `fix-sentry-issue` | Auto | Fix a Sentry issue end-to-end. |
 | `handle-jira-issue` | Auto | Handle any Jira issue end-to-end. |
-| `monitor-pr` | Auto | Watch a single pull request and work each review round — merge conflicts, unresolved review threads, failing checks — one push per round, on a round budget, until it is merged. |
-| `review-gate` | Auto | Run independent code reviewers on the committed branch changes before a PR. |
+| `monitor-pr` | Auto | Monitor a single pull request. |
+| `review-gate` | Auto | Run independent code reviewers. |
 | `review-github-comments` | Auto | Review and resolve all review comments on a GitHub PR. |
 | `review-jira-attachments` | Auto | Download and analyze the files attached to a Jira issue. |
 | `ship` | Auto | Take one understood piece of work in one repo from a branch to a monitored PR. |

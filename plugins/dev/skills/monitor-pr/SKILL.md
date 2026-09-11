@@ -1,6 +1,6 @@
 ---
 name: monitor-pr
-description: Watch a single pull request and work each review round — merge conflicts, unresolved review threads, failing checks — one push per round, on a round budget, until it is merged. Use only when explicitly asked to monitor a PR.
+description: Monitor a single pull request. Use only when explicitly asked to monitor a PR.
 argument-hint: "<PR url or number> [--rounds <N>] [--subagent[=<model>]]"
 ---
 

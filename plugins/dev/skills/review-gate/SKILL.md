@@ -1,6 +1,6 @@
 ---
 name: review-gate
-description: Run independent code reviewers on the committed branch changes before a PR. Use right before opening a PR, or before pushing to an open PR.
+description: Run independent code reviewers. Use right before opening a PR, or before pushing to an open PR.
 ---
 
 # Review Gate
