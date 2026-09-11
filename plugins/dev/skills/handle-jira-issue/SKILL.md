@@ -236,12 +236,17 @@ Which lane you take depends on where you are running:
 | --- | --- |
 | Unattended, dispatched by an automation | Run `ship` here, once per repo, in sequence: one repo fully shipped before the next begins |
 | Interactively inside Herdr (`HERDR_ENV=1`) | Fan out — [`references/fan-out.md`](references/fan-out.md) |
+| In the Claude desktop app (`mcp__ccd_session__spawn_task` available) | One `spawn_task` per repo: the dispatch brief as its `prompt`, that repo's directory as its `cwd` |
 | Anywhere else | **Halt.** Print each repo's dispatch brief as a ready-to-paste prompt, tell the user to open one session per repo, and hand back |
 
 Take the rows in order: whether a human is there decides before the environment does. An
 automation's loop often runs in a Herdr pane and its subagents inherit `HERDR_ENV=1`, so
 that variable alone never means fan out — an unattended caller owns a per-repo result
 contract, and a session spawned in a pane reports to nobody.
+
+A `spawn_task` is an offer rather than a running session: it renders a chip, and the user
+clicks it to open the session and choose how it runs. Never wait on one or assume it
+started — those repos are reported as dispatched.
 
 That halt is deliberate, and it is not a failure to report as one. Every alternative on
 offer degrades the work: a subagent per repo cannot spawn the cold reviewers the review
