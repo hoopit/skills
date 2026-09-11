@@ -1,6 +1,6 @@
 ---
 name: review-github-comments
-description: Review and resolve all review comments on a GitHub PR — fetch comments, evaluate each one, apply fixes where needed, and reply to resolve them.
+description: Review and resolve all review comments on a GitHub PR. Use when the user asks to review a PR.
 ---
 
 # GitHub PR Review Comments Workflow

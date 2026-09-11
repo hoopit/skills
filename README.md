@@ -67,15 +67,15 @@ Day-to-day dev workflows and CLIs: Jira/Sentry issues, PR review, Atlassian, Cir
 |-------|--------|-------------|
 | `atlassian-cli` | Auto | Use when working with Jira or Confluence from command line, including authentication, searching issues with JQL, bulk operations, sprint reports, or creating/updating work items using acli |
 | `circleci-tests` | Auto | Fetch failing tests from a CircleCI job URL. |
-| `clean-up-worktree` | Auto | After this conversation's PR is merged, delete the branch and worktree this conversation worked in — and nothing else. |
-| `create-pull-request` | Auto | Create GitHub PRs whose title and body lead with the work item they deliver — a GitHub issue or a Jira key — and keep stray Jira keys off unrelated tickets. |
-| `curate-memory` | Manual | Curate agent memory as a short-lived working set — measure each memory's age and last use, then expire what is finished and graduate durable, generic knowledge into checked-in context (a path-scoped rule, a CLAUDE.md, an ADR, a doc, a skill). |
-| `fix-sentry-issue` | Auto | Fix a Sentry issue end-to-end — fetch details, create or link a Jira ticket (with a native bidirectional Sentry↔Jira link), then ship the fix (branch, fix, test, review, PR) via ship. |
-| `handle-jira-issue` | Auto | Handle any Jira issue end-to-end — an ITSM ticket (single- or multi-project) or a project issue (BAC/WEB/FA). |
+| `clean-up-worktree` | Auto | Delete the branch and worktree this conversation worked in. |
+| `create-pull-request` | Auto | Create GitHub PRs. |
+| `curate-memory` | Manual | Curate agent memory as a short-lived working set. |
+| `fix-sentry-issue` | Auto | Fix a Sentry issue end-to-end. |
+| `handle-jira-issue` | Auto | Handle any Jira issue end-to-end. |
 | `monitor-pr` | Auto | Watch a single pull request and work each review round — merge conflicts, unresolved review threads, failing checks — one push per round, on a round budget, until it is merged. |
-| `review-gate` | Auto | Run independent code reviewers (the mattpocock-skills two-axis /review + Codex) on the committed branch changes before a PR, aggregate and de-dup findings, fix what is valid, and BLOCK the PR (with notes) on any disputed Critical/High finding. |
-| `review-github-comments` | Auto | Review and resolve all review comments on a GitHub PR — fetch comments, evaluate each one, apply fixes where needed, and reply to resolve them. |
-| `review-jira-attachments` | Auto | Download and analyze the files attached to a Jira issue — HAR network captures, screenshots, logs, PDFs — via the Jira REST API, because acli cannot download attachments. |
+| `review-gate` | Auto | Run independent code reviewers on the committed branch changes before a PR. |
+| `review-github-comments` | Auto | Review and resolve all review comments on a GitHub PR. |
+| `review-jira-attachments` | Auto | Download and analyze the files attached to a Jira issue. |
 | `ship` | Auto | Take one understood piece of work in one repo from a branch to a monitored PR. |
 
 #### `hoopit-misc`

@@ -1,6 +1,6 @@
 ---
 name: create-pull-request
-description: Create GitHub PRs whose title and body lead with the work item they deliver — a GitHub issue or a Jira key — and keep stray Jira keys off unrelated tickets. Use when naming a branch, writing commit messages, or writing a PR title or body.
+description: Create GitHub PRs. Use when naming a branch, writing commit messages, or writing a PR title or body.
 ---
 
 # Create a Pull Request

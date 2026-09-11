@@ -1,6 +1,6 @@
 ---
 name: handle-jira-issue
-description: Handle any Jira issue end-to-end — an ITSM ticket (single- or multi-project) or a project issue (BAC/WEB/FA). Fetch details (from the linked ITSM ticket when one exists), resolve or create the platform issue in each affected repo, then ship one PR per affected repo via ship. Use whenever the user or an automation names a Jira issue to fix.
+description: Handle any Jira issue end-to-end. Use when the user or an automation names a Jira issue to fix.
 ---
 
 # Handle Jira Issue Workflow

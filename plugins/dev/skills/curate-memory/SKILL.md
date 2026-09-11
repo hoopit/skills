@@ -1,6 +1,6 @@
 ---
 name: curate-memory
-description: Curate agent memory as a short-lived working set — measure each memory's age and last use, then expire what is finished and graduate durable, generic knowledge into checked-in context (a path-scoped rule, a CLAUDE.md, an ADR, a doc, a skill). Use when the user wants to evaluate/prune/clean up memories, asks whether memories are stale or redundant, or wants memory knowledge moved into CLAUDE.md / rules / docs.
+description: Curate agent memory as a short-lived working set.
 disable-model-invocation: true
 ---
 

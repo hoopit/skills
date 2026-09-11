@@ -1,6 +1,6 @@
 ---
 name: fix-sentry-issue
-description: Fix a Sentry issue end-to-end — fetch details, create or link a Jira ticket (with a native bidirectional Sentry↔Jira link), then ship the fix (branch, fix, test, review, PR) via ship. Use when the user links to a sentry issue.
+description: Fix a Sentry issue end-to-end. Use when the user links to a sentry issue, or asks to fix one.
 ---
 
 # Fix Sentry Issue Workflow

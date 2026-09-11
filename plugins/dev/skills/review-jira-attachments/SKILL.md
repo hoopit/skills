@@ -1,6 +1,6 @@
 ---
 name: review-jira-attachments
-description: Download and analyze the files attached to a Jira issue — HAR network captures, screenshots, logs, PDFs — via the Jira REST API, because acli cannot download attachments. Use whenever a Jira issue/ticket has attached files you need to inspect to understand or reproduce a bug: parse a HAR for the failing request, view a screenshot, or grep a log. Don't ask the reporter to "review the HAR" — read it yourself.
+description: Download and analyze the files attached to a Jira issue. Use when a Jira issue/ticket has attached files you need to inspect to understand or reproduce a bug.
 ---
 
 # Review Jira Attachments

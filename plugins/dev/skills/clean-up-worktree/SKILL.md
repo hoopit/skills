@@ -1,6 +1,6 @@
 ---
 name: clean-up-worktree
-description: After this conversation's PR is merged, delete the branch and worktree this conversation worked in — and nothing else. Use when the user asks to clean up after a merged PR, or to remove the worktree/branch of the work just finished.
+description: Delete the branch and worktree this conversation worked in. Use when the user asks to clean up after a merged PR, or to remove the worktree/branch of the work just finished.
 ---
 
 # Cleaning Up After This Conversation's Merged PR

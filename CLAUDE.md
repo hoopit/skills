@@ -5,6 +5,10 @@ agent skills, shipped as a Claude Code plugin marketplace (see [README.md](READM
 For the skill-authoring conventions, the project-local `create-hoopit-skill` skill
 under `.claude/skills/` is the source of truth.
 
+## Writing skills
+Keep the frontmatter short. For regular skills, descriptions should consist of two sentences: "<what>" and "Use when...". The <what> part should be succinct, state the high-level goal, < 50 chars, no details. The "Use when" should generally not exceed ~100 chars.
+For user-invokable-only skills, the "Use when ..."  should be removed.
+
 ## Workflow
 
 - **Commit straight to `main`.** Every skill/plugin change goes directly on `main` — no
