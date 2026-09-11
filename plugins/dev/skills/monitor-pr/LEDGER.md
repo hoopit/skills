@@ -59,7 +59,11 @@ A decline is the row a fresh reviewer re-raises, so it carries more than a `why`
   ```
 
   A challenge that breaks the claim turns the decline into a fix; one that does not goes
-  into `why` as *claim challenged, stands: <evidence>*.
+  into `why` as *claim challenged, stands: <evidence>*. A `codex_challenge_reason` in
+  place of a findings file means the challenge never ran, and **an unchallenged claim is
+  not a decline**: take the finding, or carry it to the user as a fork when taking it is
+  wrong. Recording *claim challenged, stands* on a challenge that did not happen is the
+  one thing this rule exists to prevent.
 - **At Critical or High, `why` also carries the counterfactual** — what fixing it as
   asked would have cost (`~4 files across the serializer layer`). That is the
   justification for declining, so it belongs beside the decline.

@@ -173,7 +173,9 @@ Solution:
   (`mattpocock-skills@claude-plugins-official`). Without it the gate uses the cold-subagent fallback
   above — equivalent independence, minus the structured two-axis split.
 - `codex` may be slow (minutes) and needs its own auth (codex setup); an auth/`error` result
-  blocks the pass exactly as a missing install does — fix the auth and run the gate again.
+  blocks the pass exactly as a missing install does — fix the auth and run the gate again. The
+  script already retried it once, so `error` is a second failure, not a blip: re-running the
+  gate on the spot buys a third attempt at best.
 - **A reviewer subagent at `idle` with no result is not a dead one.** It usually means the work
   finished and the result has not been handed back yet, and delivery can lag the work by a long way.
   Spawning replacements or dropping to self-review on that signal throws away the independent axis

@@ -169,8 +169,10 @@ SendMessage(to: "pr-<PR>-worker", message: "DESIGN: push | reshape to <n> — <w
 ```
 
 Choose among the shapes the worker probed; a shape nobody probed is one more probe to ask
-for, not an answer. Inline, the step back is yours to run, and the answer is the one you
-record.
+for, not an answer. A `Challenge: unavailable` line means the pick was never argued with,
+only probed — weigh it as the thinner evidence it is, and reshape on your own read rather
+than reading `push` out of a challenge that raised nothing. Inline, the step back is yours
+to run, and the answer is the one you record.
 
 The worker's worktree is the worker's: verify its work by reading it — an edit of yours
 between its commits is a change it did not make and cannot explain.
@@ -301,7 +303,12 @@ open: under `--subagent` as `ROUND: CHALLENGE head=<sha> findings=<n>` with the 
 and your reachability read in `GUIDANCE`, inline by working them yourself as the worker
 briefing says. Its push brings the next `GREEN`, and that one carries the merge question.
 The rest go into the tally as weighed and not held. A `codex_challenge_reason` line is
-Step 4's `CODEX DOWN`, and the merge question goes ahead without the challenge.
+Step 4's `CODEX DOWN`, and the merge question still goes — but it goes **recommending
+hold**, whatever `review` says. The one read of the PR as a whole never happened, and
+recommending a merge would be claiming a check that did not run. Say that in the question
+and name what the challenge would have weighed: the ledger's judgement rows. *Merge it*
+stays on the table — the merge is the user's call, always — and restoring Codex, then
+re-running the challenge on this head, is what turns the recommendation back.
 
 Drop `agent-working` before asking (Step 4): the PR is the user's until they answer.
 
@@ -309,7 +316,9 @@ The merge is the user's call, always: ask. Recommend it when
 `review` reads `APPROVED` or `NONE` — `NONE` means the repo requires no approval, not that
 one is missing — and recommend holding on `REVIEW_REQUIRED` or `CHANGES_REQUESTED`, naming
 the reviewer the PR is waiting on. A `GREEN` carrying `pending_gates` went green with a
-reviewer that never reported on the head: name it and recommend holding until it has.
+reviewer that never reported on the head: name it and recommend holding until it has. A
+merge-readiness challenge that did not run holds the recommendation the same way, for the
+same reason — a reviewer that never reported.
 On *Merge it*, merge with a method the repo allows:
 
 ```bash
