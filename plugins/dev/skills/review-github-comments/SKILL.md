@@ -1,6 +1,6 @@
 ---
 name: review-github-comments
-description: Handle all review comments on a GitHub PR. Use when the user asks fix or handle a PR or PR comments.
+description: Handle all review comments on a GitHub PR. Use when the user asks to fix or handle a PR or PR comments.
 ---
 
 # GitHub PR Review Comments Workflow
