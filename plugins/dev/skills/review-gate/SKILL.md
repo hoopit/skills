@@ -10,8 +10,8 @@ Reviews the branch's committed changes against a fixed point — the repo's defa
 always-on **independent** review prefers the **`mattpocock-skills:code-review` skill** (a two-axis
 Standards + Spec reviewer that spawns its own cold sub-agents — genuinely independent eyes); without
 it, a fresh independent subagent, and inline self-review only when no subagent tool is available.
-**Codex** is a second, separate engine and runs when available locally (skipped, not failed, when
-absent) — engine diversity is the point.
+**Codex** is a second, separate engine and is **required**: engine diversity is the point, so a pass
+that cannot run it blocks rather than passing on one engine's word.
 
 ## Contract
 
@@ -23,9 +23,9 @@ Return exactly one verdict:
   skipped with a one-line justification. Say which **scope** ran and against which fixed point, and
   whether this pass **made fix commits**: fixed code no reviewer has seen is what the caller's next
   round is for. Caller opens the PR and pastes the gate notes into it.
-- **`BLOCK: <reason>`** — there is a **disputed Critical/High** finding (you judge it invalid/not worth
-  fixing), or a valid Critical/High that isn't safe to fix here. You may **not** unilaterally dismiss a
-  Critical/High. Caller must NOT open the PR — surface the blocking findings; unattended, the
+- **`BLOCK: <reason>`** — **Codex did not run** (step 2), there is a **disputed Critical/High** finding
+  (you judge it invalid/not worth fixing), or a valid Critical/High that isn't safe to fix here. You
+  may **not** unilaterally dismiss a Critical/High. Caller must NOT open the PR — surface the blocking findings; unattended, the
   caller hands back per its own contract, which owns what an escalation writes to the tracker.
 
 ## Inputs
@@ -61,19 +61,23 @@ that policy.
    inside the worktree being reviewed. Every reviewer's findings land in one directory this pass
    owns, so set `GATE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/review-gate.XXXXXX")` and keep it for the
    whole pass.
-2. **External reviewer (Codex, skip-if-unavailable).** Run the bundled script:
+2. **External reviewer (Codex, required).** Run the bundled script:
    ```bash
    bash "$(find ~/.claude/plugins -path '*review-gate/scripts/run_external_reviewers.sh' | head -1)" "$REVIEW_BASE" --challenge "$CHALLENGE"
    ```
    Pass `--challenge` on every `full` pass and on a `light` pass that was given one; leave it
    off otherwise. It prints `codex=<ran|error|unavailable>[:file]` and, with a challenge,
    `codex_challenge=…` on its own line — read each `:file` for that reviewer's findings — and
-   for either that did not run a `<name>_reason=<what went wrong>` line. `error`/`unavailable`
-   is **skipped, never fatal — and alerted at once**: the moment the script returns, print
-   `🔴 Codex unavailable — <reason>` and fire `PushNotification` with that line, because the
-   user wants to know the external engine is out while the gate is still running, not from a
-   note in the PR. Then run the rest of the pass. The script is the whole external-reviewer
-   step: Codex is the only external engine this gate runs locally.
+   for either that did not run a `<name>_reason=<what went wrong>` line. `codex=error` or
+   `codex=unavailable` **ends the pass**: the moment the script returns, print
+   `🔴 Codex unavailable — <reason>`, fire `PushNotification` with that line, and return
+   `BLOCK: Codex unavailable — <reason>` without running the rest of the pass. Nothing later in
+   the pass lifts that block — a second engine is what the gate is for — and reviewing the branch
+   on one engine spends a round the caller pays for again once Codex is back. Make Codex
+   available (its own auth counts — `codex setup`) and run the gate again; the re-run is a whole
+   pass, so nothing is lost by stopping here. A `codex_challenge` that fails while `codex` itself
+   ran is a skipped reviewer, not a block: record it in the notes. The script is the whole
+   external-reviewer step: Codex is the only external engine this gate runs locally.
 3. **Independent review (always).** Prefer a cold, independent reviewer over grading your own
    work. Under `full` run both axes; under `light` run the **Standards** axis only — a pass over a
    handful of fix commits rarely re-opens the spec question, and a spec answer is what a `full` pass
@@ -161,14 +165,15 @@ Solution:
 
 ## Notes
 
-- If only the always-on review ran (Codex unavailable), say so explicitly in the PR notes so the
-  human knows review coverage was reduced — `mattpocock-skills:code-review` covers standards +
-  spec, so bug/security depth leans on Codex when it runs.
+- Codex is where the bug/security depth comes from — `mattpocock-skills:code-review` covers
+  standards + spec — which is why a pass without it blocks instead of reporting reduced coverage.
+  Lifting the block is the user's call, not the gate's: the caller asks (`ship` Step 6 offers
+  *Open the PR anyway*), and a PR opened that way says in its body that Codex never ran.
 - `mattpocock-skills:code-review` ships via the **`mattpocock-skills`** plugin
   (`mattpocock-skills@claude-plugins-official`). Without it the gate uses the cold-subagent fallback
   above — equivalent independence, minus the structured two-axis split.
-- `codex` may be slow (minutes) and needs its own auth (codex setup); an auth/`error` result is
-  treated as a skipped reviewer, not a gate failure.
+- `codex` may be slow (minutes) and needs its own auth (codex setup); an auth/`error` result
+  blocks the pass exactly as a missing install does — fix the auth and run the gate again.
 - **A reviewer subagent at `idle` with no result is not a dead one.** It usually means the work
   finished and the result has not been handed back yet, and delivery can lag the work by a long way.
   Spawning replacements or dropping to self-review on that signal throws away the independent axis

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Run the external code reviewer (Codex) on the current branch vs <base>, skipping it
-# if it isn't available locally. Deterministic glue only — the always-on independent
-# review and the fix/dispute judgment live in the review-gate SKILL.
+# Run the external code reviewer (Codex) on the current branch vs <base>, reporting rather
+# than failing when it isn't available locally — what an outage means is the caller's call
+# (review-gate blocks on it, monitor-pr carries on). Deterministic glue only — the always-on
+# independent review and the fix/dispute judgment live in the review-gate SKILL.
 #
 # Usage:  run_external_reviewers.sh <base-branch> [--challenge "<focus text>"] [--challenge-only]
 # (base default: master)
