@@ -74,7 +74,7 @@ Day-to-day dev workflows and CLIs: Jira/Sentry issues, PR review, Atlassian, Cir
 | `handle-jira-issue` | Auto | Handle any Jira issue end-to-end. |
 | `monitor-pr` | Auto | Monitor a single pull request. |
 | `review-gate` | Auto | Run independent code reviewers. |
-| `review-github-comments` | Auto | Review and resolve all review comments on a GitHub PR. |
+| `review-github-comments` | Auto | Handle all review comments on a GitHub PR. |
 | `review-jira-attachments` | Auto | Download and analyze the files attached to a Jira issue. |
 | `ship` | Auto | Take one understood piece of work in one repo from a branch to a monitored PR. |
 

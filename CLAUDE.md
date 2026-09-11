@@ -8,7 +8,7 @@ under `.claude/skills/` is the source of truth.
 ## Writing skills
 Keep the frontmatter short. For regular skills, descriptions should consist of two sentences: "<what>" and "Use when...". The <what> part should be succinct, state the high-level goal, < 50 chars, no details. The "Use when" should generally not exceed ~100 chars.
 For user-invokable-only skills, the "Use when ..."  should be removed.
-Never modify existing frontmatter descriptions without approval.
+Never expand existing frontmatter descriptions without approval.
 
 ## Workflow
 
