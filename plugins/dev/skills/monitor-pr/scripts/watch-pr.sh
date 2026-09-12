@@ -10,7 +10,7 @@
 #                          pending, so waiting on it forever would idle the watch; the timeout
 #                          bounds that wait, and the GREEN line names what stayed silent.
 #        ONCE=1          — exit right after the first ROUND or GREEN line.
-#        MAX_FETCH_FAILS — consecutive `gh pr view` failures before giving up (default 5).
+#        MAX_FETCH_FAILS — consecutive failed GitHub reads before giving up (default 5).
 #
 # A round fires on the *first* feedback of any kind — the actionable set holding something not in
 # the previously fired round: a thread key (id:commentCount, so a reply in an old thread counts), a
@@ -28,20 +28,12 @@ REPO=$1; PR=$2; INTERVAL=${3:-60}
 GATE_CHECKS=${GATE_CHECKS:-CodeRabbit,codex-review}
 GATE_TIMEOUT=${GATE_TIMEOUT:-900}
 MAX_FETCH_FAILS=${MAX_FETCH_FAILS:-5}
-OWNER=${REPO%/*}; NAME=${REPO#*/}
-
-QUERY='query($owner:String!,$name:String!,$pr:Int!,$endCursor:String){
-  repository(owner:$owner,name:$name){ pullRequest(number:$pr){
-    reviewThreads(first:100,after:$endCursor){
-      pageInfo{hasNextPage endCursor}
-      nodes{ id isResolved comments{totalCount} }
-    } } } }'
+. "$(dirname "${BASH_SOURCE[0]}")/gh-pr-api.sh"
 
 fired_threads=""; fired_fail=""; fired_conflict=0; fired_head=""; fired_green=""; fetch_fails=0
 gate_wait_start=0
 while true; do
-  if ! meta=$(gh pr view "$PR" --repo "$REPO" --json state,mergeable,headRefOid,reviewDecision \
-                --jq '"\(.state) \(.mergeable) \(.headRefOid) \(if (.reviewDecision // "") == "" then "NONE" else .reviewDecision end)"' 2>&1); then
+  if ! meta=$(pr_meta "$REPO" "$PR" 2>&1); then
     fetch_fails=$((fetch_fails + 1))
     if [ "$fetch_fails" -ge "$MAX_FETCH_FAILS" ]; then
       echo "WATCH_ERROR fetch_failures=$fetch_fails last=$(tr '\n' ' ' <<<"$meta")"
@@ -49,28 +41,42 @@ while true; do
     fi
     sleep "$INTERVAL"; continue
   fi
-  fetch_fails=0
-  read -r state mergeable head review <<<"$meta"
+  read -r state conflicting head <<<"$meta"
   if [ "$state" != "OPEN" ]; then echo "PR_CLOSED state=$state"; exit 0; fi
 
   if [ "$head" != "$fired_head" ]; then fired_fail=""; fired_conflict=0; fired_head=$head; gate_wait_start=0; fi
 
-  checks=$(gh pr checks "$PR" --repo "$REPO" --json name,bucket 2>/dev/null)
+  # An empty read here reads as "no failing checks, none running", which is half of what
+  # GREEN tests for — so a failure polls again rather than calling the head clean.
+  if ! checks=$(pr_checks "$REPO" "$head" 2>&1); then
+    fetch_fails=$((fetch_fails + 1))
+    if [ "$fetch_fails" -ge "$MAX_FETCH_FAILS" ]; then
+      echo "WATCH_ERROR fetch_failures=$fetch_fails last=$(tr '\n' ' ' <<<"$checks")"
+      exit 1
+    fi
+    sleep "$INTERVAL"; continue
+  fi
   IFS=, read -ra gates <<<"$GATE_CHECKS"
   pending_gates=""
   for g in "${gates[@]}"; do
-    jq -e --arg n "$g" 'any(.[]; .name==$n and .bucket!="pending")' <<<"$checks" >/dev/null 2>&1 \
+    awk -F'\t' -v n="$g" '$2==n && $1!="pending"{found=1} END{exit !found}' <<<"$checks" \
       || pending_gates="${pending_gates:+$pending_gates,}$g"
   done
   gate_open=1; [ -n "$pending_gates" ] && gate_open=0
-  failing=$(jq -r '.[] | select(.bucket=="fail") | .name' <<<"$checks" | sort)
-  running=$(jq -r '.[] | select(.bucket=="pending") | .name' <<<"$checks" | grep -c .)
+  failing=$(awk -F'\t' '$1=="fail"{print $2}' <<<"$checks" | sort)
+  running=$(awk -F'\t' '$1=="pending"{print $2}' <<<"$checks" | grep -c .)
 
-  threads=$(gh api graphql --paginate -f query="$QUERY" \
-      -F owner="$OWNER" -F name="$NAME" -F pr="$PR" \
-      --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved|not) | "\(.id):\(.comments.totalCount)"' \
-      2>/dev/null | sort)
-  conflicting=0; [ "$mergeable" = CONFLICTING ] && conflicting=1
+  if ! review_state=$(pr_review_state "$REPO" "$PR" 2>&1); then
+    fetch_fails=$((fetch_fails + 1))
+    if [ "$fetch_fails" -ge "$MAX_FETCH_FAILS" ]; then
+      echo "WATCH_ERROR fetch_failures=$fetch_fails last=$(tr '\n' ' ' <<<"$review_state")"
+      exit 1
+    fi
+    sleep "$INTERVAL"; continue
+  fi
+  fetch_fails=0
+  review=$(sed -n 's/^review=//p' <<<"$review_state" | head -1)
+  threads=$(grep -v '^review=' <<<"$review_state")
 
   new_threads=$(comm -13 <(printf '%s\n' "$fired_threads") <(printf '%s\n' "$threads") | grep -c .)
   new_fail=$(comm -13 <(printf '%s\n' "$fired_fail") <(printf '%s\n' "$failing") | grep . | paste -sd, -)

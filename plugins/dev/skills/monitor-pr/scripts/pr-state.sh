@@ -9,24 +9,18 @@
 #   conflicting=0|1
 # Same keys watch-pr.sh fires ROUND lines on, so the two agree on what counts as new.
 set -u
+. "$(dirname "${BASH_SOURCE[0]}")/gh-pr-api.sh"
 REPO=$1; PR=$2
-OWNER=${REPO%/*}; NAME=${REPO#*/}
 
-QUERY='query($owner:String!,$name:String!,$pr:Int!,$endCursor:String){
-  repository(owner:$owner,name:$name){ pullRequest(number:$pr){
-    reviewThreads(first:100,after:$endCursor){
-      pageInfo{hasNextPage endCursor}
-      nodes{ id isResolved comments{totalCount} }
-    } } } }'
+meta=$(pr_meta "$REPO" "$PR") || { echo "pr-state: could not read the PR" >&2; exit 1; }
+read -r _state conflicting head <<<"$meta"
 
-threads=$(gh api graphql --paginate -f query="$QUERY" \
-    -F owner="$OWNER" -F name="$NAME" -F pr="$PR" \
-    --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved|not) | "\(.id):\(.comments.totalCount)"' \
-    | sort | paste -sd, -)
-failing=$(gh pr checks "$PR" --repo "$REPO" --json name,bucket \
-    --jq '.[] | select(.bucket=="fail") | .name' 2>/dev/null | sort | paste -sd, -)
-mergeable=$(gh pr view "$PR" --repo "$REPO" --json mergeable --jq .mergeable)
-conflicting=0; [ "$mergeable" = CONFLICTING ] && conflicting=1
+# A failed read must not print a clean state: the caller diffs two of these, and empty
+# threads would read as "everything got resolved while the round worked".
+review=$(pr_review_state "$REPO" "$PR") || { echo "pr-state: could not read review threads" >&2; exit 1; }
+threads=$(grep -v '^review=' <<<"$review" | paste -sd, -)
+checks=$(pr_checks "$REPO" "$head") || { echo "pr-state: could not read checks" >&2; exit 1; }
+failing=$(awk -F'\t' '$1=="fail"{print $2}' <<<"$checks" | sort | paste -sd, -)
 
 echo "threads=$threads"
 echo "failing=$failing"

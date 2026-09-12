@@ -51,21 +51,20 @@ when neither yields one.
 
 Set `OWNER_REPO` (from the URL, else `gh repo view --json nameWithOwner --jq
 .nameWithOwner`) and `PR`; set `REPO_ROOT=$(git rev-parse --show-toplevel)` and
-`SKILL_DIR` to this skill's base directory. Echo the URL once so the footer PR badge
-renders and the user sees which PR you resolved:
-
-```bash
-gh pr view <PR> --repo <OWNER_REPO> --json url --jq .url
-```
+`SKILL_DIR` to this skill's base directory.
 
 Rounds run in a worktree for the PR branch — the round creates one when none exists — and
 only on a PR whose head is not the default branch: a same-repo back-merge PR has the
 default branch *as* its head, and working it would push there. That one means the watch
 cannot arm: say so through `AskUserQuestion` (Step 5) rather than just printing it.
 
+One REST read answers all of it. Echoing the URL is what makes Claude Code render its
+footer PR badge for the rest of the session, and it shows the user which PR you resolved:
+
 ```bash
-BRANCH=$(gh pr view <PR> --repo <OWNER_REPO> --json headRefName --jq .headRefName)
-DEFAULT_BRANCH=$(gh repo view <OWNER_REPO> --json defaultBranchRef --jq .defaultBranchRef.name)
+read -r URL BRANCH DEFAULT_BRANCH < <(gh api repos/<OWNER_REPO>/pulls/<PR> \
+  --jq '[.html_url, .head.ref, .base.repo.default_branch] | @tsv')
+echo "$URL"
 [[ "$BRANCH" == "$DEFAULT_BRANCH" ]] && echo "BACK_MERGE — do not arm"
 ```
 
@@ -133,7 +132,7 @@ Agent(
   model: "<--subagent's model, else opus>",
   name: "pr-<PR>-worker",
   description: "round PR #<PR>",
-  prompt: "PR_URL=<PR_URL> OWNER_REPO=<OWNER_REPO> PR=<PR> REPO_ROOT=<REPO_ROOT> LEDGER=<SKILL_DIR>/LEDGER.md PR_STATE=<SKILL_DIR>/scripts/pr-state.sh\nROUND: <the ROUND line verbatim>\nANSWERED: <every fork the user has settled, and the choice>\nGUIDANCE: <this session's scope and facts for the round> | none",
+  prompt: "PR_URL=<PR_URL> OWNER_REPO=<OWNER_REPO> PR=<PR> REPO_ROOT=<REPO_ROOT> LEDGER=<SKILL_DIR>/LEDGER.md PR_STATE=<SKILL_DIR>/scripts/pr-state.sh GH_PR_API=<SKILL_DIR>/scripts/gh-pr-api.sh\nROUND: <the ROUND line verbatim>\nANSWERED: <every fork the user has settled, and the choice>\nGUIDANCE: <this session's scope and facts for the round> | none",
 )
 ```
 
@@ -348,7 +347,7 @@ same reason — a reviewer that never reported.
 On *Merge it*, merge with a method the repo allows:
 
 ```bash
-gh repo view <OWNER_REPO> --json squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed
+gh api repos/<OWNER_REPO> --jq '{squash: .allow_squash_merge, merge: .allow_merge_commit, rebase: .allow_rebase_merge}'
 gh pr merge <PR> --repo <OWNER_REPO> --<squash|merge|rebase>
 ```
 

@@ -25,8 +25,11 @@ Then echo the PR url once, so Claude Code renders its footer PR badge for the re
 the session (it builds that badge by scanning command output for a PR url, and the
 `gh api` calls below never print one):
 ```bash
-gh pr view <pr_number> --repo <owner>/<repo> --json url --jq .url
+gh api repos/<owner>/<repo>/pulls/<pr_number> --jq .html_url
 ```
+> `gh pr view` would answer the same question over GraphQL, which is metered separately
+> and far more tightly than REST — and this skill needs that bucket for the review-thread
+> query in step 2. Every read here that REST can serve goes through `gh api`.
 
 ### 1a. Label the PR while you work
 Mark the PR so humans see an agent is on it, and clear the label as your final action
@@ -40,7 +43,7 @@ gh pr edit <pr_number> --repo <owner>/<repo> --remove-label agent-working  # whe
 Fixes must land on the PR branch, so before touching any code find where that branch
 is checked out:
 ```bash
-gh pr view <pr_number> --repo <owner>/<repo> --json headRefName --jq .headRefName
+gh api repos/<owner>/<repo>/pulls/<pr_number> --jq .head.ref
 git worktree list
 ```
 - If a worktree already has the PR branch checked out, `cd` into it and do all
@@ -58,7 +61,7 @@ Fetch the raw comments:
 gh api repos/<owner>/<repo>/pulls/<pr_number>/comments --paginate
 ```
 
-Then check which threads are actually unresolved via GraphQL (the REST comments API has no `resolved` field). `reviewThreads` is paginated, so walk every page — a fixed `first: 50` silently drops unresolved threads on a busy PR:
+Then check which threads are actually unresolved. This one has no REST equivalent — a review thread's resolved flag appears in no REST response — so it is worth spending the GraphQL call on. `reviewThreads` is paginated, so walk every page: a fixed `first: 50` silently drops unresolved threads on a busy PR:
 ```bash
 gh api graphql --paginate \
   -f query='
@@ -114,7 +117,7 @@ gh api repos/<owner>/<repo>/pulls/<pr_number>/comments \
 ```
 > Note: `in_reply_to` must be an integer. Do **not** use `-f` (string flag) — use `--field` so it is sent as a number.
 
-**Resolving a thread** requires the GraphQL mutation (the REST API has no resolve endpoint). Use the `id` field from the GraphQL thread query above:
+**Resolving a thread** is the other call with no REST equivalent — there is no resolve endpoint. Use the `id` field from the GraphQL thread query above:
 ```bash
 gh api graphql -f query='
 mutation {

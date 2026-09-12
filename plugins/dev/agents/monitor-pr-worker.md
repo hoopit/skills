@@ -44,11 +44,16 @@ threads with no thread to reply to, source `challenge`, and push.
 user's main checkout stays untouched. Find that worktree:
 
 ```bash
-BRANCH=$(gh pr view <PR> --repo <OWNER_REPO> --json headRefName --jq .headRefName)
-DEFAULT_BRANCH=$(gh repo view <OWNER_REPO> --json defaultBranchRef --jq .defaultBranchRef.name)
+source <GH_PR_API>
+read -r BRANCH DEFAULT_BRANCH < <(gh api repos/<OWNER_REPO>/pulls/<PR> \
+  --jq '[.head.ref, .base.repo.default_branch] | @tsv')
 [[ "$BRANCH" == "$DEFAULT_BRANCH" ]] && echo "BACK_MERGE"
 git -C <REPO_ROOT> worktree list --porcelain | grep -B2 "refs/heads/$BRANCH"
 ```
+
+`<GH_PR_API>` gives you `pr_meta`, `pr_checks` and `pr_review_state`. Read the PR through
+them rather than through `gh pr view` / `gh pr checks`: those are GraphQL underneath, and
+a round that reaches for them several times spends a bucket the review-thread query needs.
 
 On `BACK_MERGE`, your entire report is `HALT back-merge PR: head is $DEFAULT_BRANCH`.
 
@@ -57,7 +62,6 @@ check out. Follow `<REPO_ROOT>/.claude/skills/create-worktree` when that skill e
 since it owns the repo's venv / test DB / direnv / FVM setup; otherwise:
 
 ```bash
-BRANCH=$(gh pr view <PR> --repo <OWNER_REPO> --json headRefName --jq .headRefName)
 git -C <REPO_ROOT> fetch origin
 git -C <REPO_ROOT> worktree add ".worktrees/${BRANCH//\//-}" "$BRANCH"
 ```
@@ -91,7 +95,7 @@ bash <PR_STATE> <OWNER_REPO> <PR> > /tmp/pr-<PR>-open.txt
 at, so read the whole diff and the ledger before axis 1:
 
 ```bash
-gh pr diff <PR> --repo <OWNER_REPO>
+gh api repos/<OWNER_REPO>/pulls/<PR> -H "Accept: application/vnd.github.v3.diff"
 ```
 
 Done when you can say in one line what the PR promises — the body and the work item it
@@ -144,8 +148,8 @@ reshape if told, then axis 4. The item's ledger row reads `applied (step back)` 
 `why` carries the shapes weighed and the counterfactual, so a reviewer sees the design was
 questioned rather than patched.
 
-1. **Merge conflicts.** If `gh pr view <PR_URL> --json mergeable` is `CONFLICTING`,
-   merge the default branch into the PR branch — merge, never rebase, the branch is
+1. **Merge conflicts.** If the conflicting flag from `pr_meta <OWNER_REPO> <PR>` reads
+   `1`, merge the default branch into the PR branch — merge, never rebase, the branch is
    already pushed. Resolve with the `resolving-merge-conflicts` skill, run the tests the
    conflicted files touch, commit.
 2. **Review comments.** Invoke the `review-github-comments` skill for <PR_URL>,
@@ -154,8 +158,8 @@ questioned rather than patched.
    carries a reply saying why it stays open; its report hands you one classified row per
    thread. A `declined` row carries what `LEDGER` says a decline carries — the reason in
    the code on a judgement, the challenge on a Critical/High — before it stands.
-3. **Failing checks.** Re-query `gh pr checks <PR> --json name,bucket,link` and act on
-   the `fail` bucket as it stands now: fetch each failure (the `circleci-tests` skill for
+3. **Failing checks.** Re-query `pr_checks <OWNER_REPO> <head_sha>` — it prints
+   `bucket<TAB>name<TAB>link` — and act on the `fail` bucket as it stands now: fetch each failure (the `circleci-tests` skill for
    CircleCI jobs, the `link` otherwise), fix it on the PR branch, run the failing tests
    locally until green, commit. Pending checks are reported as pending, not awaited. A
    check that is red only because it needs the merge from axis 1 needs no separate fix.

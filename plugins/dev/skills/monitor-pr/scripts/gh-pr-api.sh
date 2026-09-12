@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# Shared GitHub reads for the monitor-pr scripts. Source it; don't run it.
+#
+# REST and GraphQL are metered in separate hourly buckets, and gh's porcelain
+# (`gh pr view`, `gh pr checks`) is GraphQL underneath — so a 60 s watch built on it
+# spends three GraphQL calls a minute per PR, and a machine running several agents
+# exhausts the GraphQL bucket while the REST one sits idle. Everything REST can answer
+# is asked over REST here. Only review-thread resolution stays on GraphQL, because no
+# REST endpoint exposes it, and `reviewDecision` rides along in the same query rather
+# than costing a second one.
+#
+# mise prints its activation banner to stdout on every tool invocation, which would land
+# inside these command substitutions and corrupt every parse below.
+export MISE_QUIET=1
+
+# pr_meta <owner/repo> <pr> — prints "<state> <conflicting> <head_sha>".
+#   state        OPEN | CLOSED | MERGED
+#   conflicting  1 only once GitHub has computed the merge and found it dirty. While
+#                that computation is in flight `mergeable` is null and this reads 0,
+#                the same way GraphQL's UNKNOWN did; the next poll sees the answer.
+pr_meta() {
+  gh api "repos/$1/pulls/$2" --jq '
+    (if .merged then "MERGED" elif .state == "closed" then "CLOSED" else "OPEN" end)
+    + " " + (if .mergeable == false then "1" else "0" end)
+    + " " + .head.sha'
+}
+
+# pr_checks <owner/repo> <head_sha> — prints "<bucket>\t<name>\t<link>" per check.
+# Reads check runs and commit statuses both: external CI reports as a status, not a
+# run, and on a Hoopit PR the CodeRabbit and codex-review gates are statuses.
+# Buckets carry the same names `gh pr checks --json bucket` used: pass, fail, pending,
+# skipping, cancel.
+#
+# One name can come back several times — a re-run, or two workflows defining the same job
+# name — so the newest run wins. Downstream reads a check by name, so a name has to answer
+# with one state, and it has to be the current one: a stale failed re-run left in would pin
+# the PR red forever. A run with no timestamp is one GitHub has only just created, so it
+# sorts newest — better to read a check as pending than as an older run's failure.
+pr_checks() {
+  local runs statuses
+  runs=$(gh api --paginate --slurp "repos/$1/commits/$2/check-runs?per_page=100") || return 1
+  statuses=$(gh api --paginate --slurp "repos/$1/commits/$2/status?per_page=100") || return 1
+  jq -r '[.[].check_runs[]] | group_by(.name) | map(max_by(.started_at // "9999")) | .[]
+    | [(
+      if .status != "completed" then "pending"
+      elif .conclusion == "success" then "pass"
+      elif .conclusion == "neutral" or .conclusion == "skipped" then "skipping"
+      elif .conclusion == "cancelled" then "cancel"
+      else "fail" end), .name, (.html_url // "")] | @tsv' <<<"$runs"
+  jq -r '[.[].statuses[]] | group_by(.context) | map(max_by(.updated_at // "9999")) | .[]
+    | [(
+      if .state == "pending" then "pending"
+      elif .state == "success" then "pass"
+      else "fail" end), .context, (.target_url // "")] | @tsv' <<<"$statuses"
+}
+
+# pr_review_state <owner/repo> <pr> — the one GraphQL call. Prints a `review=` line
+# followed by one `<thread_id>:<comment_count>` line per unresolved thread, sorted.
+# The comment count is what makes a reply to an already-seen thread a change.
+#
+# Both halves need GraphQL: a review thread's resolved flag appears in no REST
+# response, and reviewDecision folds in the repo's protection rules, which the reviews
+# endpoint cannot see — it cannot tell REVIEW_REQUIRED from NONE.
+PR_REVIEW_QUERY='query($owner:String!,$name:String!,$pr:Int!,$endCursor:String){
+  repository(owner:$owner,name:$name){ pullRequest(number:$pr){
+    reviewDecision
+    reviewThreads(first:100,after:$endCursor){
+      pageInfo{hasNextPage endCursor}
+      nodes{ id isResolved comments{totalCount} }
+    } } } }'
+
+pr_review_state() {
+  local raw
+  raw=$(gh api graphql --paginate -f query="$PR_REVIEW_QUERY" \
+          -F owner="${1%/*}" -F name="${1#*/}" -F pr="$2") || return 1
+  # --paginate prints one document per page, so read the scalar off the first and
+  # concatenate the node arrays across all of them.
+  printf 'review=%s\n' \
+    "$(jq -r '.data.repository.pullRequest.reviewDecision // "NONE"' <<<"$raw" | head -1)"
+  jq -r '.data.repository.pullRequest.reviewThreads.nodes[]
+         | select(.isResolved | not) | "\(.id):\(.comments.totalCount)"' <<<"$raw" | sort
+}

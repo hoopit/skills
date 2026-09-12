@@ -129,9 +129,9 @@ tally accumulates. A fresh worker rotated in mid-PR recovers the whole history t
 Read the body fresh at write time, so a human edit made while the round ran survives:
 
 ```bash
-gh pr view <PR> --repo <OWNER_REPO> --json body --jq .body > body.md
+gh api repos/<OWNER_REPO>/pulls/<PR> --jq .body > body.md
 # replace the region between the markers, or append the block when they are absent
-gh pr edit <PR> --repo <OWNER_REPO> --body-file body.md
+gh api -X PATCH repos/<OWNER_REPO>/pulls/<PR> -F body=@body.md
 ```
 
 The markers keep the write idempotent and leave the rest of the description — the
