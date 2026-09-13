@@ -84,7 +84,8 @@ Pick the home by the *nature* of the knowledge, not by topic:
 | Genuinely **repo-wide**, touching many modules with **no path glob that targets them** | **root `AGENTS.md`** (or root `docs/`) | Always-on everywhere — the highest bar in the repo |
 | Already **enforced by a test/hook or documented next to the code** (a CI-config comment, a `test_*` that fails) | **expire** | The point-of-use copy wins; memory is pure duplication |
 | A **one-off finding tied to one ticket** — a bug's cause, a review round, a migration's steps — with no rule left once it lands | **expire** | git log, the PR and the ticket are the record |
-| **Personal** (your access/secrets setup), **live-ops** state (incidents, alarms, live infrastructure), or **in-flight** work | **keep as memory** | Not team-doc material; not derivable from the repo |
+| Durable but **yours alone** — this machine's quirks, your tooling and access setup, how you want work handled — and true in every repo you touch | the **user's global `CLAUDE.md`** (`~/.claude/CLAUDE.md`) | The one home outside the repo, for what a teammate would find wrong or irrelevant |
+| **Live-ops** state (incidents, alarms, live infrastructure) or **in-flight** work | **keep as memory** | Still moving; nothing to write down yet |
 
 **Best fit wins** — the home the knowledge actually belongs in. Only when two homes
 fit it equally well does **proximity** break the tie, nearest first:
@@ -95,8 +96,13 @@ fit it equally well does **proximity** break the tie, nearest first:
 The closer a fact lives to the code it governs, the more certainly the reader who
 needs it sees it, and the fewer unrelated sessions pay to carry it.
 
-Two boundaries proximity doesn't settle:
+Three boundaries proximity doesn't settle:
 
+- **Repo or you?** Scope decides, before anything else. What a teammate would need
+  goes in the repo, even when you are the only one who has hit it; what binds your
+  machine, your shell or your access goes in the global `CLAUDE.md`, where it is out
+  of everyone else's way. Global loads in every session of every project, so the
+  *bites again* bar applies hardest of all there.
 - **Rule or module?** A rule earns its glob when the same gotcha binds files in
   *many* modules; one module's quirk goes in that module's `AGENTS.md`, however
   tempting a tidy new rule file looks. "Every migration is reversible" is a rule;
@@ -166,8 +172,9 @@ ones you plan to act on:
 ### 5. Confirm the plan
 The table *is* the plan — present it and get a green light on (a) which memories
 graduate and where, and (b) expiry scope. Graduation is outward-facing (it ships as a
-PR in step 8); expiry is undoable only for as long as the `.bak` backups survive.
-`AskUserQuestion` with a question per axis works well. Pure "this shipped, remove it"
+PR in step 8); expiry is undoable only for as long as the `.bak` backups survive; and
+an edit to the global `CLAUDE.md` reaches no reviewer, so quote its exact lines in
+the plan. `AskUserQuestion` with a question per axis works well. Pure "this shipped, remove it"
 is within a "prune my memory" request; borderline calls should be surfaced, not
 assumed.
 
@@ -183,6 +190,9 @@ assumed.
 - A new module `AGENTS.md` mirrors the repo root: where the root keeps `AGENTS.md`
   with a `CLAUDE.md` symlink beside it, create both (`ln -s AGENTS.md CLAUDE.md`) and
   commit both; where the root is a plain `CLAUDE.md`, write that.
+- Writing to the global `CLAUDE.md`? Back it up the same way (`cp CLAUDE.md
+  CLAUDE.md.bak`), then extend the section that already covers the subject rather
+  than opening a new one.
 - Keep `MEMORY.md` in sync: remove the expired lines. Maintain a **top pointer note**
   recording where graduated knowledge went, so it isn't re-added to memory later
   (e.g. "billing gotchas → `billing/AGENTS.md`; test gotchas → the `testing` rule").
@@ -211,11 +221,13 @@ the PR is part of the curation, not a follow-up to offer.
   order in the module's AGENTS.md").
 - Push and open the PR following the **`create-pull-request`** skill's recipe.
   There's usually no tracked work item — say so in the body. Structure the body by
-  destination: what graduated where, and (for reviewer context) what expired or
-  stayed private. Report the PR URL when done.
+  destination: what graduated where, and (for reviewer context) what expired, what
+  stayed in memory, and what went to the global `CLAUDE.md` outside this repo.
+  Report the PR URL when done.
 
 ### 9. After the PR merges — drop the backups
-`rm <memory-dir>/*.md.bak`. Until then the backups stay: they are the only copy of
+`rm <memory-dir>/*.md.bak`, and the global `CLAUDE.md.bak` if you wrote one. Until
+then the backups stay: they are the only copy of
 every expired memory, and a graduation that review sends back needs its source text.
 If the session ends before the merge, leave them — a stale `.bak` costs nothing, and
 the next curation clears it in step 2.
