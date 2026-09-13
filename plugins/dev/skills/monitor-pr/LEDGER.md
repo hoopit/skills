@@ -25,6 +25,13 @@ Every review thread, failing check and merge conflict lands in exactly one tier:
   `fork` (waiting on the user), or `answered: <the user's choice>`. `applied (step back)`
   marks a fix whose shape a design check chose; `why` then carries the shapes weighed and
   the counterfactual.
+
+  A *guard against X* / *recheck Y* finding earns the **counterfactual** before `applied`:
+  write the state that exists with the fix beside the state without it. Identical states put
+  the row at `declined` — the finding is mis-aimed however real its mechanism, and a verified
+  race feels settled, which is why the counterfactual goes unasked. Where the states differ
+  only in **recoverability** — one visible to a cleanup sweep, one not — that decides it: name
+  the consumers and say which state each can see.
 - **fixes** — `fixes R<k>` when the finding lands in code round *k*'s fix added. This is
   the tag the step back's second-correction trigger reads, so it is never left off.
 - **why** — one clause. For `declined`, name the evidence that makes the finding wrong
@@ -54,7 +61,7 @@ A decline is the row a fresh reviewer re-raises, so it carries more than a `why`
   challenge before the decline stands:
 
   ```bash
-  bash "$(find ~/.claude/plugins -path '*review-gate/scripts/run_external_reviewers.sh' | head -1)" \
+  bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh" \
     <the branch's base> --challenge-only --challenge "<the finding, and the claim that makes it wrong here>"
   ```
 

@@ -80,12 +80,28 @@ A PR that delivers a child issue takes the child's key on its linked surfaces,
 not the epic's or parent's. Delivered under a parent's key, the work is
 invisible to every key-based check: nobody can tell the ticket shipped, and it
 sits in a stale status for weeks while its code is live. A parent advances when
-its children do.
+its children do. Read it the other way too: before concluding a ticket was never
+worked, search its parent and epic keys and the branches carrying no key at all.
 
 ### Before you open the PR
 
 Re-read every linked surface and confirm each `ABC-123`-shaped key on it is in
 the allowed set. Drop the hyphen from every one that is not.
+
+### Repairing a key a PR already moved
+
+The integration attributes its transitions to the **PR author**, not to a bot, so a stray
+move reads as a human one in the changelog and stays invisible until someone wonders why a
+ticket nobody worked looks delivered. Correlate the changelog timestamps against
+`gh pr list --json createdAt,mergedAt,body`: a transition within about a minute of a PR
+event, on a key only *mentioned* rather than carried on the branch or title, is the
+integration's. Restore the last **human** status — `atlassian-cli`, *Closing a work item*,
+reads the transition ids — which for an investigation ticket may be a rejected state
+rather than the open one.
+
+Confirm the cause on the surfaces first, because the wrong one costs a second repair: a
+transition on a key that appears on **no** surface of the PR — body, title, branch or
+commits — is something else, usually an over-broad bulk `transition --jql`.
 
 ## Creating the PR
 

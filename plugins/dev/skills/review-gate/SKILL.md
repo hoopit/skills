@@ -57,13 +57,16 @@ that policy.
 
 1. **Fixed point.** Resolve `$DEFAULT_BRANCH` from the repo's CLAUDE.md *Workflow skills config*
    (e.g. `master`), then set the base every reviewer in this pass diffs against:
-   `REVIEW_BASE=$DEFAULT_BRANCH` under `full`, `REVIEW_BASE=$REVIEWED_AT` under `light`. Run from
-   inside the worktree being reviewed. Every reviewer's findings land in one directory this pass
+   `git fetch` and `REVIEW_BASE=origin/$DEFAULT_BRANCH` under `full`, `REVIEW_BASE=$REVIEWED_AT`
+   under `light`. **The remote-tracking ref carries the fixed point**, because a worktree branched
+   from the remote leaves the local branch behind, and that stale merge-base widens the reviewed
+   diff by every unrelated upstream commit. Run from inside the worktree being reviewed. Every
+   reviewer's findings land in one directory this pass
    owns, so set `GATE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/review-gate.XXXXXX")` and keep it for the
    whole pass.
 2. **External reviewer (Codex, required).** Run the bundled script:
    ```bash
-   bash "$(find ~/.claude/plugins -path '*review-gate/scripts/run_external_reviewers.sh' | head -1)" "$REVIEW_BASE" --challenge "$CHALLENGE"
+   bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh" "$REVIEW_BASE" --challenge "$CHALLENGE"
    ```
    Pass `--challenge` on every `full` pass and on a `light` pass that was given one; leave it
    off otherwise. It prints `codex=<ran|error|unavailable>[:file]` and, with a challenge,
@@ -128,6 +131,12 @@ that policy.
      round budget, and they tend to introduce the next round's findings. When the tail of the
      sweep is too large for this change, fix what this change touches and `BLOCK` on the rest
      (the too-large rule below).
+   - **The sweep's ceiling is the defect.** When a swept file turns out to be wrong in its own
+     right — not merely missing the guard — fix the guard and file the rewrite as its own work
+     item, however correct and load-bearing that rewrite would be. Folded in, it is reviewed at
+     someone else's change's attention, and it is the half the rounds then spend themselves on.
+     The tell is the round tally: one file yielding a finding every round while the rest of the
+     diff has converged means the change is carrying two pieces of work.
    - **Challenge findings hold** only when a named caller or sequence reaches them
      (*Classifying an item* in [`../monitor-pr/LEDGER.md`](../monitor-pr/LEDGER.md)). One
      that holds is fixed; the rest are recorded as *challenged, not reached: <evidence>*.
@@ -176,6 +185,10 @@ Solution:
   blocks the pass exactly as a missing install does — fix the auth and run the gate again. The
   script already retried it once, so `error` is a second failure, not a blip: re-running the
   gate on the spot buys a third attempt at best.
+- **Stopping a Codex run means killing the child by pid**, matching `codex-companion.mjs review`:
+  `TaskStop` on the shell that launched the script leaves the companion running, and
+  `pkill -f "codex review"` matches the argv of the `bash -c` wrapper that ran the command, so it
+  kills its own caller (exit 144).
 - **A reviewer subagent at `idle` with no result is not a dead one.** It usually means the work
   finished and the result has not been handed back yet, and delivery can lag the work by a long way.
   Spawning replacements or dropping to self-review on that signal throws away the independent axis

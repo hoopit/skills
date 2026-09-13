@@ -122,7 +122,7 @@ your pick locally and put it to Codex's adversarial review, which challenges an 
 rather than hunting defects, with the shapes as its focus:
 
 ```bash
-bash "$(find ~/.claude/plugins -path '*review-gate/scripts/run_external_reviewers.sh' | head -1)" \
+bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh" \
   <the head the round opened on> --challenge "<the mechanism, the shapes weighed, why the pick>" --challenge-only
 ```
 
@@ -180,6 +180,13 @@ questioned rather than patched.
    should ship what is settled rather than never push, so on a fourth difference push
    what you have and name what you left in the report. A **hard fork** ends the sweeps
    too — it makes the head not worth reviewing, so push the settled work and report.
+
+   **A round that edited agent-facing prose** — `AGENTS.md` / `CLAUDE.md`, a rule, a skill,
+   anything under `docs/` — reads the whole edited section against
+   `mattpocock-skills:writing-for-agents` before its push, **every round**. Rounds only add: each
+   addition lands correct on its own, so the **sprawl** is invisible from inside any single
+   finding, and so is the drift beside it — one instruction scattered across three paragraphs,
+   material under a heading it has outgrown. Commit the pruning separately from the fixes.
 
    Then `git push` once, if anything was committed — plain, never forced. A rejected push
    is a stop to report, not something to force past.

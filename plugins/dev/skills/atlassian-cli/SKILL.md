@@ -56,6 +56,40 @@ acli jira workitem assign --key "KEY-1,KEY-2,KEY-3" --assignee "@me"
 Verify the target set with `--count` before a bulk `edit`/`transition` — the same
 JQL, run read-only first, tells you how many items the write will touch.
 
+## Closing a work item — the status name is not the category
+
+**What closes an item is its `resolution`.** A workflow can name a status "Rejected",
+"Won't Fix" or "Cancelled" and still map it to the *In Progress* category with
+`resolution = None` — Jira's built-in `Reopened` is exactly this. An item parked there
+reads as closed to a human while every query and every release automation counts it as
+open assigned work, so nothing ever sweeps it up.
+
+Read the status's real shape and the transition ids off the item itself. **Both are
+per-project**, so neither carries between projects:
+
+```bash
+# what the status actually is: statusCategory.key is "new" | "indeterminate" | "done"
+acli jira workitem view <KEY> --json | jq '.fields.status | {name, statusCategory: .statusCategory.key}, .fields.resolution'
+
+# the transitions available from here, with their ids
+curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" "$JIRA_BASE_URL/rest/api/3/issue/<KEY>/transitions" \
+  | jq '.transitions[] | {id, name, to: .to.name, category: .to.statusCategory.key}'
+```
+
+Close with the transition whose `to.statusCategory` is `done`, setting a resolution.
+`acli jira workitem transition` cannot do this — it takes no resolution field — so the
+close goes over REST:
+
+```bash
+curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" -H 'Content-Type: application/json' \
+  -X POST "$JIRA_BASE_URL/rest/api/3/issue/<KEY>/transitions" \
+  -d '{"transition":{"id":"<close-id>"},"fields":{"resolution":{"name":"Declined"}}}'
+```
+
+Credentials: `JIRA_EMAIL` + `JIRA_API_TOKEN` (the `review-jira-attachments` skill's
+`setup_jira_env.sh` writes them), `JIRA_BASE_URL` from the repo's CLAUDE.md. acli keeps
+its own secret in the OS keyring and cannot be reused for curl.
+
 ## Bulk creation
 
 ```bash

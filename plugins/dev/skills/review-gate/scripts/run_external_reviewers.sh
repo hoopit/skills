@@ -4,8 +4,9 @@
 # (review-gate blocks the pass; monitor-pr works its round but will not recommend a merge). Deterministic glue only — the always-on
 # independent review and the fix/dispute judgment live in the review-gate SKILL.
 #
-# Usage:  run_external_reviewers.sh <base-branch> [--challenge "<focus text>"] [--challenge-only]
-# (base default: master)
+# Usage:  run_external_reviewers.sh <base-ref> [--challenge "<focus text>"] [--challenge-only]
+# <base-ref> is a remote-tracking ref (origin/master): a local branch drifts behind the remote and
+# its stale merge-base widens the reviewed diff. Unset, the base is origin's default branch.
 # With --challenge, Codex also runs its adversarial review — a challenge to the approach and
 # its assumptions, weighted on the focus text — alongside its standard review, in parallel.
 # --challenge-only skips the standard review, for a caller that wants the challenge alone.
@@ -18,7 +19,7 @@
 # that treats `error` as gravely as a missing install should not be tripped by a blip.
 # `unavailable` is never retried: a plugin that isn't installed stays uninstalled.
 
-BASE=master
+BASE="$(git symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || echo origin/master)"
 CHALLENGE=""
 STANDARD=1
 while [ $# -gt 0 ]; do
