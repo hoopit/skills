@@ -29,7 +29,7 @@ If the target is the main worktree or the repo's default branch (the `DEFAULT_BR
 ## 1. Inspect the target
 
 ```bash
-INSPECT="${CLAUDE_PLUGIN_ROOT}/skills/clean-up-worktree/scripts/inspect.sh"
+INSPECT="${CLAUDE_PLUGIN_ROOT:?}/skills/clean-up-worktree/scripts/inspect.sh"
 bash "$INSPECT"           # this session's worktree
 bash "$INSPECT" <branch>  # a named branch
 ```

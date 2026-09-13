@@ -292,7 +292,7 @@ the PR's worktree, with the ledger's judgement rows — the declines, the step-b
 as the focus:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh" \
+bash "${CLAUDE_PLUGIN_ROOT:?}/skills/review-gate/scripts/run_external_reviewers.sh" \
   <DEFAULT_BRANCH> --challenge-only --challenge "Merge readiness. Judgements to break: <the ledger's judgement rows, one line each>"
 ```
 

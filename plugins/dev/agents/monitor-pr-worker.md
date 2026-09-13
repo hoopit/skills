@@ -122,7 +122,7 @@ your pick locally and put it to Codex's adversarial review, which challenges an 
 rather than hunting defects, with the shapes as its focus:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh" \
+bash "${CLAUDE_PLUGIN_ROOT:?}/skills/review-gate/scripts/run_external_reviewers.sh" \
   <the head the round opened on> --challenge "<the mechanism, the shapes weighed, why the pick>" --challenge-only
 ```
 

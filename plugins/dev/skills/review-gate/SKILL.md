@@ -66,7 +66,7 @@ that policy.
    whole pass.
 2. **External reviewer (Codex, required).** Run the bundled script:
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh" "$REVIEW_BASE" --challenge "$CHALLENGE"
+   bash "${CLAUDE_PLUGIN_ROOT:?}/skills/review-gate/scripts/run_external_reviewers.sh" "$REVIEW_BASE" --challenge "$CHALLENGE"
    ```
    Pass `--challenge` on every `full` pass and on a `light` pass that was given one; leave it
    off otherwise. It prints `codex=<ran|error|unavailable>[:file]` and, with a challenge,
@@ -79,8 +79,10 @@ that policy.
    on one engine spends a round the caller pays for again once Codex is back. Make Codex
    available (its own auth counts — `codex setup`) and run the gate again; the re-run is a whole
    pass, so nothing is lost by stopping here. A `codex_challenge` that fails while `codex` itself
-   ran is a skipped reviewer, not a block: record it in the notes. The script is the whole
-   external-reviewer step: Codex is the only external engine this gate runs locally.
+   ran is a skipped reviewer, not a block: record it in the notes. A run printing no `codex=`
+   line at all never started — read it as `unavailable`, with whatever the shell said as the
+   reason. The script is the whole external-reviewer step: Codex is the only external engine
+   this gate runs locally.
 3. **Independent review (always).** Prefer a cold, independent reviewer over grading your own
    work. Under `full` run both axes; under `light` run the **Standards** axis only — a pass over a
    handful of fix commits rarely re-opens the spec question, and a spec answer is what a `full` pass

@@ -25,7 +25,7 @@ Before the first `curl`, verify the credentials. The bundled `scripts/setup_jira
 file *and* probes `/myself`, so it catches a missing file, a half-filled file, and a stale/wrong token:
 
 ```bash
-SETUP="${CLAUDE_PLUGIN_ROOT}/skills/review-jira-attachments/scripts/setup_jira_env.sh"
+SETUP="${CLAUDE_PLUGIN_ROOT:?}/skills/review-jira-attachments/scripts/setup_jira_env.sh"
 bash "$SETUP" check     # exit 0 + "OK: authenticated as …" means you're good — skip the rest of this section
 ```
 
@@ -39,7 +39,7 @@ keeps its own secret encrypted in the OS keyring and never exposes a reusable Ba
    through the chat — suggest they type it with the `!` prefix, pasting their token in place of `<TOKEN>`:
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/skills/review-jira-attachments/scripts/setup_jira_env.sh" write <TOKEN>
+   bash "${CLAUDE_PLUGIN_ROOT:?}/skills/review-jira-attachments/scripts/setup_jira_env.sh" write <TOKEN>
    ```
 
    This pulls `JIRA_EMAIL` from acli, verifies the token against `/myself`, and writes
@@ -64,7 +64,7 @@ the bundled `scripts/har_summary.py` to scan it (one compact line per request: `
 then drill into only the entries that matter:
 
 ```bash
-HAR="${CLAUDE_PLUGIN_ROOT}/skills/review-jira-attachments/scripts/har_summary.py"
+HAR="${CLAUDE_PLUGIN_ROOT:?}/skills/review-jira-attachments/scripts/har_summary.py"
 python3 "$HAR" /tmp/<KEY>-file.har               # full scan — spot the request(s) of interest
 python3 "$HAR" /tmp/<KEY>-file.har --failures    # only status 0 (network error) or >= 400
 python3 "$HAR" /tmp/<KEY>-file.har --grep clubs  # only URLs containing a substring
@@ -81,7 +81,7 @@ many times), use `scripts/har_extract.py` — it matches by method + path substr
 in full (query params + request/response bodies), with `--json` for structured output:
 
 ```bash
-EXT="${CLAUDE_PLUGIN_ROOT}/skills/review-jira-attachments/scripts/har_extract.py"
+EXT="${CLAUDE_PLUGIN_ROOT:?}/skills/review-jira-attachments/scripts/har_extract.py"
 python3 "$EXT" /tmp/<KEY>-file.har --path /v3/payments              # every payments request, full detail
 python3 "$EXT" /tmp/<KEY>-file.har --path /clubs --method GET       # narrow by method
 python3 "$EXT" /tmp/<KEY>-file.har --path /clubs --json             # structured list

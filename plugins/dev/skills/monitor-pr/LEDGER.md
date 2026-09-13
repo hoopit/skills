@@ -61,7 +61,7 @@ A decline is the row a fresh reviewer re-raises, so it carries more than a `why`
   challenge before the decline stands:
 
   ```bash
-  bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh" \
+  bash "${CLAUDE_PLUGIN_ROOT:?}/skills/review-gate/scripts/run_external_reviewers.sh" \
     <the branch's base> --challenge-only --challenge "<the finding, and the claim that makes it wrong here>"
   ```
 

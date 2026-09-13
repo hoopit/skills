@@ -13,12 +13,16 @@ Never expand existing frontmatter descriptions without approval.
 ## Bundled scripts are reached through `${CLAUDE_PLUGIN_ROOT}`
 
 A skill that ships a script invokes it as
-`bash "${CLAUDE_PLUGIN_ROOT}/skills/<skill>/scripts/<name>.sh"`. The variable resolves to the
+`bash "${CLAUDE_PLUGIN_ROOT:?}/skills/<skill>/scripts/<name>.sh"`. The variable resolves to the
 plugin directory the session actually loaded, which is the only copy that matches the skill text
 running. Searching `~/.claude/plugins` for the path finds one copy per installed commit — dozens,
 pinned per project and per worktree — and any pick among them is arbitrary, so the skill silently
 runs a script from months ago while reading as if it ran today. A flag the old copy never had is
 accepted and does nothing.
+
+Keep the `:?`. A context that does not set the variable — a command the user pastes into their
+own shell, say — then fails naming it, instead of running `bash /skills/…` and leaving the caller
+to guess why a step produced nothing.
 
 ## Workflow
 
