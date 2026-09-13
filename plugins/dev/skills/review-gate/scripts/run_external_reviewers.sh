@@ -5,8 +5,8 @@
 # independent review and the fix/dispute judgment live in the review-gate SKILL.
 #
 # Usage:  run_external_reviewers.sh <base-ref> [--challenge "<focus text>"] [--challenge-only]
-# <base-ref> is a remote-tracking ref (origin/master): a local branch drifts behind the remote and
-# its stale merge-base widens the reviewed diff. Unset, the base is origin's default branch.
+# <base-ref> is required, and is a remote-tracking ref (origin/<default branch>). The skill owns
+# why; this script only refuses to guess, because the default branch differs per project.
 # With --challenge, Codex also runs its adversarial review — a challenge to the approach and
 # its assumptions, weighted on the focus text — alongside its standard review, in parallel.
 # --challenge-only skips the standard review, for a caller that wants the challenge alone.
@@ -19,7 +19,7 @@
 # that treats `error` as gravely as a missing install should not be tripped by a blip.
 # `unavailable` is never retried: a plugin that isn't installed stays uninstalled.
 
-BASE="$(git symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || echo origin/master)"
+BASE=""
 CHALLENGE=""
 STANDARD=1
 while [ $# -gt 0 ]; do
@@ -29,6 +29,12 @@ while [ $# -gt 0 ]; do
     *) BASE="$1"; shift ;;
   esac
 done
+
+if [ -z "$BASE" ]; then
+  echo "codex=error"
+  echo "codex_reason=no base ref given (pass origin/\$DEFAULT_BRANCH)"
+  exit 2
+fi
 [ -n "$CHALLENGE" ] || STANDARD=1   # nothing else to run, so the standard review it is
 # Unique output dir per invocation so concurrent gates (different repos/worktrees,
 # run in parallel) never clobber each other's findings. The caller reads the exact

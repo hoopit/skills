@@ -64,9 +64,9 @@ JQL, run read-only first, tells you how many items the write will touch.
 reads as closed to a human while every query and every release automation counts it as
 open assigned work, so nothing ever sweeps it up.
 
-The REST calls below need credentials in the environment. `acli` keeps its own secret in
-the OS keyring and cannot be reused, and a setup script exports nothing back to you, so
-source the env file in the same block as the call:
+`acli`'s own secret lives in the OS keyring and cannot be reused, so the REST calls below
+need their credentials sourced in the same block that runs them
+(`review-jira-attachments` sets the file up):
 
 ```bash
 set -a; . ~/.config/hoopit/jira.env; set +a   # JIRA_EMAIL, JIRA_API_TOKEN
@@ -102,6 +102,27 @@ curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" -H 'Content-Type: application/json' \
 
 `acli jira workitem transition` cannot do this at all — it takes no resolution field — so
 any close that owns its resolution goes over REST.
+
+## Repairing a status nobody set by hand
+
+A tracker integration moves items on its own. GitHub-for-Jira transitions **every** key it
+finds on a pull request — the branch, the commits, the title, the body — not only the one
+the PR delivers, and it attributes the move to the **PR author**, so the changelog shows a
+human. A merely-mentioned follow-up therefore reads as delivered, and lands somewhere the
+release automation's own sweep sits *past*, where it parks indefinitely.
+
+Correlate the changelog timestamps against `gh pr list --json createdAt,mergedAt,body`: a
+transition within about a minute of a PR event, on a key only *mentioned* rather than
+carried on the branch or title, is the integration's. Restore the last **human** status —
+which for an investigation ticket may be a rejected state rather than the open one.
+
+Confirm the cause on the PR's surfaces first, because the wrong one costs a second repair:
+a transition on a key that appears on **no** surface of the PR is something else, usually
+an over-broad bulk `transition --jql`. `create-pull-request` carries the prevention.
+
+The inverse costs the same and reads as the opposite: work delivered under a parent or
+epic key is invisible to every key-based search. Before concluding a ticket was never
+worked, search its parent and epic keys, and the branches carrying no key at all.
 
 ## Bulk creation
 

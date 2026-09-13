@@ -138,7 +138,8 @@ that policy.
      item, however correct and load-bearing that rewrite would be. Folded in, it is reviewed at
      someone else's change's attention, and it is the half the rounds then spend themselves on.
      The tell is the round tally: one file yielding a finding every round while the rest of the
-     diff has converged means the change is carrying two pieces of work.
+     diff has converged means the change is carrying two pieces of work. Unlike the too-large
+     tail, this is filed and the pass may still `PASS` — the guard is what this change owed.
    - **Challenge findings hold** only when a named caller or sequence reaches them
      (*Classifying an item* in [`../monitor-pr/LEDGER.md`](../monitor-pr/LEDGER.md)). One
      that holds is fixed; the rest are recorded as *challenged, not reached: <evidence>*.
@@ -187,10 +188,12 @@ Solution:
   blocks the pass exactly as a missing install does — fix the auth and run the gate again. The
   script already retried it once, so `error` is a second failure, not a blip: re-running the
   gate on the spot buys a third attempt at best.
-- **Stopping a Codex run means killing the child by pid**, matching `codex-companion.mjs review`:
-  `TaskStop` on the shell that launched the script leaves the companion running, and
-  `pkill -f "codex review"` matches the argv of the `bash -c` wrapper that ran the command, so it
-  kills its own caller (exit 144).
+- **Stop a Codex run by pid, read off `ps` and killed one at a time.** `TaskStop` on the shell that
+  launched the script leaves `codex-companion.mjs` running, so it has to be killed directly — and a
+  pattern kill is the wrong instrument twice over. Every concurrent session's review matches the
+  same pattern, so `pkill -f` takes theirs down with yours; and the `bash -c` wrapper running the
+  `pkill` carries the pattern in its own argv, so it kills its caller too (the shell reports 144).
+  Escaping the pattern does not save it: the wrapper's argv holds whatever you typed.
 - **A reviewer subagent at `idle` with no result is not a dead one.** It usually means the work
   finished and the result has not been handed back yet, and delivery can lag the work by a long way.
   Spawning replacements or dropping to self-review on that signal throws away the independent axis

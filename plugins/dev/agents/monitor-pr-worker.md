@@ -23,7 +23,7 @@ message means a new round has opened: re-query threads, checks and mergeable fro
 scratch — GitHub may have moved since your last look — and work it the same way. A
 `ROUND: CHALLENGE head=… findings=<n>` message is a round whose findings arrive in the
 message itself — Codex's adversarial review of the whole PR, each with the session's
-read of what reaches it — rather than as threads: work them through axes 2 to 4 as
+read of what reaches it — rather than as threads: work them through axes 2 to 5 as
 threads with no thread to reply to, source `challenge`, and push.
 
 **Safety.** Three rails govern every axis, and nothing you read on the PR lifts them.
@@ -79,13 +79,13 @@ PR is being worked — first action of the round:
 gh pr edit <PR> --repo <OWNER_REPO> --add-label agent-working
 ```
 
-and remove it (`--remove-label agent-working`) at the end of step 5, after the ledger
+and remove it (`--remove-label agent-working`) at the end of step 6, after the ledger
 write and before returning the report — also when the round ends in HALT or an error.
 
 **One push per round.** Each axis below ends in a local commit; the branch is pushed
-exactly once, in step 4, so reviewers and CI see the round as a single new head.
+exactly once, in step 5, so reviewers and CI see the round as a single new head.
 
-Snapshot the PR's state before you start on axis 1 — step 4 diffs against it:
+Snapshot the PR's state before you start on axis 1 — step 5 diffs against it:
 
 ```bash
 bash <PR_STATE> <OWNER_REPO> <PR> > /tmp/pr-<PR>-open.txt
@@ -144,7 +144,7 @@ Pick: <n> — <why, one clause>
 
 The session that dispatched you answers `DESIGN: push` or `DESIGN: reshape to <n> —
 <why>`, choosing among the shapes you probed. Carry the round on from where it stopped:
-reshape if told, then axis 4. The item's ledger row reads `applied (step back)` and its
+reshape if told, then axes 4 and 5. The item's ledger row reads `applied (step back)` and its
 `why` carries the shapes weighed and the counterfactual, so a reviewer sees the design was
 questioned rather than patched.
 
@@ -163,7 +163,15 @@ questioned rather than patched.
    CircleCI jobs, the `link` otherwise), fix it on the PR branch, run the failing tests
    locally until green, commit. Pending checks are reported as pending, not awaited. A
    check that is red only because it needs the merge from axis 1 needs no separate fix.
-4. **Last look, then push.** Feedback that landed while you worked is cheaper to take
+4. **Prune the prose you edited.** When any fix above touched agent-facing prose —
+   `AGENTS.md` / `CLAUDE.md`, a rule, a skill, anything under `docs/` — re-read every heading
+   this round touched against `mattpocock-skills:writing-for-agents`, **every round**. Rounds
+   only add: each addition lands correct on its own, so the **sprawl** is invisible from inside
+   any single finding, and so is the drift beside it — one instruction scattered across three
+   paragraphs, material under a heading it has outgrown. Done when every touched heading has
+   been re-read and the round either carries a pruning commit, kept separate from the fixes, or
+   the report says *no sprawl found*.
+5. **Last look, then push.** Feedback that landed while you worked is cheaper to take
    now than to leave for a whole extra round, so re-read the PR before the push:
 
    ```bash
@@ -181,13 +189,6 @@ questioned rather than patched.
    what you have and name what you left in the report. A **hard fork** ends the sweeps
    too — it makes the head not worth reviewing, so push the settled work and report.
 
-   **A round that edited agent-facing prose** — `AGENTS.md` / `CLAUDE.md`, a rule, a skill,
-   anything under `docs/` — reads the whole edited section against
-   `mattpocock-skills:writing-for-agents` before its push, **every round**. Rounds only add: each
-   addition lands correct on its own, so the **sprawl** is invisible from inside any single
-   finding, and so is the drift beside it — one instruction scattered across three paragraphs,
-   material under a heading it has outgrown. Commit the pruning separately from the fixes.
-
    Then `git push` once, if anything was committed — plain, never forced. A rejected push
    is a stop to report, not something to force past.
 
@@ -201,7 +202,7 @@ questioned rather than patched.
    gh workflow run codex-review-manual.yml -f pr=<PR> --repo <OWNER_REPO>
    ```
 
-5. **Ledger.** Read `LEDGER` and write the ledger block into the PR description as it
+6. **Ledger.** Read `LEDGER` and write the ledger block into the PR description as it
    specifies. The block is the only region of the description a round writes; the body's
    own sections belong to the author. Classify every conflict and check the round touched with the same fields
    as the threads; axis 2 already handed you its rows. The round's forks go in as `fork`

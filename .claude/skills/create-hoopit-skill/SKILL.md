@@ -79,9 +79,22 @@ Every plugin in this marketplace is a **local directory** (`"source":
 their own marketplace (e.g. `mattpocock-skills@claude-plugins-official`) so updates
 come straight from upstream.
 
+## Bundled scripts are reached through `${CLAUDE_PLUGIN_ROOT:?}`
+
+A skill that ships a script invokes it as
+`bash "${CLAUDE_PLUGIN_ROOT:?}/skills/<skill>/scripts/<name>.sh"`. The variable resolves to the
+plugin directory the session actually loaded — the only copy that matches the skill text running.
+A `find` over `~/.claude/plugins` picks an arbitrary installed commit, so the skill silently runs
+a months-old script.
+
+Keep the `:?`. A context that does not set the variable — a command the user pastes into their own
+shell, say — then fails naming it, instead of running `bash /skills/…` and leaving the caller to
+guess why a step produced nothing.
+
 ## Checklist
 
 - [ ] Skill body contains no project-specific terms (Rule 1)
 - [ ] Any project-specific facts it relies on are added to each target repo's `CLAUDE.md`
 - [ ] Skill lives at `plugins/<group>/skills/<name>/SKILL.md`
+- [ ] Bundled scripts invoked as `${CLAUDE_PLUGIN_ROOT:?}/skills/<name>/scripts/…`
 - [ ] `marketplace.json` touched only if a plugin/group was added or removed (valid JSON)
