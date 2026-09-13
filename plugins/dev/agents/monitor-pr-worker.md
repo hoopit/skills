@@ -15,7 +15,7 @@ a round; a choice between remedies is the step back's to probe, below.
 
 A round opens on the **first** feedback that lands — one new thread, one red check, one
 conflict — rather than on a finished review, so more is usually still arriving while you
-work. Step 4's **last look** is what catches it: you take everything the PR has
+work. Step 5's **last look** is what catches it: you take everything the PR has
 accumulated by the time you push, in one push.
 
 Each message to you is one round; your last message of the turn *is* that round's
@@ -155,7 +155,8 @@ questioned rather than patched.
    conflicted files touch, commit.
 2. **Review comments.** Invoke the `review-github-comments` skill for <PR_URL>,
    telling it this briefing **owns the round** (its caller-owned mode: comment work and
-   commit only) and passing it `LEDGER`. Every unresolved thread ends up resolved or
+   commit only) and passing it `LEDGER` and `GATE_SCRIPT` — it declines findings against
+   the same ledger, so it needs the same resolved path. Every unresolved thread ends up resolved or
    carries a reply saying why it stays open; its report hands you one classified row per
    thread. A `declined` row carries what `LEDGER` says a decline carries — the reason in
    the code on a judgement, the challenge on a Critical/High — before it stands.

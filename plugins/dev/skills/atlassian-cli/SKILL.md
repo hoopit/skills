@@ -112,12 +112,13 @@ the PR delivers, and it attributes the move to the **PR author**, so the changel
 human. A merely-mentioned follow-up therefore reads as delivered, and lands somewhere the
 release automation's own sweep sits *past*, where it parks indefinitely.
 
-Correlate the changelog timestamps against the PRs — `--state all`, because the event that
-makes a ticket look delivered is the **merge**, and the default listing shows only open PRs,
-whose `mergedAt` is null in every row:
+Correlate the changelog timestamps against the PRs that name the key. Search for it rather
+than listing a window: `--state all` because the event that makes a ticket look delivered is
+the **merge**, and the default listing shows only open PRs, whose `mergedAt` is null in every
+row.
 
 ```bash
-gh pr list --state all --limit 100 --json number,createdAt,mergedAt,title,body
+gh pr list --state all --search "<KEY>" --json number,createdAt,mergedAt,title,body
 ```
 
 A transition within about a minute of a PR event, on a key only *mentioned* rather than

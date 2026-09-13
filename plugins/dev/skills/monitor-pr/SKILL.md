@@ -121,7 +121,9 @@ The round briefing is the `hoopit-dev:monitor-pr-worker` agent definition, which
 in this plugin at `<SKILL_DIR>/../../agents/monitor-pr-worker.md`.
 
 Default: read it and follow its body yourself, with the inputs below, ending with its
-report.
+report. Resolve its paths as the prompt below spells them — `GATE_SCRIPT` in particular,
+since the ledger's challenge is written against it and a round cannot decline a
+Critical/High without one.
 
 `--subagent`: rounds go to a named worker that is reused while it stays under 100k
 tokens. First round (and first round after each rotation):
