@@ -33,7 +33,7 @@ Return exactly one verdict:
 Set by the caller; unset, the pass is a full review of the whole branch.
 
 - `SCOPE` *(default `full`)* — how much of the branch this pass puts in front of cold eyes.
-  - **`full`** — fixed point `$DEFAULT_BRANCH`, both reviewer axes.
+  - **`full`** — fixed point `origin/$DEFAULT_BRANCH`, both reviewer axes.
   - **`light`** — fixed point `REVIEWED_AT`, **Standards** axis only: a pass over the previous
     pass's fix commits.
 - `REVIEWED_AT` — **required when `SCOPE=light`**: the commit `HEAD` stood at when the previous
@@ -66,7 +66,7 @@ that policy.
    whole pass.
 2. **External reviewer (Codex, required).** Run the bundled script:
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT:?}/skills/review-gate/scripts/run_external_reviewers.sh" "$REVIEW_BASE" --challenge "$CHALLENGE"
+   bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh" "$REVIEW_BASE" --challenge "$CHALLENGE"
    ```
    Pass `--challenge` on every `full` pass and on a `light` pass that was given one; leave it
    off otherwise. It prints `codex=<ran|error|unavailable>[:file]` and, with a challenge,

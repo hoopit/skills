@@ -78,8 +78,9 @@ these is per-project** — ids, resolution names, which transitions even offer t
 so read them per item and carry none of it to another project:
 
 ```bash
-# what the status actually is: category is "new" | "indeterminate" | "done"
-acli jira workitem view <KEY> --json \
+# what the status actually is: category is "new" | "indeterminate" | "done".
+# --fields is required: resolution is not in acli's default set, so it reads null without it
+acli jira workitem view <KEY> --json --fields status,resolution \
   | jq '.fields | {status: .status.name, category: .status.statusCategory.key, resolution: .resolution.name}'
 
 # the transitions available from here, each with the fields its screen accepts
@@ -111,8 +112,15 @@ the PR delivers, and it attributes the move to the **PR author**, so the changel
 human. A merely-mentioned follow-up therefore reads as delivered, and lands somewhere the
 release automation's own sweep sits *past*, where it parks indefinitely.
 
-Correlate the changelog timestamps against `gh pr list --json createdAt,mergedAt,body`: a
-transition within about a minute of a PR event, on a key only *mentioned* rather than
+Correlate the changelog timestamps against the PRs — `--state all`, because the event that
+makes a ticket look delivered is the **merge**, and the default listing shows only open PRs,
+whose `mergedAt` is null in every row:
+
+```bash
+gh pr list --state all --limit 100 --json number,createdAt,mergedAt,title,body
+```
+
+A transition within about a minute of a PR event, on a key only *mentioned* rather than
 carried on the branch or title, is the integration's. Restore the last **human** status —
 which for an investigation ticket may be a rejected state rather than the open one.
 

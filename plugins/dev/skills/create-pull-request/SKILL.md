@@ -86,7 +86,8 @@ its children do.
 
 Re-read every linked surface and confirm each `ABC-123`-shaped key on it is in
 the allowed set. Drop the hyphen from every one that is not. A key a PR already
-moved is repaired from `atlassian-cli`, *Repairing a status nobody set by hand*.
+moved is repaired from [`atlassian-cli`](../atlassian-cli/SKILL.md), *Repairing a
+status nobody set by hand*.
 
 ## Creating the PR
 

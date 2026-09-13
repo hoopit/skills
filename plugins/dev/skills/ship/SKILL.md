@@ -110,7 +110,7 @@ is for.
 code no reviewer has seen. Before each round record `REVIEWED_AT` — the commit `HEAD`
 stands at as that round's reviewers start.
 
-- **Round 1 runs `full`**: the whole branch against `$DEFAULT_BRANCH`, both axes. A
+- **Round 1 runs `full`**: the whole branch against `origin/$DEFAULT_BRANCH`, both axes. A
   `full` pass challenges the approach as well as the code; hand it the shape you took and
   the ones you set aside as `CHALLENGE`, so the focus is yours rather than derived, and
   the approach is questioned while changing it is still cheap.

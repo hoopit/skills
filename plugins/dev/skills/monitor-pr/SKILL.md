@@ -132,7 +132,7 @@ Agent(
   model: "<--subagent's model, else opus>",
   name: "pr-<PR>-worker",
   description: "round PR #<PR>",
-  prompt: "PR_URL=<PR_URL> OWNER_REPO=<OWNER_REPO> PR=<PR> REPO_ROOT=<REPO_ROOT> LEDGER=<SKILL_DIR>/LEDGER.md PR_STATE=<SKILL_DIR>/scripts/pr-state.sh GH_PR_API=<SKILL_DIR>/scripts/gh-pr-api.sh\nROUND: <the ROUND line verbatim>\nANSWERED: <every fork the user has settled, and the choice>\nGUIDANCE: <this session's scope and facts for the round> | none",
+  prompt: "PR_URL=<PR_URL> OWNER_REPO=<OWNER_REPO> PR=<PR> REPO_ROOT=<REPO_ROOT> LEDGER=<SKILL_DIR>/LEDGER.md PR_STATE=<SKILL_DIR>/scripts/pr-state.sh GH_PR_API=<SKILL_DIR>/scripts/gh-pr-api.sh GATE_SCRIPT=${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh\nROUND: <the ROUND line verbatim>\nANSWERED: <every fork the user has settled, and the choice>\nGUIDANCE: <this session's scope and facts for the round> | none",
 )
 ```
 
@@ -292,8 +292,8 @@ the PR's worktree, with the ledger's judgement rows — the declines, the step-b
 as the focus:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT:?}/skills/review-gate/scripts/run_external_reviewers.sh" \
-  <DEFAULT_BRANCH> --challenge-only --challenge "Merge readiness. Judgements to break: <the ledger's judgement rows, one line each>"
+bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh" \
+  origin/<DEFAULT_BRANCH> --challenge-only --challenge "Merge readiness. Judgements to break: <the ledger's judgement rows, one line each>"
 ```
 
 Read the file its `codex_challenge=` line names. A finding that **holds** — the ledger

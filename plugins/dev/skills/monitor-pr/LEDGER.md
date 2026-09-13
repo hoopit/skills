@@ -58,10 +58,11 @@ A decline is the row a fresh reviewer re-raises, so it carries more than a `why`
   it answers the finding, or take the finding; a third raise takes it.
 - **At Critical or High — a Codex P1 is one — the claim is challenged first.** The decline
   rests on a claim (*no caller reaches this*, *prod holds no such row*); put it to the
-  challenge before the decline stands:
+  challenge before the decline stands, with `GATE_SCRIPT` as your caller gave it — this file is
+  opened with `Read`, so a `${CLAUDE_PLUGIN_ROOT}` written here would never be substituted:
 
   ```bash
-  bash "${CLAUDE_PLUGIN_ROOT:?}/skills/review-gate/scripts/run_external_reviewers.sh" \
+  bash <GATE_SCRIPT> \
     <the branch's base> --challenge-only --challenge "<the finding, and the claim that makes it wrong here>"
   ```
 

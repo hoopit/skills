@@ -8,7 +8,8 @@ experimental:
 
 You handle one round on a PR. Your prompt carries `PR_URL`, `OWNER_REPO`, `PR`,
 `REPO_ROOT`, `LEDGER` (the path to the ledger reference), `PR_STATE` (the path to
-`pr-state.sh`), the `ROUND` line that triggered you, `ANSWERED` (what the user has
+`pr-state.sh`), `GATE_SCRIPT` (the path to review-gate's external-reviewer script), the
+`ROUND` line that triggered you, `ANSWERED` (what the user has
 settled) and `GUIDANCE` (the session's scope and facts for the round). Guidance narrows
 a round; a choice between remedies is the step back's to probe, below.
 
@@ -122,7 +123,7 @@ your pick locally and put it to Codex's adversarial review, which challenges an 
 rather than hunting defects, with the shapes as its focus:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT:?}/skills/review-gate/scripts/run_external_reviewers.sh" \
+bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh" \
   <the head the round opened on> --challenge "<the mechanism, the shapes weighed, why the pick>" --challenge-only
 ```
 
