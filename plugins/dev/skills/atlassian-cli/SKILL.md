@@ -129,10 +129,6 @@ Confirm the cause on the PR's surfaces first, because the wrong one costs a seco
 a transition on a key that appears on **no** surface of the PR is something else, usually
 an over-broad bulk `transition --jql`. `create-pull-request` carries the prevention.
 
-The inverse costs the same and reads as the opposite: work delivered under a parent or
-epic key is invisible to every key-based search. Before concluding a ticket was never
-worked, search its parent and epic keys, and the branches carrying no key at all.
-
 ## Bulk creation
 
 ```bash

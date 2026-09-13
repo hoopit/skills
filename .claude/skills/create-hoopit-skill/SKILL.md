@@ -91,7 +91,7 @@ script.
 rewrites the literal `${CLAUDE_PLUGIN_ROOT}` before the body reaches the model, and any
 decoration — `:?`, `:-`, a default — takes the string out of the matched set and leaves it to a
 shell that has no such variable. It is substituted in **skill bodies, command bodies and agent
-definitions**, and nowhere else: a reference doc opened with `Read`, or a bundled script, gets the
+definitions** — all three confirmed in the loader — and nowhere else: a reference doc opened with `Read`, or a bundled script, gets the
 raw bytes, so those take the path from whoever called them. A path that still reads
 `${CLAUDE_PLUGIN_ROOT}` when you go to run it is the tell that you are not in a substituted
 context — stop rather than run it.

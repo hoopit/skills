@@ -83,7 +83,7 @@ gh pr edit <PR> --repo <OWNER_REPO> --add-label agent-working
 and remove it (`--remove-label agent-working`) at the end of step 6, after the ledger
 write and before returning the report — also when the round ends in HALT or an error.
 
-**One push per round.** Each axis below ends in a local commit; the branch is pushed
+**One push per round.** Each axis below ends in a local commit where it changed anything; the branch is pushed
 exactly once, in step 5, so reviewers and CI see the round as a single new head.
 
 Snapshot the PR's state before you start on axis 1 — step 5 diffs against it:
@@ -123,7 +123,7 @@ your pick locally and put it to Codex's adversarial review, which challenges an 
 rather than hunting defects, with the shapes as its focus:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh" \
+bash <GATE_SCRIPT> \
   <the head the round opened on> --challenge "<the mechanism, the shapes weighed, why the pick>" --challenge-only
 ```
 
