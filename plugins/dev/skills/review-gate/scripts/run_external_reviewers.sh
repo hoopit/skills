@@ -22,25 +22,29 @@
 
 BASE=""
 CHALLENGE=""
+CHALLENGE_MISSING=""
 STANDARD=1
 while [ $# -gt 0 ]; do
   case "$1" in
-    --challenge) CHALLENGE="${2:-}"; shift; shift ;;
+    --challenge)
+      [ $# -ge 2 ] || { CHALLENGE_MISSING=1; shift; continue; }
+      CHALLENGE="$2"; shift 2 ;;
     --challenge-only) STANDARD=0; shift ;;
     -*) BAD_FLAG="$1"; shift ;;
     *) BASE="$1"; shift ;;
   esac
 done
-[ -n "$CHALLENGE" ] || STANDARD=1
+[ -n "$CHALLENGE" ] || STANDARD=1   # nothing else to run, so the standard review it is
 
 # Refuse rather than guess, in whichever key the caller is reading.
 fail() {
   [ "$STANDARD" = 1 ] && { echo "codex=error"; echo "codex_reason=$1"; }
-  [ -n "$CHALLENGE" ] && { echo "codex_challenge=error"; echo "codex_challenge_reason=$1"; }
+  [ -n "$CHALLENGE$CHALLENGE_MISSING" ] && { echo "codex_challenge=error"; echo "codex_challenge_reason=$1"; }
   exit 2
 }
 [ -n "${BAD_FLAG:-}" ] && fail "unknown flag $BAD_FLAG"
-[ -n "$BASE" ] || fail "no base ref given (pass the base the caller resolved)"   # nothing else to run, so the standard review it is
+[ -n "$CHALLENGE_MISSING" ] && fail "--challenge given no focus text"
+[ -n "$BASE" ] || fail "no base ref given (pass the base the caller resolved)"
 # Unique output dir per invocation so concurrent gates (different repos/worktrees,
 # run in parallel) never clobber each other's findings. The caller reads the exact
 # paths printed below, so the location is opaque to it.

@@ -294,6 +294,7 @@ the PR's worktree, with the ledger's judgement rows — the declines, the step-b
 as the focus:
 
 ```bash
+git fetch origin <DEFAULT_BRANCH>
 bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh" \
   origin/<DEFAULT_BRANCH> --challenge-only --challenge "Merge readiness. Judgements to break: <the ledger's judgement rows, one line each>"
 ```

@@ -64,14 +64,9 @@ JQL, run read-only first, tells you how many items the write will touch.
 reads as closed to a human while every query and every release automation counts it as
 open assigned work, so nothing ever sweeps it up.
 
-`acli`'s own secret lives in the OS keyring and cannot be reused, so the REST calls below
-need their credentials sourced in the same block that runs them
-(`review-jira-attachments` sets the file up):
-
-```bash
-set -a; . ~/.config/hoopit/jira.env; set +a   # JIRA_EMAIL, JIRA_API_TOKEN
-JIRA_BASE_URL=<from the repo's CLAUDE.md>
-```
+`acli`'s own secret lives in the OS keyring and cannot be reused, so each REST block below
+opens by sourcing `~/.config/hoopit/jira.env` (`review-jira-attachments` sets it up) and
+naming the org's own instance as the host — the one place the token is ever sent.
 
 Read the status's real shape and the transitions off the item itself. **Every one of
 these is per-project** — ids, resolution names, which transitions even offer the field —
@@ -84,6 +79,7 @@ acli jira workitem view <KEY> --json --fields status,resolution \
   | jq '.fields | {status: .status.name, category: .status.statusCategory.key, resolution: .resolution.name}'
 
 # the transitions available from here, each with the fields its screen accepts
+set -a; . ~/.config/hoopit/jira.env; set +a; JIRA_BASE_URL=https://hoopit.atlassian.net
 curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
   "$JIRA_BASE_URL/rest/api/3/issue/<KEY>/transitions?expand=transitions.fields" \
   | jq '.transitions[] | {id, name, to: .to.name, category: .to.statusCategory.key,
@@ -92,14 +88,19 @@ curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
 
 Close with a transition whose `to.category` is `done`, and pick the resolution from the
 `resolutions` that transition actually offers — matching the **outcome**, so completed
-work does not land as declined. A transition listing no `resolution` field sets it by
-post-function: send the transition alone, because passing the field is what returns 400.
+work does not land as declined. A transition listing no `resolution` field takes none in
+the request — passing it is what returns 400 — so send the transition alone.
 
 ```bash
-curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" -H 'Content-Type: application/json' \
+set -a; . ~/.config/hoopit/jira.env; set +a; JIRA_BASE_URL=https://hoopit.atlassian.net
+curl -s --fail-with-body -u "$JIRA_EMAIL:$JIRA_API_TOKEN" -H 'Content-Type: application/json' \
   -X POST "$JIRA_BASE_URL/rest/api/3/issue/<KEY>/transitions" \
   -d '{"transition":{"id":"<close-id>"},"fields":{"resolution":{"name":"<one it offered>"}}}'
 ```
+
+The close is done when the `view` above reads back category `done` **and** a non-null
+`resolution` — the only proof a transition sent without the field was resolved by the
+workflow.
 
 `acli jira workitem transition` cannot do this at all — it takes no resolution field — so
 any close that owns its resolution goes over REST.
@@ -112,13 +113,21 @@ the PR delivers, and it attributes the move to the **PR author**, so the changel
 human. A merely-mentioned follow-up therefore reads as delivered, and lands somewhere the
 release automation's own sweep sits *past*, where it parks indefinitely.
 
-Correlate the changelog timestamps against the PRs that name the key. Search for it rather
-than listing a window: `--state all` because the event that makes a ticket look delivered is
-the **merge**, and the default listing shows only open PRs, whose `mergedAt` is null in every
-row.
+Correlate the changelog timestamps against the PRs that name the key, on **every surface the
+integration reads**. Issue search covers the title and body — `--state all`, because the event
+that makes a ticket look delivered is the **merge**, and the default listing shows only open
+PRs; `--limit`, because the default 30 can drop the one that moved it. Commits and branch names
+need their own lookups:
 
 ```bash
-gh pr list --state all --search "<KEY>" --json number,createdAt,mergedAt,title,body
+# title, body
+gh pr list --state all --limit 200 --search "<KEY>" --json number,createdAt,mergedAt,headRefName,title
+# commit messages → the PRs carrying those commits
+gh search commits "<KEY>" --repo <OWNER_REPO> --json sha --jq '.[].sha' \
+  | xargs -I{} gh api repos/<OWNER_REPO>/commits/{}/pulls --jq '.[] | "\(.number) \(.head.ref) \(.merged_at)"'
+# branch names — page back only as far as the transition's timestamp
+gh api "repos/<OWNER_REPO>/pulls?state=all&per_page=100&page=1" \
+  --jq '.[] | select(.head.ref | test("<KEY>"; "i")) | "\(.number) \(.head.ref) \(.merged_at)"'
 ```
 
 A transition within about a minute of a PR event, on a key only *mentioned* rather than
