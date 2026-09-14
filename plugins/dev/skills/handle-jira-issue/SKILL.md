@@ -1,7 +1,7 @@
 ---
 name: handle-jira-issue
 description: Handle any Jira issue end-to-end. Use when the user or an automation names a Jira issue to fix.
-argument-hint: "<Jira issue key or url> [--unattended]"
+argument-hint: "<Jira issue key or url> [--unattended] [--session-agent <name>]"
 ---
 
 # Handle Jira Issue Workflow
@@ -15,6 +15,9 @@ Flags:
 - `--unattended` — nobody is there to answer; an automation dispatched this run and owns
   its result. Every **hand back** reports per the caller's contract instead of asking, and
   every `ship` runs with `--unattended`. Without the flag, a human is there.
+- `--session-agent <name>` — this run only dispatches: Step 3 fans out every affected repo,
+  one included, and each session runs as agent `<name>`. The agent is defined in the
+  directory you run from, so the sessions start there.
 
 ## Configuration — read from CLAUDE.md, never hardcode
 
@@ -232,34 +235,30 @@ to another session — the inputs the **`ship`** skill takes:
 - **Only when a linked ITSM ticket exists:** a `Refs <ITSM_ISSUE_KEY>` commit footer and an
   `## ITSM` PR section linking that ticket.
 
-**One affected repo** — run `ship` here with that brief, passing `--unattended` when you
-hold it. It takes the repo from the branch
-to a monitored PR, and your work ends when it reports back.
+**One affected repo, without `--session-agent`** — run `ship` here with that brief,
+passing `--unattended` when you hold it. It takes the repo from the branch to a monitored
+PR, and your work ends when it reports back.
 
-**Two or more affected repos** — one session per repo, never one session juggling several.
-Which lane you take depends on where you are running:
+**Two or more affected repos, or `--session-agent`** — **fan out**: every repo ships in its
+own primary session, and you ship none yourself. A subagent per repo cannot spawn the cold
+reviewers the review gate depends on, and one session shipping repo B has already read
+repo A — the context that makes the second repo cheaper makes its review worse. Pick the
+lane by where you are running:
 
 | Where you are running | Lane |
 | --- | --- |
-| `--unattended` | Run `ship --unattended` here, once per repo, in sequence: one repo fully shipped before the next begins |
-| Interactively inside Herdr (`HERDR_ENV=1`) | Fan out — [`references/fan-out.md`](references/fan-out.md) |
+| `--unattended` or `--session-agent` | Background sessions — [`references/fan-out.md`](references/fan-out.md) |
+| Interactively inside Herdr (`HERDR_ENV=1`) | Herdr panes — [`references/fan-out.md`](references/fan-out.md) |
 | In the Claude desktop app (`mcp__ccd_session__spawn_task` available) | One `spawn_task` per repo: the dispatch brief as its `prompt`, that repo's directory as its `cwd` |
-| Anywhere else | **Halt.** Print each repo's dispatch brief as a ready-to-paste prompt, tell the user to open one session per repo, and hand back |
+| Anywhere else | Background sessions — [`references/fan-out.md`](references/fan-out.md) |
 
-Take the rows in order: the flag decides before the environment does. An automation's loop
+Take the rows in order: the flags decide before the environment does. An automation's loop
 often runs in a Herdr pane and its subagents inherit `HERDR_ENV=1`, so that variable alone
-never means fan out — an unattended caller owns a per-repo result
-contract, and a session spawned in a pane reports to nobody.
+never means Herdr panes — a pane opened by an automation is one nobody watches.
 
 A `spawn_task` is an offer rather than a running session: it renders a chip, and the user
 clicks it to open the session and choose how it runs. Never wait on one or assume it
 started — those repos are reported as dispatched.
-
-That halt is deliberate, and it is not a failure to report as one. Every alternative on
-offer degrades the work: a subagent per repo cannot spawn the cold reviewers the review
-gate depends on, and one session shipping repo B has already read repo A — the same
-context that makes the second repo cheaper makes its review worse. Handing the briefs to
-fresh sessions costs the user a paste and keeps every repo's review honest.
 
 Each repo produces its own worktree, branch, and PR. Repos are handled **independently and
 best-effort**. Report every repo's outcome — PR url, dispatched agent, or handed back — to
