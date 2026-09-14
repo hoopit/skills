@@ -27,8 +27,8 @@ STANDARD=1
 while [ $# -gt 0 ]; do
   case "$1" in
     --challenge)
-      [ $# -ge 2 ] || { CHALLENGE_MISSING=1; shift; continue; }
-      CHALLENGE="$2"; shift 2 ;;
+      CHALLENGE="${2:-}"; [ -n "$CHALLENGE" ] || CHALLENGE_MISSING=1
+      shift; [ $# -gt 0 ] && shift ;;
     --challenge-only) STANDARD=0; shift ;;
     -*) BAD_FLAG="$1"; shift ;;
     *) BASE="$1"; shift ;;
