@@ -121,7 +121,9 @@ The round briefing is the `hoopit-dev:monitor-pr-worker` agent definition, which
 in this plugin at `<SKILL_DIR>/../../agents/monitor-pr-worker.md`.
 
 Default: read it and follow its body yourself, with the inputs below, ending with its
-report.
+report. Resolve its paths as the prompt below spells them — `GATE_SCRIPT` in particular,
+since the ledger's challenge is written against it and a round cannot decline a
+Critical/High without one.
 
 `--subagent`: rounds go to a named worker that is reused while it stays under 100k
 tokens. First round (and first round after each rotation):
@@ -132,7 +134,7 @@ Agent(
   model: "<--subagent's model, else opus>",
   name: "pr-<PR>-worker",
   description: "round PR #<PR>",
-  prompt: "PR_URL=<PR_URL> OWNER_REPO=<OWNER_REPO> PR=<PR> REPO_ROOT=<REPO_ROOT> LEDGER=<SKILL_DIR>/LEDGER.md PR_STATE=<SKILL_DIR>/scripts/pr-state.sh GH_PR_API=<SKILL_DIR>/scripts/gh-pr-api.sh\nROUND: <the ROUND line verbatim>\nANSWERED: <every fork the user has settled, and the choice>\nGUIDANCE: <this session's scope and facts for the round> | none",
+  prompt: "PR_URL=<PR_URL> OWNER_REPO=<OWNER_REPO> PR=<PR> REPO_ROOT=<REPO_ROOT> LEDGER=<SKILL_DIR>/LEDGER.md PR_STATE=<SKILL_DIR>/scripts/pr-state.sh GH_PR_API=<SKILL_DIR>/scripts/gh-pr-api.sh GATE_SCRIPT=${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh\nROUND: <the ROUND line verbatim>\nANSWERED: <every fork the user has settled, and the choice>\nGUIDANCE: <this session's scope and facts for the round> | none",
 )
 ```
 
@@ -292,8 +294,9 @@ the PR's worktree, with the ledger's judgement rows — the declines, the step-b
 as the focus:
 
 ```bash
-bash "$(find ~/.claude/plugins -path '*review-gate/scripts/run_external_reviewers.sh' | head -1)" \
-  <DEFAULT_BRANCH> --challenge-only --challenge "Merge readiness. Judgements to break: <the ledger's judgement rows, one line each>"
+git fetch origin <DEFAULT_BRANCH>
+bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh" \
+  origin/<DEFAULT_BRANCH> --challenge-only --challenge "Merge readiness. Judgements to break: <the ledger's judgement rows, one line each>"
 ```
 
 Read the file its `codex_challenge=` line names. A finding that **holds** — the ledger

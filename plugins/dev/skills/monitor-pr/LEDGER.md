@@ -25,6 +25,13 @@ Every review thread, failing check and merge conflict lands in exactly one tier:
   `fork` (waiting on the user), or `answered: <the user's choice>`. `applied (step back)`
   marks a fix whose shape a design check chose; `why` then carries the shapes weighed and
   the counterfactual.
+
+  A *guard against X* / *recheck Y* finding earns **the delta** before `applied`: the state
+  that exists with the fix, written beside the state without it. Identical states put the row
+  at `declined` — the finding is mis-aimed however real its mechanism, and a verified race
+  feels settled, which is why nobody asks. Where the two differ only in **recoverability** —
+  one visible to a cleanup sweep, one not — that decides it: name the consumers and say which
+  state each can see.
 - **fixes** — `fixes R<k>` when the finding lands in code round *k*'s fix added. This is
   the tag the step back's second-correction trigger reads, so it is never left off.
 - **why** — one clause. For `declined`, name the evidence that makes the finding wrong
@@ -51,10 +58,11 @@ A decline is the row a fresh reviewer re-raises, so it carries more than a `why`
   it answers the finding, or take the finding; a third raise takes it.
 - **At Critical or High — a Codex P1 is one — the claim is challenged first.** The decline
   rests on a claim (*no caller reaches this*, *prod holds no such row*); put it to the
-  challenge before the decline stands:
+  challenge before the decline stands, with `GATE_SCRIPT` as your caller gave it — this file is
+  opened with `Read`, so a `${CLAUDE_PLUGIN_ROOT}` written here would never be substituted:
 
   ```bash
-  bash "$(find ~/.claude/plugins -path '*review-gate/scripts/run_external_reviewers.sh' | head -1)" \
+  bash <GATE_SCRIPT> \
     <the branch's base> --challenge-only --challenge "<the finding, and the claim that makes it wrong here>"
   ```
 

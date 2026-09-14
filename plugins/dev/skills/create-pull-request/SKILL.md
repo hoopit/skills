@@ -80,12 +80,15 @@ A PR that delivers a child issue takes the child's key on its linked surfaces,
 not the epic's or parent's. Delivered under a parent's key, the work is
 invisible to every key-based check: nobody can tell the ticket shipped, and it
 sits in a stale status for weeks while its code is live. A parent advances when
-its children do.
+its children do. Read it the other way when a ticket looks unworked: search its parent
+and epic keys, and the branches carrying no key at all, before concluding no PR exists.
 
 ### Before you open the PR
 
 Re-read every linked surface and confirm each `ABC-123`-shaped key on it is in
-the allowed set. Drop the hyphen from every one that is not.
+the allowed set. Drop the hyphen from every one that is not. A key a PR already
+moved is repaired from [`atlassian-cli`](../atlassian-cli/SKILL.md), *Repairing a
+status nobody set by hand*.
 
 ## Creating the PR
 

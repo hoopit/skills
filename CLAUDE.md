@@ -3,7 +3,8 @@
 Guidance for Claude Code when working in this repo. This is a **distribution** of
 agent skills, shipped as a Claude Code plugin marketplace (see [README.md](README.md)).
 For the skill-authoring conventions, the project-local `create-hoopit-skill` skill
-under `.claude/skills/` is the source of truth.
+under `.claude/skills/` is the source of truth — including how `${CLAUDE_PLUGIN_ROOT}`
+must be written wherever a skill reaches a bundled script.
 
 ## Writing skills
 Keep the frontmatter short. For regular skills, descriptions should consist of two sentences: "<what>" and "Use when...". The <what> part should be succinct, state the high-level goal, < 50 chars, no details. The "Use when" should generally not exceed ~100 chars.

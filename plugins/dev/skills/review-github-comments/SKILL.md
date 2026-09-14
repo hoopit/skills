@@ -93,7 +93,10 @@ Cross-reference `databaseId` with the REST comment IDs to build a map of `commen
 1. **Read the comment** — understand the reviewer's finding, suggestion, or question.
 2. **Locate the relevant code** — use the `path` and `line`/`original_line` fields to find the file and line(s) in the local codebase.
 3. **Decide**, and reply in the same move. The three decisions are the ledger's — see
-   "Classifying an item" in [`../monitor-pr/LEDGER.md`](../monitor-pr/LEDGER.md), which
+   "Classifying an item" in [`../monitor-pr/LEDGER.md`](../monitor-pr/LEDGER.md) — whose
+   challenge command reads `GATE_SCRIPT`, which a caller-owned round is given and a
+   standalone run resolves itself as
+   `${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh` — which
    also defines the `source`, `severity`, `why` and `scope` your step 6 row carries:
    - **`applied`** — a real bug, improvement or style fix. Apply it, reply saying what
      changed, **resolve the thread**.

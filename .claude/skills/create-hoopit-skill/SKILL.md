@@ -79,9 +79,27 @@ Every plugin in this marketplace is a **local directory** (`"source":
 their own marketplace (e.g. `mattpocock-skills@claude-plugins-official`) so updates
 come straight from upstream.
 
+## Bundled scripts are reached through `${CLAUDE_PLUGIN_ROOT}`
+
+A skill that ships a script invokes it as
+`bash "${CLAUDE_PLUGIN_ROOT}/skills/<skill>/scripts/<name>.sh"`, giving the plugin directory the
+session actually loaded — the only copy that matches the skill text running. A `find` over
+`~/.claude/plugins` picks an arbitrary installed commit, so the skill silently runs a months-old
+script.
+
+**It is a text substitution, not a shell variable**, so write the token exactly: the harness
+rewrites the literal `${CLAUDE_PLUGIN_ROOT}` before the body reaches the model, and any
+decoration — `:?`, `:-`, a default — takes the string out of the matched set and leaves it to a
+shell that has no such variable. It is substituted in **skill bodies, command bodies and agent
+definitions** — all three confirmed in the loader — and nowhere else: a reference doc opened with `Read`, or a bundled script, gets the
+raw bytes, so those take the path from whoever called them. A path that still reads
+`${CLAUDE_PLUGIN_ROOT}` when you go to run it is the tell that you are not in a substituted
+context — stop rather than run it.
+
 ## Checklist
 
 - [ ] Skill body contains no project-specific terms (Rule 1)
 - [ ] Any project-specific facts it relies on are added to each target repo's `CLAUDE.md`
 - [ ] Skill lives at `plugins/<group>/skills/<name>/SKILL.md`
+- [ ] Bundled scripts invoked as `${CLAUDE_PLUGIN_ROOT}/skills/<name>/scripts/…`
 - [ ] `marketplace.json` touched only if a plugin/group was added or removed (valid JSON)

@@ -11,8 +11,10 @@ that is deliberate. Work only from the brief you are given and what you can read
 
 - Follow the brief exactly (it defines the axis you review on and the output format).
 - Read the actual code around each hunk before flagging it; don't review the diff in isolation.
-- Every finding: file + line, what's wrong, why it matters, and how to fix it. Quote the standard
-  or spec line you're citing when the brief asks for it.
+- **Probe every suspected bug in both the branch and the base** before you report it; one that
+  will not resolve to either is a guess, so drop it.
+- Every finding: file + line, **introduced | pre-existing**, what's wrong, why it matters, and how
+  to fix it. Quote the standard or spec line you're citing when the brief asks for it.
 - Distinguish hard violations from judgement calls; skip anything tooling already enforces.
 - The only file you write is `FINDINGS_FILE`. The code under review is read-only to you.
 

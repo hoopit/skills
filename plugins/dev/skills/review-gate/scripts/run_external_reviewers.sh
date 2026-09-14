@@ -4,8 +4,10 @@
 # (review-gate blocks the pass; monitor-pr works its round but will not recommend a merge). Deterministic glue only — the always-on
 # independent review and the fix/dispute judgment live in the review-gate SKILL.
 #
-# Usage:  run_external_reviewers.sh <base-branch> [--challenge "<focus text>"] [--challenge-only]
-# (base default: master)
+# Usage:  run_external_reviewers.sh <base-ref> [--challenge "<focus text>"] [--challenge-only]
+# <base-ref> is required — the default branch differs per project, so this script refuses to guess
+# rather than name one. Any ref the caller resolved is fine: a `full` pass passes
+# origin/<default branch>, a `light` pass the commit its last reviewers saw.
 # With --challenge, Codex also runs its adversarial review — a challenge to the approach and
 # its assumptions, weighted on the focus text — alongside its standard review, in parallel.
 # --challenge-only skips the standard review, for a caller that wants the challenge alone.
@@ -18,17 +20,31 @@
 # that treats `error` as gravely as a missing install should not be tripped by a blip.
 # `unavailable` is never retried: a plugin that isn't installed stays uninstalled.
 
-BASE=master
+BASE=""
 CHALLENGE=""
+CHALLENGE_MISSING=""
 STANDARD=1
 while [ $# -gt 0 ]; do
   case "$1" in
-    --challenge) CHALLENGE="${2:-}"; shift 2 ;;
+    --challenge)
+      CHALLENGE="${2:-}"; [ -n "$CHALLENGE" ] || CHALLENGE_MISSING=1
+      shift; [ $# -gt 0 ] && shift ;;
     --challenge-only) STANDARD=0; shift ;;
+    -*) BAD_FLAG="$1"; shift ;;
     *) BASE="$1"; shift ;;
   esac
 done
 [ -n "$CHALLENGE" ] || STANDARD=1   # nothing else to run, so the standard review it is
+
+# Refuse rather than guess, in whichever key the caller is reading.
+fail() {
+  [ "$STANDARD" = 1 ] && { echo "codex=error"; echo "codex_reason=$1"; }
+  [ -n "$CHALLENGE$CHALLENGE_MISSING" ] && { echo "codex_challenge=error"; echo "codex_challenge_reason=$1"; }
+  exit 2
+}
+[ -n "${BAD_FLAG:-}" ] && fail "unknown flag $BAD_FLAG"
+[ -n "$CHALLENGE_MISSING" ] && fail "--challenge given no focus text"
+[ -n "$BASE" ] || fail "no base ref given (pass the base the caller resolved)"
 # Unique output dir per invocation so concurrent gates (different repos/worktrees,
 # run in parallel) never clobber each other's findings. The caller reads the exact
 # paths printed below, so the location is opaque to it.
