@@ -31,10 +31,12 @@ to it: that is `ship`'s Step 1, in the repo it owns.
 
 ## Where each session starts
 
-- **`<session dir>`** — the directory you run from under `--session-agent`, where that
-  agent is defined; otherwise `<TARGET_REPO>`.
+- **Directory** — `<TARGET_REPO>`, the repo the session ships in, so it picks up that repo's
+  `CLAUDE.md`, settings and skills.
 - **Name** — `fix-<TARGET_KEY>`.
-- **Agent** — `--agent <SESSION_AGENT>`, only under `--session-agent`.
+- **Agent** — only under `--session-agent`: `--add-dir "<your directory>" --agent
+  <SESSION_AGENT>`. The agent is defined in your directory, and `--add-dir` is what lets a
+  session started elsewhere find it.
 - **Permissions** — `--permission-mode bypassPermissions` under `--unattended`, so the run
   never stalls on a prompt nobody will answer. Interactively, leave it off unless the user
   asks for it: a prompt then waits for them.

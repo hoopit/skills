@@ -8,33 +8,29 @@ Load the **`herdr`** skill first. The installed binary is the authority on its C
 commands below are the shape of the procedure, and flags are worth confirming against
 `herdr workspace`, `herdr tab`, `herdr pane`, and `herdr agent` before you rely on them.
 
-## Layout — one tab per issue, one pane per repo
+## Layout — each repo's workspace, one tab per issue
 
-The tab is labelled with the issue key — `ITSM_ISSUE_KEY` when set, else `TARGET_KEY`.
-Place it in the workspace for the repo the sessions start in:
+Workspaces mirror repos, so each session goes in the workspace for its `<TARGET_REPO>`:
+match it by label (the repo's directory name) in `herdr workspace list`, and create it when
+none fits — `herdr workspace create --cwd "<TARGET_REPO>" --label "<repo>" --no-focus`.
 
-- **Under `--session-agent`** — every session starts in your directory, so the tab goes in
-  that repo's workspace (`herdr workspace list`, matched by label). Create it when none
-  fits: `herdr workspace create --cwd "<session dir>" --label "<repo>" --no-focus`.
-- **Otherwise** — the sessions start in different repos, so no single repo's workspace
-  fits the batch: use the current workspace.
+In that workspace, give the issue its own tab, labelled with the issue key —
+`ITSM_ISSUE_KEY` when set, else `TARGET_KEY`:
 
 ```bash
-# First repo: a new tab.
-herdr tab create --workspace <workspace_id> --label "<issue key>" --cwd "<session dir>" --no-focus
-
-# Each remaining repo: a pane beside it.
-herdr pane split <pane_id> --direction right --cwd "<session dir>" --no-focus
+herdr tab create --workspace <workspace_id> --label "<issue key>" --cwd "<TARGET_REPO>" --no-focus
 ```
 
-Read each id out of the command's JSON rather than predicting it. Hoopit has three project
-repos, so this tops out at three panes.
+A tab cannot span workspaces, so a ticket affecting three repos gets one tab, labelled
+alike, in each of their three workspaces. Read each id out of the command's JSON rather
+than predicting it.
 
 ## Start an agent per pane
 
 ```bash
 herdr agent start "<agent-name>" --kind claude --pane <pane_id> \
-  -- -n "fix-<TARGET_KEY>" [--agent "<SESSION_AGENT>"] [--permission-mode bypassPermissions]
+  -- -n "fix-<TARGET_KEY>" [--add-dir "<your directory>" --agent "<SESSION_AGENT>"] \
+  [--permission-mode bypassPermissions]
 ```
 
 `<agent-name>` is `fix-<TARGET_KEY>` in lower case — it must match `[a-z][a-z0-9_-]{0,31}`

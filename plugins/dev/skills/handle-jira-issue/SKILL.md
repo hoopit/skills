@@ -17,7 +17,7 @@ Flags:
   every `ship` runs with `--unattended`. Without the flag, a human is there.
 - `--session-agent <name>` — this run only dispatches: Step 3 fans out every affected repo,
   one included, and each session runs as agent `<name>`. The agent is defined in the
-  directory you run from, so the sessions start there.
+  directory you run from, so each session adds that directory with `--add-dir`.
 
 ## Configuration — read from CLAUDE.md, never hardcode
 
