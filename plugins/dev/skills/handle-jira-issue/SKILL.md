@@ -242,23 +242,22 @@ PR, and your work ends when it reports back.
 **Two or more affected repos, or `--session-agent`** — **fan out**: every repo ships in its
 own primary session, and you ship none yourself. A subagent per repo cannot spawn the cold
 reviewers the review gate depends on, and one session shipping repo B has already read
-repo A — the context that makes the second repo cheaper makes its review worse. Pick the
-lane by where you are running:
+repo A — the context that makes the second repo cheaper makes its review worse.
 
-| Where you are running | Lane |
+Read [`references/fan-out.md`](references/fan-out.md) for the prompt and the record, then
+pick the launcher by the first row that matches where you are running:
+
+| Where you are running | Launcher |
 | --- | --- |
-| `--unattended` or `--session-agent` | Background sessions — [`references/fan-out.md`](references/fan-out.md) |
-| Interactively inside Herdr (`HERDR_ENV=1`) | Herdr panes — [`references/fan-out.md`](references/fan-out.md) |
-| In the Claude desktop app (`mcp__ccd_session__spawn_task` available) | One `spawn_task` per repo: the dispatch brief as its `prompt`, that repo's directory as its `cwd` |
-| Anywhere else | Background sessions — [`references/fan-out.md`](references/fan-out.md) |
+| Inside Herdr (`HERDR_ENV=1`) | Herdr panes — [`references/launch-herdr.md`](references/launch-herdr.md) |
+| In the Claude desktop app (`mcp__ccd_session__spawn_task` available), without `--unattended` or `--session-agent` | One `spawn_task` per repo: the dispatch brief as its `prompt`, that repo's directory as its `cwd` |
+| Anywhere else | Background sessions — [`references/launch-bg.md`](references/launch-bg.md) |
 
-Take the rows in order: the flags decide before the environment does. An automation's loop
-often runs in a Herdr pane and its subagents inherit `HERDR_ENV=1`, so that variable alone
-never means Herdr panes — a pane opened by an automation is one nobody watches.
-
-A `spawn_task` is an offer rather than a running session: it renders a chip, and the user
-clicks it to open the session and choose how it runs. Never wait on one or assume it
-started — those repos are reported as dispatched.
+`HERDR_ENV=1` is the only signal that you run inside Herdr; a subagent inherits it from the
+session that spawned it. A `spawn_task` is an offer rather than a running session: it
+renders a chip, and the user clicks it to open the session and choose how it runs — so a
+run nobody attends never takes it. Never wait on one or assume it started — those repos
+are reported as dispatched.
 
 Each repo produces its own worktree, branch, and PR. Repos are handled **independently and
 best-effort**. Report every repo's outcome — PR url, dispatched agent, or handed back — to
