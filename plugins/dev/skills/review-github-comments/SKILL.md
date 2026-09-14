@@ -33,9 +33,10 @@ gh api repos/<owner>/<repo>/pulls/<pr_number> --jq .html_url
 
 ### 1a. Label the PR while you work
 Mark the PR so humans see an agent is on it, and clear the label as your final action
-before the summary (also on failure or early exit):
+before the summary (also on failure or early exit). A PR with comments being worked is
+not ready, so `ready-for-review` comes off as you start:
 ```bash
-gh pr edit <pr_number> --repo <owner>/<repo> --add-label agent-working     # now
+gh pr edit <pr_number> --repo <owner>/<repo> --add-label agent-working --remove-label ready-for-review  # now
 gh pr edit <pr_number> --repo <owner>/<repo> --remove-label agent-working  # when done
 ```
 

@@ -218,10 +218,11 @@ Whenever the watch ends — budget spent, a hard fork, an error stop, or `PR_CLO
 drop the label again, so it only ever marks PRs under an active watch — and
 `agent-working` with it, which comes off at every hand-back to the user, here and before
 a `GREEN`'s merge question (Step 5): a PR waiting on the user is not being worked, and
-the next round puts it back.
+the next round puts it back. `ready-for-review` comes off too: only a watch can take it
+off the moment the PR stops being ready, so it never outlives one.
 
 ```bash
-gh pr edit <PR> --repo <OWNER_REPO> --remove-label monitored --remove-label agent-working
+gh pr edit <PR> --repo <OWNER_REPO> --remove-label monitored --remove-label agent-working --remove-label ready-for-review
 ```
 
 ## Step 4a — Land the merge
@@ -313,6 +314,15 @@ stays on the table — the merge is the user's call, always — and restoring Co
 re-running the challenge on this head, is what turns the recommendation back.
 
 Drop `agent-working` before asking (Step 4): the PR is the user's until they answer.
+When this head is ready on the agent's side — the challenge ran and held nothing, and the
+`GREEN` carries no `pending_gates` — add `ready-for-review` in the same edit:
+
+```bash
+gh pr edit <PR> --repo <OWNER_REPO> --remove-label agent-working --add-label ready-for-review
+```
+
+The label vouches for this head alone. The next round takes it off as it opens (the
+worker briefing's round label), and the watch ending takes it off with the rest (Step 4).
 
 **The merge briefing.** A `GREEN` asks someone to merge code they have not read, so the
 question carries the read that tells them how hard to look before they do. Six lines, not
