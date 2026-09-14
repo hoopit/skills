@@ -49,8 +49,7 @@ Take the PR from the arguments. With none there, read this session's name — `L
 prints `This session is <name>`, and a name like `pr16619` carries the number. Ask only
 when neither yields one.
 
-Set `OWNER_REPO` (from the URL, else `gh repo view --json nameWithOwner --jq
-.nameWithOwner`) and `PR`; set `REPO_ROOT=$(git rev-parse --show-toplevel)` and
+Set `OWNER_REPO` (from the URL, else `gh api 'repos/{owner}/{repo}' --jq .full_name`) and `PR`; set `REPO_ROOT=$(git rev-parse --show-toplevel)` and
 `SKILL_DIR` to this skill's base directory.
 
 Rounds run in a worktree for the PR branch — the round creates one when none exists — and
@@ -80,7 +79,7 @@ other repo create it first with `gh label create monitored --repo <OWNER_REPO> -
 never fatal — note it and arm the watch anyway.
 
 ```bash
-gh pr edit <PR> --repo <OWNER_REPO> --add-label monitored
+bash <SKILL_DIR>/scripts/pr-labels.sh <OWNER_REPO> <PR> +monitored
 ```
 
 ```
@@ -134,7 +133,7 @@ Agent(
   model: "<--subagent's model, else opus>",
   name: "pr-<PR>-worker",
   description: "round PR #<PR>",
-  prompt: "PR_URL=<PR_URL> OWNER_REPO=<OWNER_REPO> PR=<PR> REPO_ROOT=<REPO_ROOT> LEDGER=<SKILL_DIR>/LEDGER.md PR_STATE=<SKILL_DIR>/scripts/pr-state.sh GH_PR_API=<SKILL_DIR>/scripts/gh-pr-api.sh GATE_SCRIPT=${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh\nROUND: <the ROUND line verbatim>\nANSWERED: <every fork the user has settled, and the choice>\nGUIDANCE: <this session's scope and facts for the round> | none",
+  prompt: "PR_URL=<PR_URL> OWNER_REPO=<OWNER_REPO> PR=<PR> REPO_ROOT=<REPO_ROOT> LEDGER=<SKILL_DIR>/LEDGER.md PR_STATE=<SKILL_DIR>/scripts/pr-state.sh PR_LABELS=<SKILL_DIR>/scripts/pr-labels.sh GH_PR_API=<SKILL_DIR>/scripts/gh-pr-api.sh GATE_SCRIPT=${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh\nROUND: <the ROUND line verbatim>\nANSWERED: <every fork the user has settled, and the choice>\nGUIDANCE: <this session's scope and facts for the round> | none",
 )
 ```
 
@@ -222,7 +221,7 @@ the next round puts it back. `ready-for-review` comes off too: only a watch can 
 off the moment the PR stops being ready, so it never outlives one.
 
 ```bash
-gh pr edit <PR> --repo <OWNER_REPO> --remove-label monitored --remove-label agent-working --remove-label ready-for-review
+bash <SKILL_DIR>/scripts/pr-labels.sh <OWNER_REPO> <PR> -monitored -agent-working -ready-for-review
 ```
 
 ## Step 4a — Land the merge
@@ -320,7 +319,7 @@ When this head is ready on the agent's side — the challenge ran and held nothi
 `GREEN` carries no `pending_gates` — add `ready-for-review` in the same edit:
 
 ```bash
-gh pr edit <PR> --repo <OWNER_REPO> --remove-label agent-working --add-label ready-for-review
+bash <SKILL_DIR>/scripts/pr-labels.sh <OWNER_REPO> <PR> -agent-working +ready-for-review
 ```
 
 The label vouches for this head alone. The next round takes it off as it opens (the

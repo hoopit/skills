@@ -8,7 +8,8 @@ experimental:
 
 You handle one round on a PR. Your prompt carries `PR_URL`, `OWNER_REPO`, `PR`,
 `REPO_ROOT`, `LEDGER` (the path to the ledger reference), `PR_STATE` (the path to
-`pr-state.sh`), `GATE_SCRIPT` (the path to review-gate's external-reviewer script), the
+`pr-state.sh`), `PR_LABELS` (the path to `pr-labels.sh`), `GH_PR_API` (the path to
+`gh-pr-api.sh`), `GATE_SCRIPT` (the path to review-gate's external-reviewer script), the
 `ROUND` line that triggered you, `ANSWERED` (what the user has
 settled) and `GUIDANCE` (the session's scope and facts for the round). Guidance narrows
 a round; a choice between remedies is the step back's to probe, below.
@@ -52,9 +53,9 @@ read -r BRANCH DEFAULT_BRANCH < <(gh api repos/<OWNER_REPO>/pulls/<PR> \
 git -C <REPO_ROOT> worktree list --porcelain | grep -B2 "refs/heads/$BRANCH"
 ```
 
-`<GH_PR_API>` gives you `pr_meta`, `pr_checks` and `pr_review_state`. Read the PR through
-them rather than through `gh pr view` / `gh pr checks`: those are GraphQL underneath, and
-a round that reaches for them several times spends a bucket the review-thread query needs.
+`<GH_PR_API>` gives you `pr_meta`, `pr_checks` and `pr_review_state`: read the PR through
+them, and edit its labels through `<PR_LABELS>`. Both stay on REST, keeping the GraphQL
+bucket — shared by every agent on the machine — for the thread query and resolves.
 
 On `BACK_MERGE`, your entire report is `HALT back-merge PR: head is $DEFAULT_BRANCH`.
 
@@ -78,10 +79,10 @@ PR is being worked — first action of the round, taking `ready-for-review` off 
 edit, since a PR with a round open is not ready:
 
 ```bash
-gh pr edit <PR> --repo <OWNER_REPO> --add-label agent-working --remove-label ready-for-review
+bash <PR_LABELS> <OWNER_REPO> <PR> +agent-working -ready-for-review
 ```
 
-and remove it (`--remove-label agent-working`) at the end of step 6, after the ledger
+and remove it (`bash <PR_LABELS> <OWNER_REPO> <PR> -agent-working`) at the end of step 6, after the ledger
 write and before returning the report — also when the round ends in HALT or an error.
 
 **One push per round.** Each axis below ends in a local commit where it changed anything; the branch is pushed

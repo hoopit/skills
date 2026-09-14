@@ -13,7 +13,7 @@ set -u
 REPO=$1; PR=$2
 
 meta=$(pr_meta "$REPO" "$PR") || { echo "pr-state: could not read the PR" >&2; exit 1; }
-read -r _state conflicting head <<<"$meta"
+read -r _state conflicting head _ <<<"$meta"
 
 # A failed read must not print a clean state: the caller diffs two of these, and empty
 # threads would read as "everything got resolved while the round worked".

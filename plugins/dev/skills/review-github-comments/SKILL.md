@@ -27,17 +27,17 @@ the session (it builds that badge by scanning command output for a PR url, and t
 ```bash
 gh api repos/<owner>/<repo>/pulls/<pr_number> --jq .html_url
 ```
-> `gh pr view` would answer the same question over GraphQL, which is metered separately
-> and far more tightly than REST — and this skill needs that bucket for the review-thread
-> query in step 2. Every read here that REST can serve goes through `gh api`.
+> Every call REST can serve goes over REST — `gh api` for reads, the label script for
+> labels. The GraphQL bucket is metered separately and far more tightly, and this skill
+> needs it for the thread query in step 2 and the resolves in step 4.
 
 ### 1a. Label the PR while you work
 Mark the PR so humans see an agent is on it, and clear the label as your final action
 before the summary (also on failure or early exit). A PR with comments being worked is
 not ready, so `ready-for-review` comes off as you start:
 ```bash
-gh pr edit <pr_number> --repo <owner>/<repo> --add-label agent-working --remove-label ready-for-review  # now
-gh pr edit <pr_number> --repo <owner>/<repo> --remove-label agent-working  # when done
+bash "${CLAUDE_PLUGIN_ROOT}/skills/monitor-pr/scripts/pr-labels.sh" <owner>/<repo> <pr_number> +agent-working -ready-for-review  # now
+bash "${CLAUDE_PLUGIN_ROOT}/skills/monitor-pr/scripts/pr-labels.sh" <owner>/<repo> <pr_number> -agent-working  # when done
 ```
 
 ### 1b. Work in the PR's worktree if one exists

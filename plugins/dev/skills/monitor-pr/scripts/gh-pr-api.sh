@@ -7,22 +7,29 @@
 # exhausts the GraphQL bucket while the REST one sits idle. Everything REST can answer
 # is asked over REST here. Only review-thread resolution stays on GraphQL, because no
 # REST endpoint exposes it, and `reviewDecision` rides along in the same query rather
-# than costing a second one.
+# than costing a second one. A poller spends even that one only when `pr_meta`'s review
+# marker says the threads can have changed.
 #
 # mise prints its activation banner to stdout on every tool invocation, which would land
 # inside these command substitutions and corrupt every parse below.
 export MISE_QUIET=1
 
-# pr_meta <owner/repo> <pr> — prints "<state> <conflicting> <head_sha>".
-#   state        OPEN | CLOSED | MERGED
-#   conflicting  1 only once GitHub has computed the merge and found it dirty. While
-#                that computation is in flight `mergeable` is null and this reads 0,
-#                the same way GraphQL's UNKNOWN did; the next poll sees the answer.
+# pr_meta <owner/repo> <pr> — prints "<state> <conflicting> <head_sha> <review_marker>".
+#   state          OPEN | CLOSED | MERGED
+#   conflicting    1 only once GitHub has computed the merge and found it dirty. While
+#                  that computation is in flight `mergeable` is null and this reads 0,
+#                  the same way GraphQL's UNKNOWN did; the next poll sees the answer.
+#   review_marker  "<review_comment_count>@<updated_at>". A new thread or a reply raises
+#                  the count, and a submitted review moves updated_at, so a marker that
+#                  has not moved means `pr_review_state` would answer what it answered
+#                  last time — except a thread resolved or unresolved without a comment,
+#                  which moves neither. Read it with `read -r state conflicting head _`.
 pr_meta() {
   gh api "repos/$1/pulls/$2" --jq '
     (if .merged then "MERGED" elif .state == "closed" then "CLOSED" else "OPEN" end)
     + " " + (if .mergeable == false then "1" else "0" end)
-    + " " + .head.sha'
+    + " " + .head.sha
+    + " " + (.review_comments | tostring) + "@" + .updated_at'
 }
 
 # pr_checks <owner/repo> <head_sha> — prints "<bucket>\t<name>\t<link>" per check.

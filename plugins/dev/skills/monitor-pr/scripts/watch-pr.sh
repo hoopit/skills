@@ -11,6 +11,12 @@
 #                          bounds that wait, and the GREEN line names what stayed silent.
 #        ONCE=1          — exit right after the first ROUND or GREEN line.
 #        MAX_FETCH_FAILS — consecutive failed GitHub reads before giving up (default 5).
+#        REVIEW_MAX_AGE  — seconds a review-thread read is reused while nothing says it changed
+#                          (default 600). The thread read is the watch's only GraphQL call, and
+#                          GraphQL is the bucket every agent on the machine shares, so it is
+#                          re-asked only when the head or pr_meta's review marker moves. A
+#                          thread resolved in the UI without a reply moves neither; this bounds
+#                          how late the watch sees it.
 #
 # A round fires on the *first* feedback of any kind — the actionable set holding something not in
 # the previously fired round: a thread key (id:commentCount, so a reply in an old thread counts), a
@@ -28,10 +34,12 @@ REPO=$1; PR=$2; INTERVAL=${3:-60}
 GATE_CHECKS=${GATE_CHECKS:-CodeRabbit,codex-review}
 GATE_TIMEOUT=${GATE_TIMEOUT:-900}
 MAX_FETCH_FAILS=${MAX_FETCH_FAILS:-5}
+REVIEW_MAX_AGE=${REVIEW_MAX_AGE:-600}
 . "$(dirname "${BASH_SOURCE[0]}")/gh-pr-api.sh"
 
 fired_threads=""; fired_fail=""; fired_conflict=0; fired_head=""; fired_green=""; fetch_fails=0
 gate_wait_start=0
+review_state=""; review_key=""; review_read_at=0
 while true; do
   if ! meta=$(pr_meta "$REPO" "$PR" 2>&1); then
     fetch_fails=$((fetch_fails + 1))
@@ -41,7 +49,7 @@ while true; do
     fi
     sleep "$INTERVAL"; continue
   fi
-  read -r state conflicting head <<<"$meta"
+  read -r state conflicting head review_marker <<<"$meta"
   if [ "$state" != "OPEN" ]; then echo "PR_CLOSED state=$state"; exit 0; fi
 
   if [ "$head" != "$fired_head" ]; then fired_fail=""; fired_conflict=0; fired_head=$head; gate_wait_start=0; fi
@@ -66,13 +74,17 @@ while true; do
   failing=$(awk -F'\t' '$1=="fail"{print $2}' <<<"$checks" | sort)
   running=$(awk -F'\t' '$1=="pending"{print $2}' <<<"$checks" | grep -c .)
 
-  if ! review_state=$(pr_review_state "$REPO" "$PR" 2>&1); then
-    fetch_fails=$((fetch_fails + 1))
-    if [ "$fetch_fails" -ge "$MAX_FETCH_FAILS" ]; then
-      echo "WATCH_ERROR fetch_failures=$fetch_fails last=$(tr '\n' ' ' <<<"$review_state")"
-      exit 1
+  now=$(date +%s)
+  if [ "$head $review_marker" != "$review_key" ] || [ $((now - review_read_at)) -ge "$REVIEW_MAX_AGE" ]; then
+    if ! fresh=$(pr_review_state "$REPO" "$PR" 2>&1); then
+      fetch_fails=$((fetch_fails + 1))
+      if [ "$fetch_fails" -ge "$MAX_FETCH_FAILS" ]; then
+        echo "WATCH_ERROR fetch_failures=$fetch_fails last=$(tr '\n' ' ' <<<"$fresh")"
+        exit 1
+      fi
+      sleep "$INTERVAL"; continue
     fi
-    sleep "$INTERVAL"; continue
+    review_state=$fresh; review_key="$head $review_marker"; review_read_at=$now
   fi
   fetch_fails=0
   review=$(sed -n 's/^review=//p' <<<"$review_state" | head -1)
