@@ -97,7 +97,8 @@ Cross-reference `databaseId` with the REST comment IDs to build a map of `commen
    challenge command reads `GATE_SCRIPT`, which a caller-owned round is given and a
    standalone run resolves itself as
    `${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh` — which
-   also defines the `source`, `severity`, `why` and `scope` your step 6 row carries:
+   also defines the `source`, `severity`, `why` and `scope` your step 6 row carries.
+   A finding on text follows *A finding on text* in the same file:
    - **`applied`** — a real bug, improvement or style fix. Apply it, reply saying what
      changed, **resolve the thread**.
    - **`declined`** — incorrect, outdated, or not applicable here. Reply with the

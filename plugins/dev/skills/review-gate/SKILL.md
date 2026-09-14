@@ -124,7 +124,9 @@ that policy.
    location + same issue → one finding, keep the highest severity and note which reviewers raised it).
 5. **Triage each finding (judgment on all):**
    - **Valid → fix it.** Commit each fix separately (convention below). Re-reviewing the fixed
-     code is the caller's next round, not a loop inside this pass.
+     code is the caller's next round, not a loop inside this pass. A finding on text is fixed
+     as *A finding on text* in [`../monitor-pr/LEDGER.md`](../monitor-pr/LEDGER.md) says:
+     cut before you reword.
    - **Fix the class, not the instance.** When a finding reveals a *class* of defect (one
      unvalidated field among several consumed, one call site among many, one write path of
      several), sweep for every instance of the class and fix them all — following it past the

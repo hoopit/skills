@@ -43,6 +43,13 @@ Every review thread, failing check and merge conflict lands in exactly one tier:
 - **link** — the thread or check URL. Paraphrase the source's claim in one clause and
   link it; the thread holds the full text.
 
+## A finding on text
+
+A finding on wording (a comment, docstring, doc, log or error message) is first a
+question of whether the text earns its place. Cut before you reword: delete the text,
+or shrink it to what the code cannot say for itself, and reword only what survives.
+Record a cut as `applied`, and name the cut in `why`.
+
 ## What a decline carries
 
 A decline is the row a fresh reviewer re-raises, so it carries more than a `why`.
