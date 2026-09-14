@@ -1,6 +1,7 @@
 ---
 name: handle-jira-issue
 description: Handle any Jira issue end-to-end. Use when the user or an automation names a Jira issue to fix.
+argument-hint: "<Jira issue key or url> [--unattended]"
 ---
 
 # Handle Jira Issue Workflow
@@ -9,13 +10,19 @@ Triggered when the user says something like "fix this issue" and provides any Ji
 
 This skill owns the Jira-specific work — classify the input, read the report, resolve the affected repos, resolve or create each repo's platform issue — then hands off to the **`ship`** skill, **once per affected repo**, for the branch → code → test → review → PR flow. A project issue targets exactly one repo; an ITSM ticket may be implemented by platform issues in **one or several** projects, which live in separate git repos, and ships one PR per affected repo, each linked back to the same ITSM ticket.
 
+Flags:
+
+- `--unattended` — nobody is there to answer; an automation dispatched this run and owns
+  its result. Every **hand back** reports per the caller's contract instead of asking, and
+  every `ship` runs with `--unattended`. Without the flag, a human is there.
+
 ## Configuration — read from CLAUDE.md, never hardcode
 
 This skill is project-agnostic. Every per-project identifier — Jira key, Jira base URL,
 ITSM project key, repo name — comes from the **`## Agent skills` →
 `### Workflow skills config`** block in that repo's `CLAUDE.md`. Read them from there;
-if one you need is missing, **stop and ask the user to add it** rather than assuming a
-default.
+if one you need is missing, **hand back**, naming the missing field, rather than assuming
+a default.
 
 The repos are sibling directories under a common parent (`HOOPIT_ROOT`); derive
 it from the repo this skill is invoked in:
@@ -83,8 +90,7 @@ Inspect **both** `inwardIssue.key` and `outwardIssue.key` across all entries in 
 
 Whenever you cannot proceed on a repo — the report is not understandable or reproducible,
 no affected repo can be determined, `ship` comes back blocked — **hand back**: ask the
-user when a human is there, and when dispatched by an automation report per the caller's
-contract. That contract, not this skill, owns the request-info / escalate decision and
+user, or under `--unattended` report per the caller's contract. That contract, not this skill, owns the request-info / escalate decision and
 what an escalation writes to Jira.
 
 A hand-back is **per repo**. The other affected repos still ship.
@@ -226,7 +232,8 @@ to another session — the inputs the **`ship`** skill takes:
 - **Only when a linked ITSM ticket exists:** a `Refs <ITSM_ISSUE_KEY>` commit footer and an
   `## ITSM` PR section linking that ticket.
 
-**One affected repo** — run `ship` here with that brief. It takes the repo from the branch
+**One affected repo** — run `ship` here with that brief, passing `--unattended` when you
+hold it. It takes the repo from the branch
 to a monitored PR, and your work ends when it reports back.
 
 **Two or more affected repos** — one session per repo, never one session juggling several.
@@ -234,14 +241,14 @@ Which lane you take depends on where you are running:
 
 | Where you are running | Lane |
 | --- | --- |
-| Unattended, dispatched by an automation | Run `ship --unattended` here, once per repo, in sequence: one repo fully shipped before the next begins |
+| `--unattended` | Run `ship --unattended` here, once per repo, in sequence: one repo fully shipped before the next begins |
 | Interactively inside Herdr (`HERDR_ENV=1`) | Fan out — [`references/fan-out.md`](references/fan-out.md) |
 | In the Claude desktop app (`mcp__ccd_session__spawn_task` available) | One `spawn_task` per repo: the dispatch brief as its `prompt`, that repo's directory as its `cwd` |
 | Anywhere else | **Halt.** Print each repo's dispatch brief as a ready-to-paste prompt, tell the user to open one session per repo, and hand back |
 
-Take the rows in order: whether a human is there decides before the environment does. An
-automation's loop often runs in a Herdr pane and its subagents inherit `HERDR_ENV=1`, so
-that variable alone never means fan out — an unattended caller owns a per-repo result
+Take the rows in order: the flag decides before the environment does. An automation's loop
+often runs in a Herdr pane and its subagents inherit `HERDR_ENV=1`, so that variable alone
+never means fan out — an unattended caller owns a per-repo result
 contract, and a session spawned in a pane reports to nobody.
 
 A `spawn_task` is an offer rather than a running session: it renders a chip, and the user
