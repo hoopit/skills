@@ -15,17 +15,24 @@ carries the whole review.
 
 ## When the watch stops
 
-The watch runs to the merge. Two things end it early, and each ends in front of the user
-(Step 5):
+The watch runs to the merge, and ends early, in front of the user (Step 5), when the rounds
+**stall**. Judge it after every round, on the round's report and the ledger.
+`review-gate`'s *Another pass, or stop* defines the three shapes; on a PR each reads off
+these:
 
-- **the round budget is spent** — `--rounds` rounds have been worked;
-- **a hard fork** — a question whose answer could invalidate work already done or
-  reviews already run.
+- **Churn** — the ledger's convergence counts climb: rows tagged `fixes R<k>`, design
+  reversals, a thread re-raising a row already settled.
+- **Low value** — everything the round took from reviewers was Low/Medium or declined: the
+  reviewers are polishing, and each round spends their attention on polish.
+- **Needs the user** — a **hard fork**: a question whose answer could invalidate work
+  already done or reviews already run.
 
-A `GREEN` line is not one of them: it puts the merge decision to the user and the watch
-keeps running, because a PR can go green and then move again.
+A round that fixed something that mattered, with the churn counts flat, is converging:
+keep going. `--rounds`, when set, ends the watch at that count too. A `GREEN` line ends
+nothing: it puts the merge decision to the user and the watch keeps running, because a PR
+can go green and then move again.
 
-That second one is the whole test for whether a question stops the watch. A **hard fork**
+The hard fork is the whole test for whether a question stops the watch. A **hard fork**
 makes the current head not worth reviewing — the answer may throw the approach away — so
 spending rounds past it burns reviewer attention on work that may not survive. Every
 other question is a **soft fork**: it rides along, the round ships its settled work, the
@@ -34,7 +41,8 @@ is a soft fork by default; grade it hard only when its answer reaches the work i
 
 Flags:
 
-- `--rounds <N>` — the round budget. Default 5.
+- `--rounds <N>` — a hard cap on rounds. Unset, there is none: the watch runs until it
+  stalls or the PR closes.
 - `--subagent[=<model>]` — run rounds in a `hoopit-dev:monitor-pr-worker` instead of yourself,
   reusing it across rounds until it nears its context limit, then rotating to a fresh
   one. The model defaults to `opus`; `--subagent=fable` (or `sonnet`, `haiku`) overrides
@@ -84,7 +92,7 @@ bash <SKILL_DIR>/scripts/pr-labels.sh <OWNER_REPO> <PR> +monitored
 
 ```
 Monitor(
-  command: "ONCE=<1 when the budget is 1, else 0> bash <SKILL_DIR>/scripts/watch-pr.sh <OWNER_REPO> <PR> 60",
+  command: "ONCE=<1 when --rounds is 1, else 0> bash <SKILL_DIR>/scripts/watch-pr.sh <OWNER_REPO> <PR> 60",
   description: "monitor-pr #<PR>",
   persistent: true,
 )
@@ -106,13 +114,14 @@ The script polls every 60 s and prints only:
   row (expired auth, network, deleted PR); the script exits non-zero. The watch is dead:
   go to Step 5.
 
-With `ONCE=1` the script exits after its first `ROUND` or `GREEN` line. For any larger
-budget the script runs on and the session `TaskStop`s it when the budget is spent.
+With `ONCE=1` the script exits after its first `ROUND` or `GREEN` line. Otherwise the
+script runs on and the session `TaskStop`s it when the watch ends.
 
 For a repo whose reviewer statuses have other names, prefix `GATE_CHECKS=<a>,<b>`. Tune
 the timeout with `GATE_TIMEOUT=<seconds>`.
 
-Tell the user in one line that the watch is armed, what opens a round, and the budget.
+Tell the user in one line that the watch is armed, what opens a round, and the `--rounds`
+cap when one is set.
 
 ## Step 3 — Work each `ROUND`
 
@@ -189,13 +198,12 @@ says so on the `Absorbed` line.
 Print the round's report under a `Round N — <trigger>` heading. It is the round's
 **delta** — what this round did; the **ledger** the round wrote into the PR description
 holds the PR's cumulative state, so the two never need to say the same thing twice. Link
-the PR once beneath the heading so the ledger is one click away, and put the budget in
-the heading — `Round 3/5 — <trigger>` — so the user can see the watch running out before
-it does. A round that reports `Ledger: not updated` says so too, with the reason — the
-ledger is then behind by a round.
+the PR once beneath the heading so the ledger is one click away, and put the cap in the
+heading when `--rounds` set one — `Round 3/8 — <trigger>`. A round that reports `Ledger:
+not updated` says so too, with the reason — the ledger is then behind by a round.
 
 A round that found nothing to do — the previous round's last look had taken it — is
-reported in one line and does not spend budget.
+reported in one line and does not count as a round.
 
 Two things come before grading. A report or design check whose first line is `CODEX
 DOWN` is relayed the moment it lands: print the line, then `PushNotification` with it —
@@ -210,10 +218,11 @@ watch stays armed, the questions go to the user in Step 5, and the next `ROUND` 
 whether or not they have been answered. A **hard** fork ends the watch — `TaskStop` the
 monitor, then ask — as does the same check "still failing" in two consecutive rounds.
 
-Count the round. At the budget, `TaskStop` the monitor and take the budget path in Step
-5. Below it, idle until the next `ROUND`.
+Then judge the stall (*When the watch stops*). A stall of any shape, or the `--rounds` cap
+reached, `TaskStop`s the monitor and takes its path in Step 5. Otherwise idle until the
+next `ROUND`.
 
-Whenever the watch ends — budget spent, a hard fork, an error stop, or `PR_CLOSED` —
+Whenever the watch ends — a stall, the cap, a hard fork, an error stop, or `PR_CLOSED` —
 drop the label again, so it only ever marks PRs under an active watch — and
 `agent-working` with it, which comes off at every hand-back to the user, here and before
 a `GREEN`'s merge question (Step 5): a PR waiting on the user is not being worked, and
@@ -285,8 +294,8 @@ which is how the PR shows the decision to a reviewer who was never asked.
 
 **A hard fork** — the answer could invalidate work already done or reviews already run,
 so further rounds would review something that may not survive. Stop the watch, then ask
-it alongside the round's soft forks. An answer re-arms the watch (back to Step 2) with
-the rest of the budget intact; the next round carries all the answers.
+it alongside the round's soft forks. An answer re-arms the watch (back to Step 2); the
+next round carries all the answers.
 
 **Green** — a `GREEN` line. Before the merge question, once per head that carries pushes
 since the last one, challenge the whole PR — the read no per-push reviewer gives it. From
@@ -371,11 +380,12 @@ gh pr merge <PR> --repo <OWNER_REPO> --<squash|merge|rebase>
 Leave the monitor running either way: on a merge it sees `PR_CLOSED state=MERGED` next
 poll and Step 4a lands it, and on *keep watching* a PR that moves again still has a watch.
 
-**Budget spent** — the last round of `--rounds` is worked and reported. Stop, then ask
-whether to spend another budget, saying what is still outstanding and whether the rounds
-are converging: fewer findings each round argues for more, the same finding recurring
-argues for the user. *Another N rounds* re-arms the watch (back to Step 2, label
-included) with a fresh budget. The turn ends on the `AskUserQuestion`, never on prose: a
+**A stall** — churn or low value, or the `--rounds` cap reached. Stop, then ask whether to
+keep going, naming the shape and its evidence — the recurring finding and the rows it
+patches, or the round's severities — and what is still outstanding. Churn recommends the
+user take the design question it points at; low value recommends letting the PR's human
+reviewers take it from here. *Keep going* re-arms the watch (back to Step 2, label
+included). The turn ends on the `AskUserQuestion`, never on prose: a
 watch that goes dark without one is a watch the user restarts by hand, with its answers
 lost.
 
@@ -397,7 +407,7 @@ options, because they answer different things:
 | Soft fork | **Answer in chat** (recommended) · **Take all your recommendations** · **Stop monitoring, I'll take it from here** |
 | Hard fork | **Answer in chat** (recommended) · **Take all your recommendations** · **Stop monitoring, I'll take it from here** — the first two re-arm the watch |
 | Green | **Merge it** · **Not yet — keep watching** · **Stop monitoring, I'll take it from here** |
-| Budget spent | **Another <N> rounds** · **Stop, I'll take it** · **Answer in chat** (when questions are outstanding) |
+| Stall | **Keep going** · **Stop, I'll take it** · **Answer in chat** (when questions are outstanding) |
 | Stop | **Re-arm the watch** (a transient stop — go back to Step 2, label included) · **Stop, I'll take it** · **Keep going anyway** (re-arm past a check failing for reasons outside this PR) |
 
 Print the blocker's details — the open threads, the failing check's log excerpt — before

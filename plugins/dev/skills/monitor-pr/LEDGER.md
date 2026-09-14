@@ -99,7 +99,7 @@ Every thread, check and conflict the round touched ends as a row or inside the t
 tally counts are what show nothing was dropped. The tally also carries the two counts
 that show whether the rounds converge — **findings in code a round added** and **design
 reversals** (a step back that replaced a shape or removed a mechanism) — because a PR
-whose rounds keep finding defects in their own fixes is spending its budget on churn, and
+whose rounds keep finding defects in their own fixes is churning, and
 the challenge's score — **challenge findings weighed** and how many **held** — so a
 reviewer can see the judgements were tested, not just asserted.
 

@@ -16,7 +16,7 @@ that cannot run it blocks rather than passing on one engine's word.
 ## Contract
 
 Call after the fix is committed on the branch, **before** push/PR. One call is **one pass** — review,
-fix, report — and the caller decides whether to run another (`ship` Step 6 works rounds on a budget).
+fix, report — and the caller decides whether to run another (*Another pass, or stop*, below).
 Return exactly one verdict:
 
 - **`PASS`** — every *valid* finding is fixed; anything left is Low/Medium that you deliberately
@@ -27,6 +27,24 @@ Return exactly one verdict:
   (you judge it invalid/not worth fixing), or a valid Critical/High that isn't safe to fix here. You
   may **not** unilaterally dismiss a Critical/High. Caller must NOT open the PR — surface the blocking findings; unattended, the
   caller hands back per its own contract, which owns what an escalation writes to the tracker.
+
+## Another pass, or stop
+
+A caller works passes in **rounds**, and judges after each one whether another pays, on what the
+rounds return. Run another while they converge: each fixes something that matters, and fewer valid
+findings come back than the round before. Stop when the rounds **stall**, which takes one of three
+shapes:
+
+- **Churn** — a round finds defects in code an earlier round's fix added, raises a finding an
+  earlier round fixed or skipped on judgement, or reverses a shape an earlier round chose; or the
+  count of valid findings climbs round over round.
+- **Low value** — every valid finding the round raised was Low/Medium: the reviewers have moved
+  from defects to polish, and a further round buys polish at a full round's price.
+- **Needs the user** — a `BLOCK`, or a decision the findings turn on that only the user can settle.
+
+Name the shape and its evidence — the recurring finding, the round's severities, the decision —
+because that is what the user weighs. What a stall leads to is the caller's: `ship` Step 6 and
+`monitor-pr`'s *When the watch stops* each say.
 
 ## Inputs
 
@@ -131,8 +149,8 @@ that policy.
      unvalidated field among several consumed, one call site among many, one write path of
      several), sweep for every instance of the class and fix them all — following it past the
      diff into unchanged fields, call sites, consumers, and sibling write paths, which carry
-     the same defect while the gate still reads `PASS`. Narrow fixes are what spend the caller's
-     round budget, and they tend to introduce the next round's findings. When the tail of the
+     the same defect while the gate still reads `PASS`. Narrow fixes are what make the caller's
+     rounds churn, and they tend to introduce the next round's findings. When the tail of the
      sweep is too large for this change, fix what this change touches and `BLOCK` on the rest
      (the too-large rule below).
    - **The sweep's ceiling is the defect.** When a swept file turns out to be wrong in its own
