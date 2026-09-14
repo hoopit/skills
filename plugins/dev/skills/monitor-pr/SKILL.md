@@ -292,12 +292,14 @@ the rest of the budget intact; the next round carries all the answers.
 **Green** — a `GREEN` line. Before the merge question, once per head that carries pushes
 since the last one, challenge the whole PR — the read no per-push reviewer gives it. From
 the PR's worktree, with the ledger's judgement rows — the declines, the step-back picks —
-as the focus:
+and the issues the PR closes as the focus. The **issues** are the ones its description
+links (`closes #<n>`, the tracker section); a PR linking none is weighed against its
+description, and the briefing says so:
 
 ```bash
 git fetch origin <DEFAULT_BRANCH>
 bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh" \
-  origin/<DEFAULT_BRANCH> --challenge-only --challenge "Merge readiness. Judgements to break: <the ledger's judgement rows, one line each>"
+  origin/<DEFAULT_BRANCH> --challenge-only --challenge "Merge readiness. Is the whole diff warranted by these issues: <each issue, one line>? Judgements to break: <the ledger's judgement rows, one line each>"
 ```
 
 Read the file its `codex_challenge=` line names. A finding that **holds** — the ledger
@@ -325,11 +327,14 @@ The label vouches for this head alone. The next round takes it off as it opens (
 worker briefing's round label), and the watch ending takes it off with the rest (Step 4).
 
 **The merge briefing.** A `GREEN` asks someone to merge code they have not read, so the
-question carries the read that tells them how hard to look before they do. Six lines, not
-a second PR description:
+question carries the read that tells them how hard to look before they do. Seven lines,
+not a second PR description:
 
 - what was wrong, and who felt it;
 - what this changes, in a line;
+- **Warranted: yes · larger than the issues · beyond the issues**, with the reason — the
+  diff's size and reach weighed against the issues it closes, the rounds' additions
+  included, since a watch is where scope grows;
 - the decisions that could have gone the other way — the ledger's judgement rows, read
   off it rather than re-derived;
 - **Merge risk: low · moderate · high · very high**, with the reason;
