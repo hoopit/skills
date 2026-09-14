@@ -167,10 +167,9 @@ questioned rather than patched.
    check that is red only because it needs the merge from axis 1 needs no separate fix.
 4. **Prune the prose you edited.** When any fix above touched agent-facing prose —
    `AGENTS.md` / `CLAUDE.md`, a rule, a skill, anything under `docs/` — re-read every heading
-   this round touched against `mattpocock-skills:writing-for-agents` — or, where it is not
-   installed, against its core test: every line bears on what the document does, each meaning
-   lives in one place, under the heading it belongs to — **every round**. Rounds
-   only add: each addition lands correct on its own, so the **sprawl** is invisible from inside
+   this round touched against `mattpocock-skills:writing-for-agents`, **every round**. Where
+   that skill is not installed, hold them to its core test: every line bears on what the
+   document does, and each meaning lives once, under the heading it belongs to. Rounds only add: each addition lands correct on its own, so the **sprawl** is invisible from inside
    any single finding, and so is the drift beside it — one instruction scattered across three
    paragraphs, material under a heading it has outgrown. Done when every touched heading has
    been re-read and the round either carries a pruning commit, kept separate from the fixes, or

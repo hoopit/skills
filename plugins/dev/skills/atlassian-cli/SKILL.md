@@ -64,8 +64,9 @@ JQL, run read-only first, tells you how many items the write will touch.
 reads as closed to a human while every query and every release automation counts it as
 open assigned work, so nothing ever sweeps it up.
 
-`acli`'s own secret lives in the OS keyring and cannot be reused, so each REST block below
-opens by sourcing `~/.config/hoopit/jira.env` (`review-jira-attachments` sets it up) and
+A close that owns its resolution goes over REST: `acli jira workitem transition` takes no
+resolution field. `acli`'s own secret lives in the OS keyring and cannot be reused, so each
+REST block below opens by sourcing `~/.config/hoopit/jira.env` (`review-jira-attachments` sets it up) and
 naming the org's own instance as the host — the one place the token is ever sent.
 
 Read the status's real shape and the transitions off the item itself. **Every one of
@@ -101,9 +102,6 @@ curl -s --fail-with-body -u "$JIRA_EMAIL:$JIRA_API_TOKEN" -H 'Content-Type: appl
 The close is done when the `view` above reads back category `done` **and** a non-null
 `resolution` — the only proof a transition sent without the field was resolved by the
 workflow.
-
-`acli jira workitem transition` cannot do this at all — it takes no resolution field — so
-any close that owns its resolution goes over REST.
 
 ## Repairing a status nobody set by hand
 
