@@ -234,7 +234,7 @@ Which lane you take depends on where you are running:
 
 | Where you are running | Lane |
 | --- | --- |
-| Unattended, dispatched by an automation | Run `ship` here, once per repo, in sequence: one repo fully shipped before the next begins |
+| Unattended, dispatched by an automation | Run `ship --unattended` here, once per repo, in sequence: one repo fully shipped before the next begins |
 | Interactively inside Herdr (`HERDR_ENV=1`) | Fan out — [`references/fan-out.md`](references/fan-out.md) |
 | In the Claude desktop app (`mcp__ccd_session__spawn_task` available) | One `spawn_task` per repo: the dispatch brief as its `prompt`, that repo's directory as its `cwd` |
 | Anywhere else | **Halt.** Print each repo's dispatch brief as a ready-to-paste prompt, tell the user to open one session per repo, and hand back |

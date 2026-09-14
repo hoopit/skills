@@ -1,7 +1,7 @@
 ---
 name: ship
 description: Take one understood piece of work in one repo from a branch to a monitored PR. Use when asked to implement, fix, ship or handle an issue.
-argument-hint: "<the work, or the item tracking it> [--rounds <N>]"
+argument-hint: "<the work, or the item tracking it> [--rounds <N>] [--unattended]"
 ---
 
 # Ship
@@ -21,6 +21,10 @@ once per repo, independently.
 Flags:
 
 - `--rounds <N>` — the review-gate round budget (Step 6). Default 5.
+- `--unattended` — nobody is there to answer. Wherever this skill would ask the user, it
+  **hands back** instead: the run stops and returns the same substance — the findings,
+  your reasoning, what you would do about each — to the caller as its result. Every other
+  step runs as written.
 
 ## Inputs
 
@@ -148,7 +152,7 @@ or surviving findings, your reasoning, what you would do about each — then fir
 An answer settles the findings it covers and rounds resume with the budget left intact;
 *Open the PR anyway* carries the standing findings into the PR body (Step 7).
 
-Running unattended under a caller, hand the verdict back to it instead — a question
+Under `--unattended`, hand the verdict back instead of firing the question — a question
 asked with nobody there stops the work and reaches no one.
 
 ## Step 7 — Push and open the PR
@@ -175,17 +179,11 @@ link hygiene. Add to the body it specifies:
 
 ## Step 8 — Hand the PR on
 
-Someone has to work the PR's review rounds to the merge. Who, depends on whether a human
-is there:
+Someone has to work the PR's review rounds to the merge. Start the **`monitor-pr`** skill
+on the new PR with `--subagent`, so its rounds run in workers rather than this session. It
+works rounds on its own budget and comes back to the user when that budget is spent, when
+a decision only they can settle turns up, or when the PR merges — and on the merge it
+cleans up the worktree itself. `--unattended` leaves this step unchanged.
 
-- **A human is there** — start the **`monitor-pr`** skill on the new PR with `--subagent`,
-  so its rounds run in workers rather than this session. It works rounds on its own budget
-  and comes back to the user when that budget is spent, when a decision only they can
-  settle turns up, or when the PR merges — and on the merge it cleans up the worktree
-  itself.
-- **Running unattended under a caller** — arm nothing. A watch that runs to the merge
-  outlives a one-shot run. Hand the PR back; the caller's contract owns everything after
-  it opens.
-
-Either way this skill's work ends here. Report the PR url — and the watch, if you armed
-one — back to the caller, which owns the final result block.
+This skill's work ends here. Report the PR url and the watch back to the caller, which
+owns the final result block.
