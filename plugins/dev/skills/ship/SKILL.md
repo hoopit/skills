@@ -21,7 +21,7 @@ once per repo, independently.
 Flags:
 
 - `--rounds <N>` — a hard cap on review-gate rounds (Step 6). Unset, there is none: rounds
-  run until they come back clean or stall.
+  run until one comes back clean.
 - `--unattended` — nobody is there to answer. Wherever this skill would ask the user, it
   **hands back** instead: the run stops and returns the same substance — the findings,
   your reasoning, what you would do about each — to the caller as its result. Every other
@@ -103,12 +103,12 @@ allowed on a commit.
 ## Step 6 — Review gate
 
 A **round** is one run of the **`review-gate`** skill from inside the worktree, plus the
-fix commits that run makes. Work rounds until the gate comes back clean or the rounds
-**stall** — `review-gate`'s *Another pass, or stop* defines the three shapes, and you judge
-them after every round.
+fix commits that run makes. Work rounds until the gate comes back clean — a round that
+declines every finding, the gate's closing pass, is clean too.
 
-Hand the gate `WORK_ITEM` and `BRIEF` as its `SPEC` — without them its Spec axis
-self-skips and half the review silently disappears. The spec is all it gets: keep your
+Hand the gate `PRIOR_ROUNDS` from the rounds before, and `WORK_ITEM` and `BRIEF` as its
+`SPEC` — without the spec its Spec axis self-skips and half the review silently
+disappears. The spec is all it gets: keep your
 investigation and your fix's reasoning to yourself, because cold eyes are what the gate
 is for.
 
@@ -138,23 +138,17 @@ Each round returns one verdict:
   nothing new.
 - **`BLOCK: <reason>`** — **do not push, do not open a PR.** Ask.
 
-A stall ends the rounds according to its shape:
+At the `--rounds` cap with the gate still unclean, stop and ask, saying whether the
+rounds were converging.
 
-- **Low value**, on a `PASS` — go to Step 7 with that round's fixes on the head. They
-  are Low/Medium, the PR's reviewers see them, and the notes block says no gate round
-  reviewed them.
-- **Churn** or **Needs the user** — stop and ask, naming the shape and its evidence.
-- `--rounds` reached with the gate still unclean — stop and ask, saying whether the
-  rounds were converging.
-
-Every path that asks reaches the user the same way. Put the substance in chat first — the
+Both paths reach the user the same way. Put the substance in chat first — the
 blocking or surviving findings, your reasoning, what you would do about each — then fire
 `AskUserQuestion` headed `Review gate` to carry the attention:
 
 | Path | Options |
 | --- | --- |
 | `BLOCK` | **Answer in chat** (recommended) · **Take all your recommendations** · **Open the PR anyway, with the block in its body** |
-| Stall or cap | **Keep going** · **Open the PR anyway, with the findings in its body** · **Answer in chat** |
+| Cap | **Keep going** · **Open the PR anyway, with the findings in its body** · **Answer in chat** |
 
 An answer settles the findings it covers and rounds resume;
 *Open the PR anyway* carries the standing findings into the PR body (Step 7).
@@ -164,8 +158,8 @@ asked with nobody there stops the work and reaches no one.
 
 ## Step 7 — Push and open the PR
 
-The head you push is one the gate has passed, or a low-value stall's fixes on top of one
-(Step 6). Any other commit made after the last round's reviewers ran — a docstring, a measurement, a line a peer suggested — is code no cold eye
+The head you push is one the gate has passed. A commit made after the last round's
+reviewers ran — a docstring, a measurement, a line a peer suggested — is code no cold eye
 has seen, and it is where a PR's first review threads come from. Run a `light` round over
 it first, or leave it out.
 
@@ -180,7 +174,7 @@ link hygiene. Add to the body it specifies:
 - a `## Testing` line covering the tests added, or why none was feasible;
 - the review-gate notes across every round: the scope it ran at, which reviewers ran,
   findings addressed, findings skipped and why — and, when the user chose to open past a
-  block or a stall, the findings still standing and that they chose to ship over
+  block or the cap, the findings still standing and that they chose to ship over
   them;
 - any extra sections the caller asked for.
 
@@ -188,8 +182,9 @@ link hygiene. Add to the body it specifies:
 
 Someone has to work the PR's review rounds to the merge. Start the **`monitor-pr`** skill
 on the new PR with `--subagent`, so its rounds run in workers rather than this session. It
-works rounds until the PR merges or the rounds stall — churning, low in value, or waiting
-on a decision only the user can settle — and on the merge it cleans up the worktree itself. `--unattended` leaves this step unchanged.
+works rounds until the PR merges, a round declines everything left and closes, or a
+decision only the user can settle turns up — and on the merge it cleans up the worktree
+itself. `--unattended` leaves this step unchanged.
 
 This skill's work ends here. Report the PR url and the watch back to the caller, which
 owns the final result block.

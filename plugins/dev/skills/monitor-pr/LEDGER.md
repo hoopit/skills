@@ -60,7 +60,8 @@ A decline is the row a fresh reviewer re-raises, so it carries more than a `why`
   looking wrong to every fresh reader, and the thread reply reaches none of them: write
   the reason at the flagged line, one or two lines, as documentation of the code — the
   invariant or the trade-off, in the present — and commit it with the round. The scope
-  note says where: `rationale at <file:line>`. A finding raised again with its rationale
+  note says where: `rationale at <file:line>` — except in a closing round (*Closing the
+  rounds*), which commits nothing. A finding raised again with its rationale
   in place means the rationale is failing or the decline is wrong: rewrite the comment so
   it answers the finding, or take the finding; a third raise takes it.
 - **At Critical or High — a Codex P1 is one — the claim is challenged first.** The decline
@@ -82,6 +83,35 @@ A decline is the row a fresh reviewer re-raises, so it carries more than a `why`
 - **At Critical or High, `why` also carries the counterfactual** — what fixing it as
   asked would have cost (`~4 files across the serializer layer`). That is the
   justification for declining, so it belongs beside the decline.
+
+## Closing the rounds
+
+Rounds stop on their own one way: a **closing round**, which declines every item it
+holds, commits nothing, and so opens no review of its own. It leaves the PR with nothing
+open to review.
+
+**Not worth a round.** A valid finding is ordinarily fixed. A `Med` or `Low` one may
+instead be `declined — not worth a round`, with the evidence in `why`, when either holds:
+
+- the round before took nothing above `Med` either — the reviewers have moved from defects
+  to polish;
+- it lands in code a round added (`fixes R<k>`) — the fix it asks for is one more patch on
+  a patch.
+
+A `Critical` or `High` finding is fixed, or declined on its merits under *What a decline
+carries*. Only a closing round declines as not worth a round: a round that fixes anything
+pushes anyway, and fixes its `Med` and `Low` findings in the same push.
+
+**A round closes** when, with every item decided before any is acted on, each thread
+declines — on its merits or as not worth a round — and nothing else is outstanding: no
+failing check, no conflict, no fork. It then:
+
+- replies to and resolves every thread, and dismisses CodeRabbit's `CHANGES_REQUESTED`
+  review as `review-github-comments` step 5b does;
+- puts each judgement decline's rationale in the reply and `why`, with scope
+  `rationale not in code` — a rationale commit is a push, and a push is another round;
+- pushes nothing and starts no re-review;
+- writes the ledger and reports that it closed.
 
 ## Which items earn a row
 

@@ -194,10 +194,13 @@ questioned rather than patched.
    what you have and name what you left in the report. A **hard fork** ends the sweeps
    too — it makes the head not worth reviewing, so push the settled work and report.
 
+   A **closing round** (*Closing the rounds* in `LEDGER`) ends here: it committed nothing,
+   and it pushes nothing and starts no re-review — go to step 6.
+
    Then `git push` once, if anything was committed — plain, never forced. A rejected push
    is a stop to report, not something to force past.
 
-   If the round committed **nothing** and no hard fork is open, the reviewers have
+   If any other round committed **nothing** and no hard fork is open, the reviewers have
    nothing new to look at: start the next review round yourself and note it in the
    report. An `open` thread is no reason to hold the re-review back; only a hard fork is.
    Skip the kick when the `ROUND` line names `pending_gates` — those reviewers are
@@ -229,7 +232,7 @@ Return only a report — the round's delta, where the ledger you just wrote hold
 PR's cumulative state. No preamble:
 
 ```
-Pushed <sha> · <n> threads · <n> checks · <conflict merged | no conflict>
+Pushed <sha> | CLOSED · <n> threads · <n> checks · <conflict merged | no conflict>
 <one line per item that earned a ledger row this round, in the ledger's row format>
 Routine: <the round's tally — nits applied, checks fixed, conflicts merged · findings in code a round added · design reversals>
 Absorbed: <what the last look pulled in after the round opened> | none
@@ -238,6 +241,8 @@ Ledger: updated | not updated (<reason>)
 
 Whatever you return — report or design check — leads with `CODEX DOWN: <reason>` when the
 script printed a reason line, so the session relays it before anything else.
+
+`CLOSED` in place of the push says the round closed, and is what ends the watch.
 
 `Absorbed` is what tells the session that a `ROUND` line still queued behind you has
 already been worked.

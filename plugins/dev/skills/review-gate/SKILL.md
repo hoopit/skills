@@ -16,7 +16,7 @@ that cannot run it blocks rather than passing on one engine's word.
 ## Contract
 
 Call after the fix is committed on the branch, **before** push/PR. One call is **one pass** — review,
-fix, report — and the caller decides whether to run another (*Another pass, or stop*, below).
+fix, report — and the caller runs another until one comes back `PASS` with no fix commits.
 Return exactly one verdict:
 
 - **`PASS`** — every *valid* finding is fixed; anything left is Low/Medium that you deliberately
@@ -27,24 +27,6 @@ Return exactly one verdict:
   (you judge it invalid/not worth fixing), or a valid Critical/High that isn't safe to fix here. You
   may **not** unilaterally dismiss a Critical/High. Caller must NOT open the PR — surface the blocking findings; unattended, the
   caller hands back per its own contract, which owns what an escalation writes to the tracker.
-
-## Another pass, or stop
-
-A caller works passes in **rounds**, and judges after each one whether another pays, on what the
-rounds return. Run another while they converge: each fixes something that matters, and fewer valid
-findings come back than the round before. Stop when the rounds **stall**, which takes one of three
-shapes:
-
-- **Churn** — a round finds defects in code an earlier round's fix added, raises a finding an
-  earlier round fixed or skipped on judgement, or reverses a shape an earlier round chose; or the
-  count of valid findings climbs round over round.
-- **Low value** — every valid finding the round raised was Low/Medium: the reviewers have moved
-  from defects to polish, and a further round buys polish at a full round's price.
-- **Needs the user** — a `BLOCK`, or a decision the findings turn on that only the user can settle.
-
-Name the shape and its evidence — the recurring finding, the round's severities, the decision —
-because that is what the user weighs. What a stall leads to is the caller's: `ship` Step 6 and
-`monitor-pr`'s *When the watch stops* each say.
 
 ## Inputs
 
@@ -66,6 +48,8 @@ Set by the caller; unset, the pass is a full review of the whole branch.
   the shape taken and the alternatives set aside, or the mechanism being stepped back
   from. Findings earlier passes skipped on judgement go into the focus as settled ground,
   each with its reason. A `light` pass runs it only when `CHALLENGE` is set.
+- `PRIOR_ROUNDS` *(optional)* — one line per earlier pass: the highest severity among its valid
+  findings. It is what lets this pass close (step 5).
 
 A `light` pass trusts the previous verdict on everything before `REVIEWED_AT`, which holds only
 while a `full` pass covered it — so the caller owns which scope runs, and `ship` Step 6 carries
@@ -161,6 +145,11 @@ that policy.
      diff has converged means the change is carrying two pieces of work. Filing it does not
      block, unlike the sweep too large to finish here: the guard is all this change owed, so
      the pass may still `PASS`.
+   - **A closing pass.** Decide every finding before fixing any. When each one declines — on its
+     merits or as *not worth a round*, judged against `PRIOR_ROUNDS` and the earlier passes' fix
+     commits — the pass closes: *Closing the rounds* in
+     [`../monitor-pr/LEDGER.md`](../monitor-pr/LEDGER.md) holds when a finding qualifies and what
+     a closing pass skips. It returns `PASS` with no fix commits, each decline in the notes.
    - **Challenge findings hold** only when a named caller or sequence reaches them
      (*Classifying an item* in [`../monitor-pr/LEDGER.md`](../monitor-pr/LEDGER.md)). One
      that holds is fixed; the rest are recorded as *challenged, not reached: <evidence>*.

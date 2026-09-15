@@ -12,6 +12,10 @@ trigger — and you do only the comment work: steps 2–4 plus the commit in ste
 steps 1a, 1b, 5a, and step 5's push. Your step 6 rows are what the caller writes into
 the ledger.
 
+Decide every thread before acting on any. When every one declines, the round is a
+**closing round** (*Closing the rounds* in [`../monitor-pr/LEDGER.md`](../monitor-pr/LEDGER.md)):
+reply, resolve and dismiss as usual, and commit nothing.
+
 ## Prerequisites
 - The `gh` CLI must be authenticated.
 - You must be in the project repository (or a worktree of it).

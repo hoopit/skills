@@ -15,22 +15,18 @@ carries the whole review.
 
 ## When the watch stops
 
-The watch runs to the merge, and ends early, in front of the user (Step 5), when the rounds
-**stall**. Judge it after every round, on the round's report and the ledger.
-`review-gate`'s *Another pass, or stop* defines the three shapes; on a PR each reads off
-these:
+The watch runs to the merge. Three things end it early, each in front of the user (Step 5):
 
-- **Churn** — the ledger's convergence counts climb: rows tagged `fixes R<k>`, design
-  reversals, a thread re-raising a row already settled.
-- **Low value** — everything the round took from reviewers was Low/Medium or declined: the
-  reviewers are polishing, and each round spends their attention on polish.
-- **Needs the user** — a **hard fork**: a question whose answer could invalidate work
-  already done or reviews already run.
+- **a closing round** — the round declined every item it held, on its merits or as not
+  worth a round, and committed nothing (*Closing the rounds* in [LEDGER.md](LEDGER.md)).
+  The rounds stop only this way, after the declines: nothing is left open to review, and no
+  push opens another round;
+- **a hard fork** — a question whose answer could invalidate work already done or
+  reviews already run;
+- **the `--rounds` cap**, when one is set.
 
-A round that fixed something that mattered, with the churn counts flat, is converging:
-keep going. `--rounds`, when set, ends the watch at that count too. A `GREEN` line ends
-nothing: it puts the merge decision to the user and the watch keeps running, because a PR
-can go green and then move again.
+A `GREEN` line ends nothing: it puts the merge decision to the user and the watch keeps
+running, because a PR can go green and then move again.
 
 The hard fork is the whole test for whether a question stops the watch. A **hard fork**
 makes the current head not worth reviewing — the answer may throw the approach away — so
@@ -41,8 +37,7 @@ is a soft fork by default; grade it hard only when its answer reaches the work i
 
 Flags:
 
-- `--rounds <N>` — a hard cap on rounds. Unset, there is none: the watch runs until it
-  stalls or the PR closes.
+- `--rounds <N>` — a hard cap on rounds. Unset, there is none.
 - `--subagent[=<model>]` — run rounds in a `hoopit-dev:monitor-pr-worker` instead of yourself,
   reusing it across rounds until it nears its context limit, then rotating to a fresh
   one. The model defaults to `opus`; `--subagent=fable` (or `sonnet`, `haiku`) overrides
@@ -218,12 +213,11 @@ watch stays armed, the questions go to the user in Step 5, and the next `ROUND` 
 whether or not they have been answered. A **hard** fork ends the watch — `TaskStop` the
 monitor, then ask — as does the same check "still failing" in two consecutive rounds.
 
-Then judge the stall (*When the watch stops*). A stall of any shape, or the `--rounds` cap
-reached, `TaskStop`s the monitor and takes its path in Step 5. Otherwise idle until the
-next `ROUND`.
+A report reading `CLOSED`, or the `--rounds` cap reached, `TaskStop`s the monitor and
+takes its path in Step 5. Otherwise idle until the next `ROUND`.
 
-Whenever the watch ends — a stall, the cap, a hard fork, an error stop, or `PR_CLOSED` —
-drop the label again, so it only ever marks PRs under an active watch — and
+Whenever the watch ends — a closing round, the cap, a hard fork, an error stop, or
+`PR_CLOSED` — drop the label again, so it only ever marks PRs under an active watch — and
 `agent-working` with it, which comes off at every hand-back to the user, here and before
 a `GREEN`'s merge question (Step 5): a PR waiting on the user is not being worked, and
 the next round puts it back. `ready-for-review` comes off too: only a watch can take it
@@ -380,13 +374,13 @@ gh pr merge <PR> --repo <OWNER_REPO> --<squash|merge|rebase>
 Leave the monitor running either way: on a merge it sees `PR_CLOSED state=MERGED` next
 poll and Step 4a lands it, and on *keep watching* a PR that moves again still has a watch.
 
-**A stall** — churn or low value, or the `--rounds` cap reached. Stop, then ask whether to
-keep going, naming the shape and its evidence — the recurring finding and the rows it
-patches, or the round's severities — and what is still outstanding. Churn recommends the
-user take the design question it points at; low value recommends letting the PR's human
-reviewers take it from here. *Keep going* re-arms the watch (back to Step 2, label
-included). The turn ends on the `AskUserQuestion`, never on prose: a
-watch that goes dark without one is a watch the user restarts by hand, with its answers
+**Closed or capped** — a closing round, or the `--rounds` cap reached. Stop, then ask
+whether to keep watching. A closing round's question lists its declines — each thread, and
+`not worth a round` with its evidence where that was the reason — so the user can take any
+of them back; a cap's says what is still outstanding and whether the rounds were
+converging. *Keep watching* re-arms the watch (back to Step 2, label included), and a
+decline the user takes back rides into its next round as `ANSWERED`. The turn ends on the
+`AskUserQuestion`, never on prose: a watch that goes dark without one is a watch the user restarts by hand, with its answers
 lost.
 
 **A stop** — the watch ended on something going wrong. Ask immediately, on its own, once
@@ -407,7 +401,7 @@ options, because they answer different things:
 | Soft fork | **Answer in chat** (recommended) · **Take all your recommendations** · **Stop monitoring, I'll take it from here** |
 | Hard fork | **Answer in chat** (recommended) · **Take all your recommendations** · **Stop monitoring, I'll take it from here** — the first two re-arm the watch |
 | Green | **Merge it** · **Not yet — keep watching** · **Stop monitoring, I'll take it from here** |
-| Stall | **Keep going** · **Stop, I'll take it** · **Answer in chat** (when questions are outstanding) |
+| Closed or capped | **Keep watching** · **Stop, I'll take it** · **Answer in chat** (when questions are outstanding) |
 | Stop | **Re-arm the watch** (a transient stop — go back to Step 2, label included) · **Stop, I'll take it** · **Keep going anyway** (re-arm past a check failing for reasons outside this PR) |
 
 Print the blocker's details — the open threads, the failing check's log excerpt — before
