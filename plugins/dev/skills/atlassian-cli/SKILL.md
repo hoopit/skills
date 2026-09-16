@@ -8,6 +8,23 @@ description: Use when working with Jira or Confluence from command line, includi
 Command-line access to Jira and Confluence. Check auth first, use the modern command
 structure, and reach for batch operations over loops.
 
+## Creating a work item needs the human's go-ahead
+
+Jira is the team's tracker: a work item there is planned, prioritised and reported on,
+and someone other than its author carries it. So an agent creates or bulk-creates one
+only when the human has said to, in this conversation — a standing preference for
+filing elsewhere is not that permission, and neither is a finding that plainly deserves
+tracking. Say what you would file and let them answer.
+
+This binds every project (`BAC`, `WEB`, `FA`) and every driver. It is not a per-person
+setting: the cost lands on the team either way. Reading, searching and viewing are
+free — the gate is on writes that create work.
+
+Agent-driven work items — follow-ups, findings, the tickets cut from a spec — belong in
+the driving developer's own tracker instead, which the installed repo's `CLAUDE.md`
+describes. Where a GitHub issue carries out a Jira one, it names the `<KEY>-<n>` in its
+body rather than a second Jira item.
+
 ## Authentication — always the first step
 
 ```bash
@@ -137,6 +154,9 @@ a transition on a key that appears on **no** surface of the PR is something else
 an over-broad bulk `transition --jql`. `create-pull-request` carries the prevention.
 
 ## Bulk creation
+
+Bulk is where the gate above matters most: `create-bulk` turns one wrong call into a
+queue the team has to clear by hand. Confirm the list, not just the intent.
 
 ```bash
 acli jira workitem create --generate-json > template.json   # JSON template
