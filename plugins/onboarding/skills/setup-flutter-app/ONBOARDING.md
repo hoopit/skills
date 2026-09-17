@@ -223,6 +223,37 @@ acli jira auth login            # follow the prompts
 - [ ] `acli --version` works
 - [ ] `acli jira auth login` succeeds
 
+### 1g. Windows only — git symlinks
+
+`flutter-app` commits symlinks that bridge agent config (`.claude/skills` and
+`.claude/rules` → `../.agents/...`). Git for Windows writes
+`core.symlinks=false` into each clone, so those links check out as text files
+holding the target path, and Claude Code / Codex load no project skills
+natively. macOS/Linux need nothing — skip to Step 2.
+
+▶ **Prompt:**
+> I'm on Windows. Check that Developer Mode is on (Settings > For developers) or
+> that git runs elevated, then set `git config --global core.symlinks true`. If
+> `flutter-app` is already cloned, repair its committed symlinks and those in any
+> worktree under `.claude/worktrees` or `.worktrees`.
+
+Manual:
+```powershell
+# once per machine: enable Developer Mode (Settings > For developers), or run git elevated
+git config --global core.symlinks true
+```
+
+A clone that already exists keeps its own `core.symlinks=false`; repair it in place:
+```bash
+git config core.symlinks true
+git ls-files -s | awk '$1=="120000"'        # lists the committed symlinks
+rm <path> && git checkout -- <path>          # per listed path
+```
+Repeat inside every worktree under `.claude/worktrees` and `.worktrees`.
+
+- [ ] `git config --global core.symlinks` prints `true` (Windows only)
+- [ ] `.claude/skills` and `.claude/rules` in the clone are directories, not files (after Step 2a)
+
 ---
 
 ## Step 2 — Clone & bootstrap the project
@@ -472,6 +503,7 @@ fvm flutter run -d web-server --web-port 3000 --web-hostname localhost \
 - [ ] `claude` runs and is authenticated
 - [ ] `gh auth status` ✓ · `acli --version` ✓
 - [ ] `flutter-app` cloned as a sibling of `skills` (`../flutter-app`)
+- [ ] *(Windows)* `core.symlinks` is `true` and `.claude/skills` / `.claude/rules` are directories
 - [ ] `fvm flutter doctor` clean (Android licenses accepted)
 - [ ] `dcm --version` ✓ and license activated
 - [ ] `sentry --version` ✓ (issues/API — primary) · `sentry-cli --version` ✓ (symbol uploads)

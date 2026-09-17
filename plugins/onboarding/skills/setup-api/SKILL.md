@@ -21,6 +21,21 @@ follow it step by step. This file is the orchestration contract.
    logins (GitHub, Atlassian, AWS), Docker Desktop install.
 5. **Stop and surface blockers** rather than guessing around a failure.
 
+## Windows only: git symlinks (before cloning)
+
+`api` commits symlinks that bridge agent config (`.agents/skills` →
+`../.claude/skills`). Git for Windows writes `core.symlinks=false` into each
+clone, so those links check out as text files holding the target path, and
+Claude Code / Codex load no project skills natively — they reach them only
+through the skill names in `AGENTS.md`. macOS/Linux need nothing.
+
+1. Enable Windows Developer Mode (Settings > For developers), or run git elevated.
+2. `git config --global core.symlinks true`.
+3. For a clone that already exists: inside it, `git config core.symlinks true`,
+   then for each committed symlink `rm <path>` and `git checkout -- <path>`.
+   List them with `git ls-files -s | awk '$1=="120000"'`. Worktrees under
+   `.claude/worktrees` and `.worktrees` need the same repair.
+
 ## Critical: where the repo goes
 
 This skill runs from inside the **`skills`** repo. Clone `api` as a **sibling of
@@ -39,7 +54,8 @@ This yields `…/api` next to `…/skills`. Run the rest of the bootstrap from i
 
 1. **Step 0** — Claude Code is already installed (you're in it). Skip.
 2. **Step 1** — Core CLIs: `gh` (+auth), `mise` (+Python 3.14), `uv`, **Docker**,
-   `sentry`, `acli` (+auth), and `aws` (optional, for staging/prod).
+   `sentry`, `acli` (+auth), and `aws` (optional, for staging/prod). **Windows
+   only**: Developer Mode + `core.symlinks` (above).
 3. **Step 2** — Clone api **as a sibling** (above), `uv sync`, `pre-commit install`
    (commit **+** push **+** post-checkout hooks).
 4. **Step 3** — Supporting services: Postgres (the repo's `local.env` expects it
