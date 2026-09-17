@@ -227,7 +227,8 @@ rm <path> && git checkout -- <path>          # per listed path
 ```
 Repeat inside every worktree under `.claude/worktrees` and `.worktrees`.
 
-- [ ] `git config --global core.symlinks` prints `true` (Windows only)
+- [ ] `git config --get core.symlinks` prints `true` inside the clone and each
+  worktree (Windows only, after Step 2a)
 - [ ] `.agents/skills` in the clone is a directory, not a file (after Step 2a)
 
 ---
@@ -393,7 +394,7 @@ uv run pytest users/tests
 - [ ] `gh auth status` ✓ · `acli --version` ✓ · `sentry --version` ✓
 - [ ] `python3 --version` reports 3.14 via mise · `uv --version` ✓
 - [ ] `api` cloned as a sibling of `skills` (`../api`)
-- [ ] *(Windows)* `core.symlinks` is `true` and `.agents/skills` is a directory
+- [ ] *(Windows)* `git config --get core.symlinks` prints `true` inside the clone and `.agents/skills` is a directory
 - [ ] `uv sync` completed; `.venv/` present
 - [ ] `pre-commit` hooks installed (pre-commit, pre-push, post-checkout) and `--all-files` passes
 - [ ] Postgres reachable at the `local.env` host/port (default `127.0.0.1:5435`)

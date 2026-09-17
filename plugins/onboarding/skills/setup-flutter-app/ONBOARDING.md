@@ -251,7 +251,8 @@ rm <path> && git checkout -- <path>          # per listed path
 ```
 Repeat inside every worktree under `.claude/worktrees` and `.worktrees`.
 
-- [ ] `git config --global core.symlinks` prints `true` (Windows only)
+- [ ] `git config --get core.symlinks` prints `true` inside the clone and each
+  worktree (Windows only, after Step 2a)
 - [ ] `.claude/skills` and `.claude/rules` in the clone are directories, not files (after Step 2a)
 
 ---
@@ -503,7 +504,7 @@ fvm flutter run -d web-server --web-port 3000 --web-hostname localhost \
 - [ ] `claude` runs and is authenticated
 - [ ] `gh auth status` ✓ · `acli --version` ✓
 - [ ] `flutter-app` cloned as a sibling of `skills` (`../flutter-app`)
-- [ ] *(Windows)* `core.symlinks` is `true` and `.claude/skills` / `.claude/rules` are directories
+- [ ] *(Windows)* `git config --get core.symlinks` prints `true` inside the clone and `.claude/skills` / `.claude/rules` are directories
 - [ ] `fvm flutter doctor` clean (Android licenses accepted)
 - [ ] `dcm --version` ✓ and license activated
 - [ ] `sentry --version` ✓ (issues/API — primary) · `sentry-cli --version` ✓ (symbol uploads)
