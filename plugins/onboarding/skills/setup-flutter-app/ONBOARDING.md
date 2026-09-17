@@ -253,7 +253,8 @@ Repeat inside every worktree under `.claude/worktrees` and `.worktrees`.
 
 - [ ] `git config --get core.symlinks` prints `true` inside the clone and each
   worktree (Windows only, after Step 2a)
-- [ ] `.claude/skills` and `.claude/rules` in the clone are directories, not files (after Step 2a)
+- [ ] `.claude/skills` and `.claude/rules` are directories, not files, in the clone and
+  each worktree (after Step 2a)
 
 ---
 

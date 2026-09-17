@@ -229,7 +229,8 @@ Repeat inside every worktree under `.claude/worktrees` and `.worktrees`.
 
 - [ ] `git config --get core.symlinks` prints `true` inside the clone and each
   worktree (Windows only, after Step 2a)
-- [ ] `.agents/skills` in the clone is a directory, not a file (after Step 2a)
+- [ ] `.agents/skills` is a directory, not a file, in the clone and each worktree
+  (after Step 2a)
 
 ---
 
