@@ -1,0 +1,258 @@
+#!/usr/bin/env bash
+# Keep the LKs agent project board (github.com/orgs/hoopit/projects/2) at <target>
+# items in flight, dispatching a herdr agent per free slot as slots free.
+#
+# There is no model in this loop: `hoopit-board next` picks, and its docstring is the
+# account of how. This script claims what it returns and starts an agent on it, and the
+# agent runs `/assess-issue`, which reads the issue and decides what to do. So nothing
+# here understands the work — only that two agents must not share a file or a migration
+# graph, which `next` establishes from resolved paths and, where an issue names none, from
+# a System One judgement over its prose. A candidate that judgement leaves uncertain comes
+# back under `needs_judgement` and is never dispatched from here.
+#
+# Judgement that needs a human is the `gh-triage` skill, and the items no agent can
+# finish — Autonomy `Needs decision` or `Out of reach` — are never started here at all;
+# `hoopit-board decisions` is the queue for clearing those by hand.
+#
+# <target> is the only cap, and it is a real one: a slot frees when a PR merges, an
+# assessment closes its issue, or an agent hands it back, so the board drains no faster
+# than that work completes. One tick fills every free slot it can.
+#
+#   start-backlog-daemon <target> [--interval SEC] [--once] [--dry-run]
+#
+# Installed as ~/.config/systemd/user/start-backlog.service;
+# journalctl --user -u start-backlog -f has the whole run.
+
+set -uo pipefail
+
+TARGET=""
+INTERVAL=600
+ONCE=0
+DRY=0
+# A candidate this daemon dispatched inside the cooloff is passed over. An agent that
+# hands its issue straight back puts it in Backlog again and `check` reads the release
+# as cancelling the claim, so without this the same item redispatches every tick.
+COOLOFF_HOURS=${START_BACKLOG_COOLOFF_HOURS:-6}
+# In progress this long with no open PR, and its herdr agent gone, means a dead agent
+# holding a slot nothing will ever free.
+STALE_HOURS=${START_BACKLOG_STALE_HOURS:-6}
+REPOS_DIR=${START_BACKLOG_REPOS_DIR:-$HOME/Dev/Hoopit}
+# The repos this daemon fills: <target> counts flight in these alone, and work starts
+# nowhere else. The board also tracks tooling repos, and an unattended agent there
+# rewrites the skills every other agent is running on.
+REPOS=${START_BACKLOG_REPOS:-hoopit/api hoopit/web-admin hoopit/flutter-app}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    # Kept so an older invocation or env file still starts. Unattended-only is what
+    # `hoopit-board next` does unconditionally now.
+    --unattended) echo "note: --unattended is the only behaviour; the flag is redundant"; shift ;;
+    --interval) INTERVAL="$2"; shift 2 ;;
+    --once) ONCE=1; shift ;;
+    --dry-run) DRY=1; shift ;;
+    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+    -*) echo "unknown flag: $1" >&2; exit 2 ;;
+    *) TARGET="$1"; shift ;;
+  esac
+done
+[[ -n "$TARGET" ]] || { echo "usage: start-backlog-daemon <target> [--interval SEC] [--once] [--dry-run]" >&2; exit 2; }
+
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/start-backlog"
+RUN_DIR="${XDG_RUNTIME_DIR:-/tmp}/start-backlog"
+DISPATCHED="$STATE_DIR/dispatched.tsv"   # <repo#n>\t<epoch>, one dispatch per line
+LOCK="$RUN_DIR/dispatch.lock"
+mkdir -p "$STATE_DIR" "$RUN_DIR"
+touch "$DISPATCHED"
+
+log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*"; }
+jqr() { python3 -c "import json,sys; print(eval(sys.argv[1], {'d': json.load(sys.stdin)}))" "$1"; }
+
+# The client talks to the herdr server over a socket and does not care whether the
+# caller sits in a managed pane, so HERDR_ENV gates nothing here — this process will
+# never have it set. Reaching the server is the real precondition.
+herdr_up() { herdr api snapshot >/dev/null 2>&1; }
+
+cooloff_excludes() {
+  local cutoff=$(( $(date +%s) - COOLOFF_HOURS * 3600 ))
+  awk -v c="$cutoff" -F'\t' '$2 >= c { print "--exclude"; print $1 }' "$DISPATCHED"
+}
+
+prune_dispatched() {
+  local cutoff=$(( $(date +%s) - COOLOFF_HOURS * 3600 ))
+  awk -v c="$cutoff" -F'\t' '$2 >= c' "$DISPATCHED" > "$DISPATCHED.new" && mv "$DISPATCHED.new" "$DISPATCHED"
+}
+
+# Release the slots held by agents that are gone. An item claimed by `hoopit-board
+# start` carries no agent name — that is a Claude Code session, not a herdr pane, and
+# nothing here can tell whether it is still working. Left alone.
+#
+# Only the `no-pr` shape is ever released. A `pr-quiet` item has an open PR: releasing it
+# sends a live branch back to Backlog, where the next tick hands it to a second agent.
+# Those are logged for a human to pick up, which is what `/monitor-pr` is for.
+reap() {
+  local live item agent age reason url
+  live=$(herdr agent list 2>/dev/null |
+         python3 -c 'import json,sys; print("\n".join(a["name"] for a in json.load(sys.stdin)["result"]["agents"] if a.get("name")))')
+  while IFS=$'\t' read -r item agent age reason url; do
+    [[ -n "${item:-}" ]] || continue
+    # An agent herdr still lists is working, however quiet the item looks.
+    if [[ "$agent" != "-" ]] && grep -qx -- "$agent" <<<"$live"; then continue; fi
+    if [[ "$reason" == "pr-quiet" ]]; then
+      local who="agent '$agent' is gone"
+      [[ "$agent" == "-" ]] && who="nothing claims it"
+      log "attention $item: open PR untouched for $age and $who — $url"
+      continue
+    fi
+    # No claim marker: a human moved it, and nothing here can judge a Claude Code session.
+    [[ "$agent" != "-" ]] || continue
+    log "reap $item: agent '$agent' gone, claimed $age ago, no open PR"
+    (( DRY )) && continue
+    hoopit-board release "${item%%#*}" "${item##*#}" \
+      --reason "agent \`$agent\` is no longer running and left no open PR after $age." || true
+  done < <(hoopit-board stale --older-than "$STALE_HOURS" 2>/dev/null)
+}
+
+# The workspace for a repo, created if there is none. Workspaces mirror repos.
+workspace_for() {
+  local repo_name="$1" dir="$2" id
+  id=$(herdr workspace list 2>/dev/null |
+       jqr "next((w['workspace_id'] for w in d['result']['workspaces'] if w['label'] == '$repo_name'), '')")
+  if [[ -z "$id" ]]; then
+    id=$(herdr workspace create --cwd "$dir" --label "$repo_name" --no-focus 2>/dev/null |
+         jqr "d['result']['workspace']['workspace_id']")
+    log "created workspace $id for $repo_name"
+  fi
+  printf '%s' "$id"
+}
+
+# check -> claim -> tab -> agent -> prompt, for one issue. A failure after the claim
+# releases it again rather than leaving a slot held by an agent that never started.
+dispatch() {
+  local repo="$1" n="$2" model="$3" reff="$4" url="$5" fp="$6"
+  # `-` is the no-effort sentinel: an empty TSV field would collapse against the tabs.
+  [[ "$reff" == "-" ]] && reff=""
+  local name="${repo##*/}" agent="gh$n" dir wsid pane
+  dir="$REPOS_DIR/$name"
+  [[ -d "$dir" ]] || { log "skip $repo#$n: no checkout at $dir"; return 1; }
+
+  local verdict
+  # check prints START on success and SKIP<tab>item<tab>why on rejection.
+  verdict=$(hoopit-board check "$repo" "$n") || { log "skip $repo#$n: ${verdict##*$'\t'}"; return 1; }
+
+  if (( DRY )); then
+    log "dry run: would start $agent on $repo#$n ($model${reff:+/$reff}) in $dir — footprint: $fp"
+    return 0
+  fi
+
+  wsid=$(workspace_for "$name" "$dir")
+  [[ -n "$wsid" ]] || { log "skip $repo#$n: no workspace for $name"; return 1; }
+
+  pane=$(herdr tab create --workspace "$wsid" --cwd "$dir" --label "$agent" --no-focus 2>/dev/null |
+         jqr "d['result']['root_pane']['pane_id']")
+  [[ -n "$pane" ]] || { log "skip $repo#$n: tab create failed in $wsid"; return 1; }
+
+  hoopit-board claim "$repo" "$n" --agent "$agent" --tab "$agent" \
+    --model "$model" ${reff:+--reasoning-effort "$reff"} || return 1
+
+  if ! herdr agent start "$agent" --kind claude --pane "$pane" -- \
+        -n "$agent" --permission-mode bypassPermissions --model "$model" \
+        ${reff:+--effort "$reff"} >/dev/null 2>&1; then
+    log "FAILED to start $agent on $repo#$n — releasing"
+    hoopit-board release "$repo" "$n" --reason "the agent could not be started; the slot is free again." || true
+    return 1
+  fi
+
+  local prompt="Work $repo#$n: $url
+
+Run it with: /assess-issue $url --started
+
+Nobody is watching this tab. If the assessment turns on a decision only the author can
+make, write the question onto the issue and release the slot with
+\`hoopit-board release $repo $n --reason '<why>'\` rather than waiting for an answer."
+  herdr agent prompt "$agent" "$prompt" >/dev/null 2>&1 ||
+    log "warning: $agent started but the opening prompt did not send"
+
+  printf '%s\t%s\n' "$repo#$n" "$(date +%s)" >> "$DISPATCHED"
+  log "dispatched $agent on $repo#$n ($model${reff:+/$reff}) — footprint: $fp"
+}
+
+tick() {
+  local run="$RUN_DIR/next.json" rc
+  mapfile -t excludes < <(cooloff_excludes)
+  local scope=() r
+  for r in $REPOS; do scope+=(--repo "$r"); done
+  hoopit-board next "$TARGET" "${scope[@]}" "${excludes[@]}" > "$run"
+  rc=$?
+
+  python3 - "$run" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+print(f'in_flight={d["in_flight"]}/{d["target"]} deficit={d["deficit"]} '
+      f'candidates={d["candidates_total"]} startable={len(d["startable"])} '
+      f'blocked={len(d["blocked"])} needs_judgement={len(d.get("needs_judgement", []))} '
+      f'untriaged={len(d["untriaged"])} '
+      f'held={len(d["held"])} scheduled={len(d["scheduled"])} '
+      f'awaiting_deploy={len(d["awaiting_deploy"])} cooloff={len(d["excluded"])} '
+      f'out_of_scope={len(d["out_of_scope"])} '
+      f'judgement={d.get("judgement", "off")}')
+for g in d["awaiting_deploy"][:5]:
+    print(f'  awaiting deploy {g["repo"]}#{g["n"]} {g["priority"]}/{g["effort"]}: {g["gate"]}')
+for b in d["blocked"][:5]:
+    if "collides" in b:
+        why = "; ".join(f'{p} held by {",".join(v)}' for p, v in b["collides"].items())
+    else:
+        why = "; ".join(f'{k} at {v}' for k, v in b.get("judged", {}).items())
+    print(f'  blocked {b["repo"]}#{b["n"]} {b["priority"]}/{b["effort"]}: {why}')
+for j in d.get("needs_judgement", [])[:5]:
+    # Neither startable nor rejected: the judgement landed between the thresholds, and
+    # nothing unattended may settle that. `gh-triage` is where these get read.
+    print(f'  needs judgement {j["repo"]}#{j["n"]} {j["priority"]}/{j["effort"]}: '
+          + "; ".join(f'{k} at {v}' for k, v in j.get("judged", {}).items()))
+if d["no_checkout"]:
+    print(f'  no checkout: {", ".join(d["no_checkout"])} — footprints there are empty')
+if d["deficit"] > 0 and not d["startable"]:
+    print(f'  IDLE with {d["deficit"]} slot(s) free: {len(d["blocked"])} blocked, '
+          f'{len(d.get("needs_judgement", []))} needing judgement, '
+          f'{len(d["untriaged"])} untriaged, {len(d["held"])} held, '
+          f'{len(d["scheduled"])} not yet due, {len(d["awaiting_deploy"])} awaiting '
+          f'deploy, {len(d["excluded"])} in cooloff')
+PY
+  (( rc == 0 )) || return 0
+
+  # Fill every free slot this pass. `startable` is already mutually non-colliding, and
+  # already capped at the deficit by `next`.
+  local count=0
+  while IFS=$'\t' read -r repo n model reff url fp; do
+    dispatch "$repo" "$n" "$model" "$reff" "$url" "$fp" && (( count++ ))
+  done < <(python3 - "$run" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+for e in d["startable"][:d["deficit"]]:
+    print("\t".join([e["repo"], str(e["n"]), e["model"], e["reasoning_effort"] or "-",
+                      e["url"], ", ".join(e["footprint"]) or "(none named)"]))
+PY
+)
+  log "filled $count slot(s)"
+}
+
+log "start-backlog daemon: target=$TARGET interval=${INTERVAL}s dry=$DRY repos=$REPOS"
+while :; do
+  if ! herdr_up; then
+    log "herdr server unreachable — holding"
+  else
+    prune_dispatched
+    # One dispatcher at a time — a second daemon, or a manual run, waits its turn
+    # rather than double-claiming an issue or double-releasing a reaped one.
+    exec {lockfd}>"$LOCK"
+    if flock -n "$lockfd"; then
+      reap
+      tick
+      flock -u "$lockfd"
+    else
+      log "tick skipped: another dispatcher holds $LOCK"
+    fi
+    exec {lockfd}>&-
+  fi
+  (( ONCE )) && break
+  sleep "$INTERVAL"
+done

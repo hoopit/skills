@@ -1,7 +1,8 @@
 # CLAUDE.md
 
 Guidance for Claude Code when working in this repo. This is a **distribution** of
-agent skills, shipped as a Claude Code plugin marketplace (see [README.md](README.md)).
+agent skills, shipped as a Claude Code plugin marketplace (see [README.md](README.md)) —
+plus `personal/`, which ships to nobody and which `~/.claude/skills/` symlinks into.
 For the skill-authoring conventions, the project-local `create-hoopit-skill` skill
 under `.claude/skills/` is the source of truth — including how `${CLAUDE_PLUGIN_ROOT}`
 must be written wherever a skill reaches a bundled script.

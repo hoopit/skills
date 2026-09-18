@@ -1,0 +1,1441 @@
+#!/usr/bin/env python3
+"""Mechanical half of the LKs agent project board (github.com/orgs/hoopit/projects/2).
+
+Fetching, filtering, ranking, freshness gates and bulk writes live here so the
+skills that use it spend their tokens on judgement instead. Every subcommand is
+deterministic: nothing here decides what is a duplicate, or what a change is worth.
+
+`next` is the exception, and deliberately so: it ranks, footprints and rejects
+collisions itself, because `start-backlog-daemon` calls it with no model in the
+loop. An issue's footprint is the backticked paths its body names — `create-gh-issue`
+writes them exact — kept only when they resolve against the repo checkout, so a
+footprint is exact where an issue is exact and empty where it is vague.
+
+Where it is empty, `next` asks a System One model (TypeSafe's Jev) whether the work
+would reach code already in flight. That is the one judgement in this file, and it is
+strictly additive: a resolved path outranks any probability, and nothing the model says
+clears a collision the paths found. It also fails open — no `TYPESAFE_API_KEY`, a
+timeout or an error and the tick is exactly the tick it would have been, with the reason
+in the `judgement` field. `--no-judge` turns it off outright. A candidate whose
+probability lands between `COLLIDE_LOW` and `COLLIDE_HIGH` goes to `needs_judgement`
+rather than being dispatched or rejected: untuned thresholds hand work back.
+
+Called as a bare command by `start-backlog-daemon` and by the `create-gh-issue`,
+`gh-triage` and `curate-backlog` skills, off a `~/.local/bin` symlink. PRIORITIES, EFFORTS and
+AUTONOMY below are the rubric tables in `create-gh-issue`: change the two
+together or the skill teaches a value this rejects.
+
+Priority, Effort, Autonomy and the `Start date` are org-wide issue fields
+(`organization.issueFields` on `hoopit`), not fields of this project: the value lives on
+the issue and the board only reads through to it. So a write goes to the issue with
+`setIssueFieldValue` while Status, which is the project's own field, keeps going to the
+project item — and a PullRequest item can carry Status but none of the four.
+
+Reading one through the board needs it added to the project with
+`createProjectV2IssueField(projectId, issueFieldId)`; until then `fieldValueByName`
+answers null for an issue that plainly carries the value.
+
+`Start date` is the earliest date the work may be picked up — GitHub's own field,
+read here as a gate rather than a plan. A future date holds an item out of `startable`
+and out of `check`, and the item re-enters ranking on its own the day it falls due;
+nothing sweeps.
+
+It gates on the wall clock alone. Work waiting on an *event* has two homes and neither
+is exact: `blockedBy`, where the blocker is an issue someone closes, and a declared
+proxy date where it is not. A rollout is the second kind — nothing on GitHub represents
+a release, and the issue that ships the code closes at merge, days before promotion.
+
+  slots [X] [--unattended]       what to start, to reach X in flight (default 15)
+  next [X] [--repo R]... [--exclude REPO#N]... [--no-judge]  one tick, as JSON; exit 1 = nothing to do
+  decisions [N] [--unnamed] [--out-of-reach]   the top N decisions to answer (default 5)
+  stale [--older-than H]         flight that may have lost its agent: no-pr | pr-quiet\n  dispatches [--since D] [--repo R]...  merged PRs by the rung that wrote them
+  open                           every open item, one line each
+  scan                           every open item, with curation signals
+  check <repo> <n>               is this issue startable?  exit 0 yes / 1 no
+  claim <repo> <n> --agent A [--tab T]    status -> In progress, then comment
+  start <repo> <n>               the same, for work taken in this session
+  release <repo> <n> --reason R  status -> Backlog, so the slot frees up
+  footprint <repo>...            paths the open PRs of each repo are touching
+  drop <repo> <n> [--apply]      take a PullRequest item off the board
+  triage <repo> <n> [--priority P2] [--effort M] [--autonomy Unattended]
+         [--not-before YYYY-MM-DD|none]
+  batch                          the same, for many items, from stdin
+  add <repo> <n>                 put an issue on the board; prints its item id
+  archive-done [--older-than N] [--apply]  (default 7 days)
+"""
+import argparse, json, os, re, subprocess, sys, textwrap, urllib.error, urllib.request
+from collections import defaultdict
+from datetime import date, datetime, timedelta, timezone
+
+PROJECT, OWNER = "2", "hoopit"
+PRIORITIES = ["P0", "P1", "P2", "P3"]
+EFFORTS = ["XS", "S", "M", "L", "XL"]
+AUTONOMY = ["Unattended", "Needs decision", "Out of reach"]
+# (model, reasoning effort) per Effort — one rung per tier, and the rungs are a joint
+# ladder over model *and* effort, never effort alone. It is strictly increasing:
+# sonnet/medium < opus/medium < opus/high < fable/high < fable/xhigh, so no tier is ever
+# priced under a smaller one. Every level is explicit; nothing relies on Claude Code's
+# own default (`xhigh`), which would silently make an unset tier the most expensive.
+# `claim` records what each dispatch got, which is the only durable join from a merged PR
+# back to the model that wrote it — and the only way the step down is observable at all.
+DISPATCH_MODEL = {
+    "XS": ("sonnet", "medium"),
+    "S": ("opus", "medium"),
+    "M": ("opus", "high"),
+    "L": ("fable", "high"),
+    "XL": ("fable", "xhigh"),
+}
+# GitHub's built-in date field, read as "not before": see the module docstring.
+DATE_FIELD = "Start date"
+# The two review statuses are the vocabulary `board-status.yml` writes: a draft PR is
+# the agent's rounds, a ready one is a human's. Both still hold a slot.
+IN_FLIGHT = ("In progress", "AI review", "Human review")
+CLAIM_RE = re.compile(r"started (?:as (?:herdr )?agent|in a claude code session)", re.I)
+RELEASE_RE = re.compile(r"handed back to the backlog", re.I)
+STOPWORDS = set("""a an and are as at be by for from has have in into is it its of on or that the
+to with when then than this these those not no its it's if while after before over under""".split())
+CHECKOUTS = os.path.expanduser("~/Dev/Hoopit")
+PRODUCTION = "production"
+# `Gate: deployed hoopit/api#17271` on a line of its own, `#17271` for this repo, or a
+# sha. The PR number is the durable handle: under squash merge a PR's head sha is never
+# on master, while `merge_commit_sha` is the squash commit that is — and the number
+# exists while the PR is still open, which is when a follow-up gets filed.
+DEPLOY_GATE = re.compile(
+    r"^\s*Gate:\s*deployed\s+([\w.-]+/[\w.-]+)?\s*(?:#(\d+)|@?\b([0-9a-f]{7,40})\b)\s*$",
+    re.I | re.M)
+BACKTICK = re.compile(r"`([^`\n]+)`")
+LINEREF = re.compile(r":\d+(?:-\d+)?$")
+# Two pieces of work that each add a migration conflict on the graph however far apart
+# their files sit, and an issue rarely says "migration" — it says what it enforces.
+# `CHECK (` stays case-sensitive under the re.I: lowercased it matches English prose
+# ("a reciprocal check (or route through it)", a `## Check (...)` heading), which hands a
+# migration footprint to issues that write no migration.
+MIGRATION_HINT = re.compile(r"migrat\w+|(?-i:CHECK)\s*\(|\bAdd(?:Constraint|Field|Index)\b"
+                            r"|\bAlter(?:Field|ModelOptions|UniqueTogether)\b|\bconstraint\b", re.I)
+MIGRATION_FILE = re.compile(r"(^|/)migrations/\d{4}_[^/]+\.py$")
+# Scoped per Django app: two migrations conflict on a shared parent, which only happens
+# within one app. `:*` is an issue that wants a migration but names no path to place it
+# in, and collides with any app's — conservative, because it cannot be placed.
+MIGRATION_TOKEN = "MIGRATION-GRAPH"
+MIGRATION_ANY = f"{MIGRATION_TOKEN}:*"
+# `next` decides with nobody watching, and `body_footprint` is exact where an issue is
+# exact and empty where it is vague — an issue naming its work only in prose dispatches
+# with no collision check at all. A System One judgement (TypeSafe's Jev) reads the prose
+# and adds the collisions the path test cannot see. It never removes one: a resolved path
+# is ground truth and outranks any probability.
+#
+# Every call here fails open. No key, a timeout, a 429, a malformed answer — `next`
+# returns what it returned before and says so in its `judgement` field. An outage must
+# degrade the daemon, never stall it.
+TYPESAFE_URL = "https://api.typesafe.ai/v1/systemone"
+TYPESAFE_MODEL = "jev-latest"
+TYPESAFE_TIMEOUT = 30
+# Noul probabilities, not confidence — a Noul carries none of its own. Under COLLIDE_LOW
+# the candidate dispatches; at COLLIDE_HIGH or above it is `blocked`; between them it is
+# neither, and lands in `needs_judgement` for an attended session. The band is wide
+# deliberately: thresholds nobody has tuned against this board should hand work back
+# rather than invent a verdict.
+COLLIDE_LOW, COLLIDE_HIGH = 0.35, 0.70
+# One threshold, because the answer only ever adds a footprint token. A false yes costs a
+# tick's delay; a false no is the collision this exists to catch.
+MIGRATION_YES = 0.55
+# A Jev request carries `state` plus every question inside 32k tokens, and accuracy drifts
+# as state grows. These bound it: the longest issue bodies on this board run past 3k words.
+# The PR cap is set above the busiest repo's open-PR count rather than at a round number —
+# a dropped PR is a collision nobody is told about, so `next` says when the cap bites
+# instead of quietly judging a subset.
+JUDGE_MAX_PRS = 40
+JUDGE_MAX_FILES = 30
+JUDGE_MAX_BODY = 12000
+# `create-gh-issue` asks a Needs decision issue to name its decision in the body, and
+# writes it two ways: a `## Heading` or a `**Bold lead-in.**`. Match both — matching one
+# reports most of the board as unnamed, which buries the handful that really are.
+DECISION_WORD = r"(decision|call|question|weigh|choice|option|settle|unknown|ask)"
+SECTION_LEAD = re.compile(r"\*\*[^*\n]+[.:]\*\*")
+LIST_ITEM = re.compile(r"^(\d+[.)]|[-*+])\s")
+DECISION_NAMED = re.compile(
+    rf"^(?:#{{2,4}} .*\b{DECISION_WORD}\w*\b.*|\*\*[^*\n]*\b{DECISION_WORD}\w*\b[^*\n]*\*\*)",
+    re.I | re.M)
+
+
+def gh(*args, parse=True):
+    """gh with mise's stdout banner suppressed — it corrupts captured JSON."""
+    env = {**os.environ, "MISE_QUIET": "1"}
+    r = subprocess.run(["gh", *args], capture_output=True, text=True, env=env)
+    if r.returncode != 0:
+        sys.exit(f"gh {' '.join(args)}\n{r.stderr.strip()}")
+    return json.loads(r.stdout) if parse else r.stdout
+
+
+def rest(path, limit, **params):
+    """The newest `limit` rows of a REST collection, newest-created first. GitHub meters
+    REST and GraphQL separately, and gh's porcelain (`gh issue list`, `gh pr list`) is
+    GraphQL underneath — spending the bucket the Projects v2 calls have no REST
+    alternative for. Anything REST can answer is asked here.
+
+    The cap is not decoration: these repos hold tens of thousands of issues, so the walk
+    has to stop on its own rather than on the server running out of pages."""
+    out = []
+    for page in range(1, -(-limit // 100) + 1):
+        q = "&".join(f"{k}={v}" for k, v in {"per_page": 100, "page": page, **params}.items())
+        rows = gh("api", f"{path}?{q}")
+        out += rows
+        if len(rows) < 100:
+            break
+    return out[:limit]
+
+
+def gql(query, **variables):
+    """One GraphQL request. Projects v2 has no REST API, so the board has to come through
+    here — but gh's own `gh project` porcelain asks for every field value of every item
+    (`fieldValues(first: 100)`, each with nested connections) and echoes the same back from
+    every write: 305 points for a 262-item board read, 103 for a single `item-edit`, out of
+    5000 an hour shared by every agent on the machine. The queries below name only the
+    fields this script reads and cost 1 point a request."""
+    args = ["api", "graphql", "-f", f"query={query}"]
+    for k, v in variables.items():
+        if v is not None:
+            args += ["-F" if isinstance(v, int) else "-f", f"{k}={v}"]
+    d = gh(*args)
+    if d.get("errors"):
+        sys.exit(f"graphql: {d['errors']}")
+    return d["data"]
+
+
+def gql_write(query):
+    """One mutation request. Returns None on success, or the error text.
+
+    `gql` exits the process, which is right for a read and wrong for a write: by the time
+    a bulk sweep fails, earlier requests have already landed, and only the caller knows
+    how much. It reports that instead of dying with the raw error."""
+    env = {**os.environ, "MISE_QUIET": "1"}
+    r = subprocess.run(["gh", "api", "graphql", "-f", f"query={query}"],
+                       capture_output=True, text=True, env=env)
+    if r.returncode != 0:
+        return r.stderr.strip() or f"gh exited {r.returncode}"
+    try:
+        d = json.loads(r.stdout)
+    except json.JSONDecodeError:
+        return f"unparseable response: {r.stdout[:200]!r}"
+    return json.dumps(d["errors"]) if d.get("errors") else None
+
+
+BOARD_QUERY = """query($login:String!,$number:Int!,$after:String){
+  organization(login:$login){ projectV2(number:$number){
+    items(first:100, after:$after){
+      pageInfo{ hasNextPage endCursor }
+      nodes{ id
+        content{ __typename
+          ... on Issue{ id number title url updatedAt repository{nameWithOwner} }
+          ... on PullRequest{ number title url updatedAt repository{nameWithOwner} } }
+        status: fieldValueByName(name:"Status"){ ... on ProjectV2ItemFieldSingleSelectValue{name} }
+        priority: fieldValueByName(name:"Priority"){ ...axis }
+        effort: fieldValueByName(name:"Effort"){ ...axis }
+        autonomy: fieldValueByName(name:"Autonomy"){ ...axis }
+        not_before: fieldValueByName(name:"Start date"){ ...day }
+        prs: fieldValueByName(name:"Linked pull requests"){
+          ... on ProjectV2ItemFieldPullRequestValue{ pullRequests(first:10){ nodes{ url state updatedAt } } } }
+      } } } } }
+fragment axis on ProjectV2ItemIssueFieldValue{
+  issueFieldValue{ ... on IssueFieldSingleSelectValue{ name } } }
+fragment day on ProjectV2ItemIssueFieldValue{
+  issueFieldValue{ ... on IssueFieldDateValue{ value } } }"""
+
+
+def axis(value):
+    """The name behind an org issue field's value on a board item, or ""."""
+    return ((value or {}).get("issueFieldValue") or {}).get("name") or ""
+
+
+def day(value):
+    """The YYYY-MM-DD behind a date issue field's value on a board item, or ""."""
+    return ((value or {}).get("issueFieldValue") or {}).get("value") or ""
+
+
+def today():
+    """Local calendar day. The gate is a date a person wrote in a date picker, so it
+    falls due when their day does, not when UTC's does."""
+    return date.today().isoformat()
+
+
+def scheduled(it):
+    """Held until a later day than today."""
+    return bool(it["not_before"]) and it["not_before"] > today()
+
+
+def board():
+    out, after = [], None
+    while True:
+        page = gql(BOARD_QUERY, login=OWNER, number=int(PROJECT), after=after)
+        items = page["organization"]["projectV2"]["items"]
+        for i in items["nodes"]:
+            c = i.get("content") or {}
+            if not c.get("number"):
+                continue  # draft items carry no issue
+            prs = ((i.get("prs") or {}).get("pullRequests") or {}).get("nodes") or []
+            out.append({
+                "n": c["number"], "repo": c["repository"]["nameWithOwner"], "url": c["url"],
+                "title": c.get("title", ""), "type": c["__typename"],
+                "updated": c.get("updatedAt"),
+                "status": (i.get("status") or {}).get("name", ""),
+                "priority": axis(i.get("priority")),
+                "effort": axis(i.get("effort")),
+                "autonomy": axis(i.get("autonomy")),
+                "not_before": day(i.get("not_before")),
+                "content_id": c.get("id"),
+                "prs": [p["url"] for p in prs],
+                "pr_state": {p["url"]: p["state"] for p in prs},
+                "pr_updated": {p["url"]: p["updatedAt"] for p in prs},
+                "item_id": i["id"],
+            })
+        if not items["pageInfo"]["hasNextPage"]:
+            return out
+        after = items["pageInfo"]["endCursor"]
+
+
+LOCATE_QUERY = """query($login:String!,$number:Int!,$url:URI!){
+  organization(login:$login){ projectV2(number:$number){ id
+    fields(first:50){ nodes{
+      ... on ProjectV2FieldCommon{ id name }
+      ... on ProjectV2SingleSelectField{ options{ id name } } } } } }
+  resource(url:$url){ __typename
+    ... on Issue{ id projectItems(first:20){ nodes{ id project{ id } } } }
+    ... on PullRequest{ id projectItems(first:20){ nodes{ id project{ id } } } } } }"""
+
+
+def locate(repo, number):
+    """The project, its fields and the issue's item on it, in one 1-point request.
+    Returns (project_id, fields, resource, item_id); item_id is None off the board."""
+    url = f"https://github.com/{repo}/issues/{number}"
+    d = gql(LOCATE_QUERY, login=OWNER, number=int(PROJECT), url=url)
+    proj, res = d["organization"]["projectV2"], d.get("resource")
+    if not res:
+        sys.exit(f"not found: {url}")
+    fields = {f["name"]: f for f in proj["fields"]["nodes"] if f.get("name")}
+    item = next((n["id"] for n in res["projectItems"]["nodes"] if n["project"]["id"] == proj["id"]), None)
+    return proj["id"], fields, res, item
+
+
+def set_status(project_id, fields, item_id, value):
+    """Status is the project's own field, so it is written on the project item."""
+    opts = {o["name"]: o["id"] for o in fields["Status"].get("options") or []}
+    if value not in opts:
+        sys.exit(f"Status has no option {value!r}: {', '.join(opts)}")
+    gql(f'mutation{{ updateProjectV2ItemFieldValue(input:{{projectId:"{project_id}", '
+        f'itemId:"{item_id}", fieldId:"{fields["Status"]["id"]}", '
+        f'value:{{singleSelectOptionId:"{opts[value]}"}}}}){{ clientMutationId }} }}')
+
+
+ISSUE_FIELDS_QUERY = """query($login:String!){ organization(login:$login){
+  issueFields(first:50){ nodes{
+    ... on IssueFieldSingleSelect{ id name options{ id name } }
+    ... on IssueFieldDate{ id name } } } } }"""
+_ISSUE_FIELDS = None
+
+
+def issue_fields():
+    """The org's single-select and date issue fields by name, looked up once per run."""
+    global _ISSUE_FIELDS
+    if _ISSUE_FIELDS is None:
+        nodes = gql(ISSUE_FIELDS_QUERY, login=OWNER)["organization"]["issueFields"]["nodes"]
+        _ISSUE_FIELDS = {f["name"]: f for f in nodes if f.get("name")}
+    return _ISSUE_FIELDS
+
+
+def axis_assign(field, value):
+    """One `IssueFieldCreateOrUpdateInput` literal, resolved against the org field.
+
+    The input also carries `rationale`, `confidence` and `suggest` (hold the value for
+    a human instead of applying it). Nothing here sets them: this script decides no
+    triage, so it has no rationale of its own to record."""
+    fields = issue_fields()
+    if field not in fields:
+        sys.exit(f"no org issue field {field!r}: {', '.join(fields)}")
+    opts = {o["name"]: o["id"] for o in fields[field]["options"]}
+    if value not in opts:
+        sys.exit(f"{field} has no option {value!r}: {', '.join(opts)}")
+    return f'{{fieldId:"{fields[field]["id"]}", singleSelectOptionId:"{opts[value]}"}}'
+
+
+def date_assign(value):
+    """One input literal for the earliest-pick-up date. `none` clears it — a date field
+    value is removed with `delete`, since an empty `dateValue` is not a value."""
+    fields = issue_fields()
+    if DATE_FIELD not in fields:
+        sys.exit(f"no org issue field {DATE_FIELD!r}: {', '.join(fields)}")
+    fid = fields[DATE_FIELD]["id"]
+    if value == "none":
+        return f'{{fieldId:"{fid}", delete:true}}'
+    try:
+        value = date.fromisoformat(value).isoformat()
+    except ValueError:
+        sys.exit(f"not a YYYY-MM-DD date (or `none`): {value!r}")
+    return f'{{fieldId:"{fid}", dateValue:"{value}"}}'
+
+
+def set_axes(issue_id, assigns):
+    """Set issue fields on one issue, from `axis_assign`/`date_assign` literals.
+    Returns None on success, or the error text."""
+    return gql_write(f'mutation{{ setIssueFieldValue(input:{{issueId:"{issue_id}", '
+                     f'issueFields:[{", ".join(assigns)}]}}){{ clientMutationId }} }}')
+
+
+def ensure_item(repo, number):
+    project_id, fields, res, item_id = locate(repo, number)
+    if not item_id:
+        item_id = gql('mutation($p:ID!,$c:ID!){ addProjectV2ItemById(input:{projectId:$p, contentId:$c}){ item{ id } } }',
+                      p=project_id, c=res["id"])["addProjectV2ItemById"]["item"]["id"]
+    return project_id, fields, res, item_id
+
+
+def triaged(it):
+    """All three axes set. Autonomy counts: an item nobody has judged startable-alone
+    is not startable alone, and a run with --unattended has nobody to judge it.
+
+    False for every PullRequest item, which carries no axes at all — those are board
+    noise for `scan` to flag and `drop` to remove, never work waiting on triage."""
+    return bool(it["priority"] and it["effort"] and it["autonomy"])
+
+
+def rank_key(it):
+    p = PRIORITIES.index(it["priority"]) if it["priority"] in PRIORITIES else len(PRIORITIES)
+    s = EFFORTS.index(it["effort"]) if it["effort"] in EFFORTS else len(EFFORTS)
+    return (p, s, it["n"])
+
+
+def row(it, *extra):
+    return "\t".join([it["priority"] or "-", it["effort"] or "-", it["autonomy"] or "-",
+                      f'{it["repo"]}#{it["n"]}', *[str(e) for e in extra], it["title"][:90]])
+
+
+def cmd_slots(a):
+    items = board()
+    flight = [i for i in items if i["status"] in IN_FLIGHT]
+    backlog = sorted([i for i in items if i["status"] == "Backlog"], key=rank_key)
+    deficit = a.target - len(flight)
+    print(f"in_flight={len(flight)}\ttarget={a.target}\tdeficit={max(deficit, 0)}")
+    print("\n## IN FLIGHT")
+    for i in sorted(flight, key=rank_key):
+        print(row(i, i["status"], ",".join(p.rsplit("/", 1)[-1] for p in i["prs"]) or "-"))
+    untriaged = [i for i in backlog if i["type"] == "Issue" and not triaged(i)]
+    if untriaged:
+        print("\n## UNTRIAGED — set Priority, Effort and Autonomy before these can be ranked")
+        for i in untriaged:
+            print(row(i, i["url"]))
+    candidates = [i for i in backlog if triaged(i)]
+    waiting = [i for i in candidates if scheduled(i)]
+    candidates = [i for i in candidates if not scheduled(i)]
+    if waiting:
+        print("\n## SCHEDULED — not to be picked up before their date")
+        for i in sorted(waiting, key=lambda x: (x["not_before"], rank_key(x))):
+            print(row(i, i["not_before"], i["url"]))
+    if a.unattended:
+        held = [i for i in candidates if i["autonomy"] != "Unattended"]
+        candidates = [i for i in candidates if i["autonomy"] == "Unattended"]
+        if held:
+            print("\n## HELD — not Unattended, so nobody is here to answer them")
+            for i in held:
+                print(row(i, i["url"]))
+    print("\n## CANDIDATES — ranked, triaged only" + (", Unattended only" if a.unattended else ""))
+    for i in candidates:
+        print(row(i, i["url"]))
+    if deficit <= 0:
+        print("\nThe board is at capacity. Nothing to start.")
+
+
+def cmd_open(a):
+    for i in sorted([i for i in board() if i["status"] != "Done"], key=rank_key):
+        print(row(i, i["status"], i["url"]))
+
+
+def cmd_scan(a):
+    items = board()
+    openi = [i for i in items if i["status"] != "Done"]
+    now = datetime.now(timezone.utc)
+    print("## OPEN ITEMS — priority, effort, item, signals, title")
+    for i in sorted(openi, key=rank_key):
+        sig = []
+        if i["type"] == "PullRequest":
+            sig.append("board-noise:pr-item")
+        if not triaged(i):
+            sig.append("untriaged")
+        if scheduled(i):
+            sig.append(f'not-before:{i["not_before"]}')
+        for u in i["prs"]:
+            sig.append(f'pr-{i["pr_state"][u].lower()}:#{u.rsplit("/", 1)[-1]}')
+        ts = i["updated"]
+        if ts:
+            days = (now - datetime.fromisoformat(ts.replace("Z", "+00:00"))).days
+            sig.append(f"idle:{days}d")
+        print(row(i, i["status"], ",".join(sig) or "-"))
+    print("\n## TITLE OVERLAP — candidate duplicates, judge them yourself")
+    words = {i["n"]: {w for w in re.findall(r"[a-z_]{4,}", i["title"].lower()) if w not in STOPWORDS}
+             for i in openi}
+    seen = set()
+    for a_, b_ in ((x, y) for x in openi for y in openi if x["n"] < y["n"]):
+        shared = words[a_["n"]] & words[b_["n"]]
+        if len(shared) >= 3 and (a_["n"], b_["n"]) not in seen:
+            seen.add((a_["n"], b_["n"]))
+            print(f'{a_["repo"]}#{a_["n"]}\t{b_["repo"]}#{b_["n"]}\t{",".join(sorted(shared))}')
+    if not seen:
+        print("(none)")
+
+
+GATES_QUERY = """query($url:URI!){ resource(url:$url){ ... on Issue{
+  blockedBy(first:20){ nodes{ number state repository{ nameWithOwner } } }
+  issueFieldValues(first:20){ nodes{ ... on IssueFieldDateValue{
+    value field{ ... on IssueFieldDate{ name } } } } } } } }"""
+
+
+def issue_gates(repo, number):
+    """(earliest-pick-up date, open blockers) of one issue. Read off the issue and not
+    off a board item, because `check` is also asked about issues that are not on it.
+
+    Only an OPEN blocker blocks. GitHub keeps the link after the blocker closes, so a
+    run that counts every node holds the issue for good — and the follow-up that waits
+    on a closed parent is the common shape, not the rare one."""
+    res = gql(GATES_QUERY, url=f"https://github.com/{repo}/issues/{number}")["resource"] or {}
+    not_before = ""
+    for n in (res.get("issueFieldValues") or {}).get("nodes") or []:
+        if (n.get("field") or {}).get("name") == DATE_FIELD:
+            not_before = n.get("value") or ""
+    blockers = []
+    for b in (res.get("blockedBy") or {}).get("nodes") or []:
+        if b.get("state") == "OPEN":
+            other = (b.get("repository") or {}).get("nameWithOwner")
+            blockers.append(f'{other}#{b["number"]}' if other != repo else f'#{b["number"]}')
+    return not_before, blockers
+
+
+def cmd_check(a):
+    d = gh("issue", "view", str(a.number), "--repo", a.repo, "--json",
+           "state,stateReason,assignees,comments,closedByPullRequestsReferences")
+    why = []
+    nb, blockers = issue_gates(a.repo, a.number)
+    if nb > today():
+        why.append(f"not before {nb}")
+    why += [f"blocked by {b}" for b in blockers]
+    gate = deploy_gate(a.repo, gh("api", f"repos/{a.repo}/issues/{a.number}",
+                                  "--jq", ".body", parse=False))
+    if gate:
+        why.append(gate)
+    if d["state"] != "OPEN":
+        why.append(f'{d["state"].lower()}' + (f' ({d["stateReason"]})' if d.get("stateReason") else ""))
+    for pr in d.get("closedByPullRequestsReferences") or []:
+        why.append(f'pr #{pr.get("number")} already claims to close it')
+    for c in reversed(d.get("comments") or []):
+        body = c.get("body", "")
+        if RELEASE_RE.search(body):
+            break
+        if CLAIM_RE.search(body):
+            why.append(f'already started: {body.strip().splitlines()[0][:80]}')
+            break
+    tag = f'{a.repo}#{a.number}'
+    if why:
+        print(f'SKIP\t{tag}\t{"; ".join(why)}')
+        return 1
+    print(f'START\t{tag}')
+    return 0
+
+
+def cmd_claim(a):
+    project_id, fields, _, item_id = ensure_item(a.repo, a.number)
+    set_status(project_id, fields, item_id, "In progress")
+    tab = f" in tab `{a.tab}`" if a.tab else ""
+    # The model belongs in the comment, not just the daemon log: a merged PR is joinable
+    # to the model that wrote it only through this line.
+    on = ""
+    if a.model:
+        on = f" on `{a.model}`" + (f" at `{a.reasoning_effort}` effort" if a.reasoning_effort else "")
+    gh("api", f"repos/{a.repo}/issues/{a.number}/comments",
+       "-f", f"body=Started as herdr agent `{a.agent}`{tab}{on}.", parse=False)
+    print(f"CLAIMED\t{a.repo}#{a.number}\tagent={a.agent}\tmodel={a.model or '-'}")
+
+
+def cmd_start(a):
+    """claim, for a session that is its own agent: same marker, no agent to name."""
+    project_id, fields, _, item_id = ensure_item(a.repo, a.number)
+    set_status(project_id, fields, item_id, "In progress")
+    gh("api", f"repos/{a.repo}/issues/{a.number}/comments",
+       "-f", "body=Started in a Claude Code session.", parse=False)
+    print(f"STARTED\t{a.repo}#{a.number}")
+
+
+def cmd_release(a):
+    """Undo a claim: an agent that cannot finish leaves the slot to the next run."""
+    project_id, fields, _, item_id = ensure_item(a.repo, a.number)
+    set_status(project_id, fields, item_id, "Backlog")
+    gh("api", f"repos/{a.repo}/issues/{a.number}/comments",
+       "-f", f"body=Handed back to the backlog: {a.reason}", parse=False)
+    print(f"RELEASED\t{a.repo}#{a.number}")
+
+
+def footprints(repos):
+    """`((repo, path) -> the open PRs touching it, key -> one open PR's own file list)`.
+
+    REST only: the files of every open PR is the one question here GraphQL has no cheaper
+    answer for. A PR that adds a migration also owns MIGRATION_TOKEN, so the next one to
+    add one reads as a collision. The second return is the same reads kept per PR, which
+    is what a judgement is asked about — the owners map has already lost which PR is which
+    by the time a candidate is compared against it."""
+    owners = defaultdict(list)
+    per_pr = {}
+    for repo in repos:
+        for p in rest(f"repos/{repo}/pulls", 300, state="open"):
+            tag = f'#{p["number"]}'
+            # GitHub lists at most 3000 files per PR; a PR past 300 owns its module anyway.
+            files = [f["filename"] for f in rest(f"repos/{repo}/pulls/{p['number']}/files", 300)]
+            per_pr[f"{repo}{tag}"] = {"repo": repo, "title": p.get("title", ""), "files": files}
+            for name in files:
+                owners[(repo, name)].append(tag)
+                if MIGRATION_FILE.search(name):
+                    app = name.split("/migrations/")[0].split("/")[-1]
+                    owners[(repo, f"{MIGRATION_TOKEN}:{app}")].append(tag)
+    return owners, per_pr
+
+
+def typesafe(state, questions):
+    """One System One request: `(answers, None)`, or `(None, why it went unanswered)`.
+
+    Never raises and never retries. `next` runs on a tick with nobody watching, so a retry
+    loop costs the tick; a tick that says the judgement did not run costs nothing."""
+    key = os.environ.get("TYPESAFE_API_KEY")
+    if not key:
+        return None, "TYPESAFE_API_KEY is not set"
+    payload = json.dumps({"state": state, "model": TYPESAFE_MODEL,
+                          "questions": questions}).encode()
+    req = urllib.request.Request(TYPESAFE_URL, data=payload, headers={
+        "Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=TYPESAFE_TIMEOUT) as r:
+            answers = json.load(r).get("answers")
+    except urllib.error.HTTPError as e:
+        return None, f"HTTP {e.code}"
+    except Exception as e:                       # network, timeout, malformed body
+        return None, f"{type(e).__name__}: {e}"
+    if not isinstance(answers, dict):
+        return None, "the response carried no answers"
+    return answers, None
+
+
+def migration_apps(repo):
+    """The apps whose migrations directory already exists in the checkout — the only
+    places a new migration can land, and so the only options worth offering."""
+    paths, _, _ = repo_files(repo)
+    return sorted({p.split("/migrations/")[0].split("/")[-1]
+                   for p in paths if MIGRATION_FILE.search(p)})
+
+
+def judge_questions(prs, claims, apps):
+    """Everything asked about one candidate, in one request. The questions are
+    independent and share the state, so a tick costs one request per candidate however
+    much work is in flight.
+
+    A question id never reaches the model, so each instruction names the `state` path it
+    judges — that is the only thing tying an answer back to the PR or claim it is about."""
+    q = {}
+    for key in prs:
+        q[f"pr:{key}"] = {
+            "type": "noul",
+            "instructions": f"Would a developer implementing the work described in `issue` "
+                            f"have to edit one or more of the files listed in "
+                            f"`open_prs['{key}'].files`?",
+            "criteria": {
+                "true": "The issue's work lands in at least one of those files — it changes "
+                        "code, tests or configuration that lives there.",
+                "false": "The issue's work lands elsewhere in the repository, or reaches "
+                         "those files only by reading, importing or calling them.",
+            },
+        }
+    for key in claims:
+        q[f"claim:{key}"] = {
+            "type": "noul",
+            "instructions": f"Two pieces of work: `issue`, and the one described in "
+                            f"`in_progress['{key}']`, which another agent has already "
+                            f"started. Would carrying out both mean editing the same "
+                            f"source files?",
+            "criteria": {
+                "true": "They reach the same code — the same module, model, endpoint, "
+                        "serializer or test file — so one would have to be rebased on the "
+                        "other.",
+                "false": "They are separable: different areas of the codebase, edited "
+                         "independently and merged in either order.",
+            },
+        }
+    q["adds_migration"] = {
+        "type": "noul",
+        "instructions": "Would implementing the work described in `issue` require adding a "
+                        "new database schema migration?",
+        "criteria": {
+            "true": "The work changes the database schema — a new or altered column, a new "
+                    "index, a new database constraint, a new model, or a data migration.",
+            "false": "The work is code-only: logic, serializers, queries, templates, tests, "
+                     "configuration or documentation. Mentioning, linking to or reading an "
+                     "existing constraint, index or migration file is not adding one.",
+        },
+    }
+    if apps:
+        q["migration_app"] = {
+            "type": "choice",
+            "instructions": "If the work described in `issue` adds a database migration, "
+                            "which application does the migration file belong to?",
+            "criteria": {**{a: None for a in apps},
+                         "unclear": "The issue names no application, model or path that "
+                                    "places the migration in one of these."},
+        }
+    return q
+
+
+def judge_candidate(body, prs, claims, apps):
+    """What a judgement adds to one candidate: `(probability per colliding key, the
+    migration token it earns or None, the reason it did not run or None)`.
+
+    A failure returns no hits, so the caller keeps the exact-path verdict it already has —
+    which is the whole of the fail-open contract.
+
+    Returns `(hits, (token, probability) or None, reason or None)`."""
+    state = {
+        "issue": body[:JUDGE_MAX_BODY],
+        "open_prs": {k: {"title": v["title"], "files": v["files"][:JUDGE_MAX_FILES]}
+                     for k, v in prs.items()},
+        "in_progress": {k: {"title": v["title"], "description": v["body"][:JUDGE_MAX_BODY // 3]}
+                        for k, v in claims.items()},
+    }
+    answers, why = judge_candidate.ask(state, judge_questions(prs, claims, apps))
+    if why:
+        return {}, None, why
+
+    def noul(qid):
+        p = (answers.get(qid) or {}).get("noul")
+        return float(p) if isinstance(p, (int, float)) else None
+
+    hits = {}
+    for prefix, keys in (("pr", prs), ("claim", claims)):
+        for key in keys:
+            p = noul(f"{prefix}:{key}")
+            if p is not None and p >= COLLIDE_LOW:
+                hits[key] = round(p, 3)
+    migration = None
+    p = noul("adds_migration")
+    if p is not None and p >= MIGRATION_YES:
+        app = (answers.get("migration_app") or {}).get("choice")
+        token = f"{MIGRATION_TOKEN}:{app}" if app and app != "unclear" else MIGRATION_ANY
+        migration = (token, round(p, 3))
+    return hits, migration, None
+
+
+# Named so the offline tests can stand in for the network without reaching into the module
+# that calls it.
+judge_candidate.ask = typesafe
+
+
+def rest_one(path, _cache={}):
+    """One REST object, or None. Tolerant where `gh` is not: a gate naming a PR that does
+    not exist must hold that one issue, not kill the sweep reading it."""
+    if path not in _cache:
+        env = {**os.environ, "MISE_QUIET": "1"}
+        r = subprocess.run(["gh", "api", path], capture_output=True, text=True, env=env)
+        try:
+            _cache[path] = json.loads(r.stdout) if r.returncode == 0 else None
+        except json.JSONDecodeError:
+            _cache[path] = None
+    return _cache[path]
+
+
+def promotion_state(repo, sha, _fetched=set()):
+    """Why `sha` is not live yet, or "" once it is.
+
+    The test is the repo's own, from `AGENTS.md`: ancestry of `origin/production`. It
+    survives squash merge because the sha it takes is the squash commit GitHub writes on
+    master, not the PR head that squashing throws away, and promotion fast-forwards
+    master wholesale rather than merging it.
+
+    Ancestry flips when the promotion workflow pushes `production`, ahead of the ECS
+    rollout — so this says promoted, not running. The agent it releases still checks."""
+    d = os.path.join(CHECKOUTS, repo.split("/", 1)[-1])
+    if not os.path.isdir(d):
+        return f"no checkout of {repo} here, so promotion cannot be tested"
+
+    def git(*args):
+        return subprocess.run(["git", "-C", d, *args], capture_output=True, text=True)
+
+    if repo not in _fetched:
+        git("fetch", "-q", "origin")  # master carries the sha, production the answer
+        _fetched.add(repo)
+    if git("rev-parse", "--verify", "-q", f"origin/{PRODUCTION}").returncode != 0:
+        return (f"{repo} has no origin/{PRODUCTION} branch — nothing here can say whether "
+                "its code is live, which is what Autonomy `Out of reach` is for")
+    if git("cat-file", "-e", f"{sha}^{{commit}}").returncode != 0:
+        return f"{sha[:10]} is not a commit in the {repo} checkout — check the gate line"
+    if git("merge-base", "--is-ancestor", sha, f"origin/{PRODUCTION}").returncode != 0:
+        return f"merged as {sha[:10]}, not promoted to {PRODUCTION} yet"
+    return ""
+
+
+def deploy_gate(repo, body):
+    """The verdict of a `Gate: deployed ...` line: a reason to hold, or "" when the code
+    is promoted — and "" for the issues that carry no such line, which is most of them."""
+    m = DEPLOY_GATE.search(body or "")
+    if not m:
+        return ""
+    target, pr, sha = m.group(1) or repo, m.group(2), m.group(3)
+    if pr:
+        d = rest_one(f"repos/{target}/pulls/{pr}")
+        if d is None:
+            return f"the gate names {target}#{pr}, which cannot be read as a pull request"
+        if not d.get("merged"):
+            return f"{target}#{pr} is not merged yet"
+        sha = d["merge_commit_sha"]
+    return promotion_state(target, sha)
+
+
+def repo_files(repo, _cache={}):
+    """Every tracked path in the repo's checkout, plus a basename index, so a path an
+    issue names can be confirmed to exist. A missing checkout yields nothing, which makes
+    every footprint in that repo empty — said out loud by `next`, not silently ignored."""
+    if repo not in _cache:
+        d = os.path.join(CHECKOUTS, repo.split("/", 1)[-1])
+        if not os.path.isdir(d):
+            _cache[repo] = (set(), {}, False)
+        else:
+            r = subprocess.run(["git", "-C", d, "ls-files"], capture_output=True, text=True)
+            paths = set(r.stdout.split()) if r.returncode == 0 else set()
+            basenames = defaultdict(list)
+            for path in paths:
+                basenames[os.path.basename(path)].append(path)
+            _cache[repo] = (paths, basenames, bool(paths))
+    return _cache[repo]
+
+
+def body_footprint(repo, body):
+    """The paths an issue body names, as `create-gh-issue` writes them: backticked, and
+    exact enough to resolve in the checkout. A bare filename counts only when it is
+    unambiguous. Prose is never mined for paths — a wrong path is worse than no path,
+    because it reads as a collision that is not there."""
+    paths, basenames, _ = repo_files(repo)
+    out = set()
+    for span in BACKTICK.findall(body or ""):
+        cand = LINEREF.sub("", span.strip().strip(",.;:()"))
+        if cand in paths:
+            out.add(cand)
+        elif "/" not in cand and basenames.get(cand) and len(basenames[cand]) == 1:
+            out.add(basenames[cand][0])
+    if MIGRATION_HINT.search(body or ""):
+        apps = {path.split("/")[0] for path in out if "/" in path}
+        out |= {f"{MIGRATION_TOKEN}:{app}" for app in apps} or {MIGRATION_ANY}
+    return sorted(out)
+
+
+def cmd_footprint(a):
+    owners, _ = footprints(a.repos)
+    for (repo, path), prs in sorted(owners.items()):
+        print(f'{repo}:{path}\t{",".join(sorted(set(prs)))}')
+    if not owners:
+        print("(no open PRs)")
+
+
+def cmd_next(a):
+    """One tick of a dispatch loop: the deficit, and which backlog items can fill it
+    without colliding with work already in flight.
+
+    `scheduled` is held out of it until its `Start date` falls due: the day it does,
+    the item ranks again with no sweep to run and nothing to reset. `awaiting_deploy` is
+    held the same way by a `Gate: deployed ...` line the promotion has not reached.
+
+    `startable` is ranked and mutually non-colliding — take the first N for N free slots
+    and they will not tread on each other. `blocked` says what each rejected candidate
+    collided with, because a collision clears itself once the blocking PR merges and the
+    next tick retries it.
+
+    `--repo` scopes the whole tick: the target caps flight in those repos alone, so work
+    elsewhere on the board holds no slot, and candidates elsewhere come back under
+    `out_of_scope`.
+
+    Exit 1 means there is nothing to dispatch, which is the loop's resting state. The
+    JSON prints either way, so a caller can tell a full board from a starved one: free
+    slots with an empty `startable` and a non-zero `untriaged` is waiting on triage.
+    """
+    exclude = {e.strip() for e in a.exclude}
+    items = board()
+    flight = [i for i in items if i["status"] in IN_FLIGHT
+              and (not a.scope or i["repo"] in a.scope)]
+    deficit = a.target - len(flight)
+    backlog = sorted([i for i in items if i["status"] == "Backlog"], key=rank_key)
+    untriaged = [i for i in backlog if i["type"] == "Issue" and not triaged(i)]
+    ranked = [i for i in backlog if triaged(i) and i["type"] == "Issue"]
+    # Unattended-only, always. `Needs decision` blocks on a sentence from the author and
+    # `Out of reach` needs something no checkout reaches, so an agent cannot finish
+    # either one however carefully it is dispatched. `decisions` is where they go.
+    held = [i for i in ranked if i["autonomy"] != "Unattended"]
+    ranked = [i for i in ranked if i["autonomy"] == "Unattended"]
+    waiting = [i for i in ranked if scheduled(i)]
+    ranked = [i for i in ranked if not scheduled(i)]
+    out_of_scope = [i for i in ranked if a.scope and i["repo"] not in a.scope]
+    ranked = [i for i in ranked if not a.scope or i["repo"] in a.scope]
+    excluded = [i for i in ranked if f'{i["repo"]}#{i["n"]}' in exclude]
+    candidates = [i for i in ranked if f'{i["repo"]}#{i["n"]}' not in exclude]
+
+    def brief(i, *keys):
+        return {k: i[k] for k in ("repo", "n", "url", "title", *keys)}
+
+    # Deep enough to walk past a run of collisions, shallow enough that footprinting it
+    # costs a handful of REST calls. The full ranking is `slots`.
+    shortlist = candidates[:max(deficit, 0) + 8]
+    out = {
+        "target": a.target, "in_flight": len(flight), "deficit": max(deficit, 0),
+        "untriaged": [brief(i) for i in untriaged],
+        "held": [brief(i, "autonomy") for i in held],
+        "scheduled": [brief(i, "not_before")
+                      for i in sorted(waiting, key=lambda x: x["not_before"])],
+        "excluded": [brief(i) for i in excluded],
+        "out_of_scope": [brief(i) for i in out_of_scope],
+        "flight": [brief(i, "status", "prs") for i in sorted(flight, key=rank_key)],
+        "candidates_total": len(candidates),
+        "startable": [], "blocked": [], "needs_judgement": [], "awaiting_deploy": [],
+        "no_checkout": [],
+    }
+    if deficit <= 0 or not candidates:
+        print(json.dumps(out, indent=2))
+        return 1
+
+    repos = sorted({i["repo"] for i in flight} | {i["repo"] for i in shortlist})
+    out["no_checkout"] = [r for r in repos if not repo_files(r)[2]]
+    owners, pr_files = footprints(repos)
+
+    # An item claimed minutes ago has no PR yet, so the open-PR sweep cannot see it. Its
+    # own body is the only account of what it is about to touch.
+    claims = {}
+    for i in flight:
+        if any(i["pr_state"][u] == "OPEN" for u in i["prs"]):
+            continue
+        body = gh("api", f'repos/{i["repo"]}/issues/{i["n"]}', "--jq", ".body", parse=False)
+        claims[f'{i["repo"]}#{i["n"]}'] = {"repo": i["repo"], "title": i["title"],
+                                           "body": body or ""}
+        for path in body_footprint(i["repo"], body):
+            owners[(i["repo"], path)].append(f'#{i["n"]} (claimed, no PR)')
+
+    judge = not a.no_judge
+    out["judgement"] = "on" if judge else "off"
+    taken = dict(owners)
+    for i in shortlist:
+        body = gh("api", f'repos/{i["repo"]}/issues/{i["n"]}', "--jq", ".body", parse=False)
+        gate = deploy_gate(i["repo"], body)
+        if gate:
+            out["awaiting_deploy"].append(brief(i, "priority", "effort") | {"gate": gate})
+            continue
+        fp = body_footprint(i["repo"], body)
+        short = brief(i, "priority", "effort")
+
+        def owned_by(path):
+            if path == MIGRATION_ANY:
+                return sorted({t for (r, k), v in taken.items() if r == i["repo"]
+                               and k.startswith(f"{MIGRATION_TOKEN}:") for t in v})
+            return sorted(set(taken.get((i["repo"], path), [])))
+
+        hits = {path: owned for path in fp if (owned := owned_by(path))}
+        if hits:
+            out["blocked"].append(short | {"collides": hits})
+            continue
+
+        # The exact footprint cleared it. Everything below only ever *adds* a collision:
+        # a resolved path is ground truth, and nothing here overrides one.
+        judged, worst = {}, 0.0
+        if judge:
+            prs = {k: v for k, v in pr_files.items() if v["repo"] == i["repo"]}
+            mine = {k: v for k, v in claims.items()
+                    if v["repo"] == i["repo"] and k != f'{i["repo"]}#{i["n"]}'}
+            if len(prs) > JUDGE_MAX_PRS:
+                out["judgement"] = (f"on (only {JUDGE_MAX_PRS} of {len(prs)} open PRs in "
+                                    f'{i["repo"]} are judged)')
+                prs = dict(list(prs.items())[:JUDGE_MAX_PRS])
+            judged, migration, why = judge_candidate(
+                body or i["title"], prs, mine, migration_apps(i["repo"]))
+            if why:
+                # One reason for the whole tick: every candidate shares the cause, and a
+                # line each would bury the rest of the output under an outage.
+                out["judgement"] = f"failed: {why}"
+                judge = False
+            elif migration:
+                token, p = migration
+                if token in fp:
+                    pass                       # the regex already placed it; nothing new
+                elif owned := owned_by(token):
+                    judged[f'{token} held by {",".join(owned)}'] = p
+                else:
+                    # Unowned, but a later pick this tick must still collide with it.
+                    fp = sorted(set(fp) | {token})
+            worst = max(judged.values(), default=0.0)
+
+        if worst >= COLLIDE_HIGH:
+            out["blocked"].append(short | {"judged": judged})
+            continue
+        if worst >= COLLIDE_LOW:
+            out["needs_judgement"].append(short | {"judged": judged})
+            continue
+
+        entry = brief(i, "priority", "effort", "autonomy")
+        # Effort prices the fix, not the hunt — but unattended, it is the only price there is.
+        # `effort` here is the board axis (XS..XL); `reasoning_effort` is the model's.
+        entry["model"], entry["reasoning_effort"] = DISPATCH_MODEL[i["effort"]]
+        entry["footprint"] = fp
+        out["startable"].append(entry)
+        # Later picks in this same tick must not tread on this one.
+        for path in fp:
+            taken.setdefault((i["repo"], path), []).append(f'#{i["n"]} (picked this tick)')
+
+    print(json.dumps(out, indent=2))
+    return 0 if out["startable"] else 1
+
+
+def decision_text(rest, max_lines, width=94):
+    """The decision as prose you can answer, wrapped rather than cut mid-word.
+
+    Runs to the next section, not to the first blank line: the shapes on offer are
+    usually a list a paragraph below the question, and stopping early leaves the reader
+    with a sentence ending in a colon. Lists keep their own lines, because which option
+    is which is the thing being decided."""
+    paras, cur = [], []
+    for raw in rest.strip("\n").splitlines():
+        text = raw.strip()
+        if text.startswith("#") or SECTION_LEAD.match(text):
+            break
+        if not text:
+            if cur:
+                paras.append(cur)
+                cur = []
+            continue
+        if LIST_ITEM.match(text) and cur:
+            paras.append(cur)
+            cur = []
+        cur.append(text)
+    if cur:
+        paras.append(cur)
+
+    out = []
+    for para in paras:
+        joined = " ".join(para)
+        indent = "   " if LIST_ITEM.match(joined) else ""
+        out += textwrap.wrap(joined, width=width, subsequent_indent=indent) or [""]
+        if len(out) > max_lines:
+            return out[:max_lines] + ["…"]
+    return out or ["(the section is empty)"]
+
+
+def cmd_decisions(a):
+    """The work no agent can finish, as a queue you clear a few at a time.
+
+    The default is the shortest useful thing: the top `n` `Needs decision` items whose
+    body names its decision, because those are the ones answerable in a sentence — the
+    whole point of the rubric asking for it. Everything else is a count and a flag, so a
+    run of this is a pass you finish rather than a board you re-read.
+    """
+    items = [i for i in board()
+             if i["status"] != "Done" and i["type"] == "Issue"
+             and i["autonomy"] in ("Needs decision", "Out of reach")]
+    reach = sorted([i for i in items if i["autonomy"] == "Out of reach"], key=rank_key)
+    pending = sorted([i for i in items if i["autonomy"] == "Needs decision"], key=rank_key)
+
+    def line(i, *extra):
+        return "\t".join([f'{i["priority"]}/{i["effort"]}', f'{i["repo"]}#{i["n"]}',
+                           i["status"], *extra, i["title"][:78]])
+
+    if a.out_of_reach:
+        print(f"## OUT OF REACH — {len(reach)} yours to do; no checkout reaches these")
+        for i in reach:
+            print(line(i, i["url"]))
+        return 0
+
+    # One body read per item, so only the ones about to be printed or counted.
+    named, unnamed = [], []
+    for i in pending:
+        body = gh("api", f'repos/{i["repo"]}/issues/{i["n"]}', "--jq", ".body", parse=False)
+        m = DECISION_NAMED.search(body or "")
+        (named if m else unnamed).append((i, body, m))
+
+    if a.unnamed:
+        print(f"## DECISION NOT NAMED — {len(unnamed)}, each a re-read before it can be answered")
+        for i, _, _ in unnamed:
+            print(line(i, i["url"]))
+        return 0
+
+    show = named[:a.n]
+    print(f"## ANSWER THESE — {len(show)} of {len(named)}, then "
+          "`hoopit-board triage <repo> <n> --autonomy Unattended`")
+    for i, body, m in show:
+        print(line(i, i["url"]))
+        print(f'\n  {m.group(0).strip().strip("#* ").rstrip(".")}')
+        for text in decision_text(body[m.end():], a.lines):
+            print(f"    {text}")
+        print()
+    if not show:
+        print("(none — every Needs decision item needs a re-read first; see --unnamed)")
+    print(f"\n{len(named) - len(show)} more named · {len(unnamed)} name no decision (--unnamed) "
+          f"· {len(reach)} out of reach (--out-of-reach)")
+
+
+def hours_since(ts, now):
+    return (now - datetime.fromisoformat(ts.replace("Z", "+00:00"))).total_seconds() / 3600
+
+
+# A fix commit written by `review-gate`'s convention; the parenthetical names the reviewer
+# and a severity whose vocabulary drifts (`codex · P1`, `standards · Medium / hard`,
+# `codex challenge · High; spec axis · Medium x2`), so count events, never severities.
+FIX_COMMIT = re.compile(r"^Reviewer finding \(([^)]*)\):", re.M)
+CLAIM_MODEL = re.compile(r"on `([^`]+)`(?: at `([^`]+)` effort)?")
+CLOSES = re.compile(r"\bcloses\s+(?:([\w.-]+/[\w.-]+))?#(\d+)", re.I)
+
+
+def dispatch_rows(repo, since_days, limit):
+    """Merged PRs joined to how their issue was dispatched. REST only, and independent of
+    the board: `archive-done` prunes Done items after a week, so anything that reads the
+    board cannot see further back than that.
+
+    The rung comes off the claim comment rather than the board's Effort, because the rung
+    *is* (model, effort) — and a PR whose issue carries no claim marker is unattributable,
+    which is most of what predates 2026-09-18. Those rows are reported, never guessed at.
+    """
+    cut = datetime.now(timezone.utc) - timedelta(days=since_days)
+    rows = []
+    for pr in rest(f"repos/{repo}/pulls", limit, state="closed", sort="updated", direction="desc"):
+        if not pr.get("merged_at") or datetime.fromisoformat(pr["merged_at"].replace("Z", "+00:00")) < cut:
+            continue
+        m = CLOSES.search(pr.get("body") or "")
+        issue = int(m.group(2)) if m and (m.group(1) or repo) == repo else None
+        model = effort = None
+        released = 0
+        if issue:
+            for c in rest(f"repos/{repo}/issues/{issue}/comments", 100):
+                if RELEASE_RE.search(c["body"]):
+                    released += 1
+                if CLAIM_RE.search(c["body"]):
+                    hit = CLAIM_MODEL.search(c["body"])
+                    if hit:
+                        model, effort = hit.group(1), hit.group(2)
+        commits = rest(f'repos/{repo}/pulls/{pr["number"]}/commits', 200)
+        findings = [t for c in commits for t in FIX_COMMIT.findall(c["commit"]["message"])]
+        rows.append({
+            "repo": repo, "pr": pr["number"], "issue": issue, "merged": pr["merged_at"],
+            "rung": f'{model}/{effort or "default"}' if model else None,
+            "model": model, "reasoning_effort": effort,
+            "commits": len(commits), "fix_commits": len(findings),
+            "findings": findings, "released": released,
+            "url": pr["html_url"], "title": pr["title"],
+        })
+    return rows
+
+
+def cmd_dispatches(a):
+    """The dispatch ladder's record: one row per merged PR, grouped by the rung that wrote it.
+
+    `fix_commits` counts findings the gate raised **and the agent fixed**. A finding skipped
+    as invalid or dropped at challenge writes no commit, so this under-counts exactly the way
+    an under-powered model fails — read a gate's prose notes before trusting a clean rung.
+    The reviewer is pinned Opus/high whatever the author, so the instrument itself is constant.
+
+    `--limit` caps the closed-PR walk per repo (200 rows, newest-updated first). Merging a PR
+    updates it, so recent merges sit at the top — but a busy fortnight can push an early merge
+    past the cap, and the row simply will not appear. Raise `--limit` before widening `--since`.
+    Costs about two REST calls per merged PR in the window (its commits, its issue's comments),
+    so it is a review you run, never something you poll.
+    """
+    rows = []
+    for repo in a.repos:
+        rows += dispatch_rows(repo, a.since, a.limit)
+    by = defaultdict(list)
+    for r in rows:
+        by[r["rung"] or "(unattributed)"].append(r)
+    summary = {}
+    for rung, rs in sorted(by.items()):
+        fx = sorted(r["fix_commits"] for r in rs)
+        summary[rung] = {
+            "prs": len(rs),
+            "fix_commits_total": sum(fx),
+            "fix_commits_median": fx[len(fx) // 2] if fx else 0,
+            "fix_commits_max": fx[-1] if fx else 0,
+            "clean_prs": sum(1 for v in fx if v == 0),
+            "released_total": sum(r["released"] for r in rs),
+        }
+    attributed = sum(1 for r in rows if r["rung"])
+    print(json.dumps({
+        "since_days": a.since,
+        "repos": a.repos,
+        "merged_prs": len(rows),
+        "attributed": attributed,
+        "unattributed": len(rows) - attributed,
+        "by_rung": summary,
+        "dispatches": sorted(rows, key=lambda r: r["merged"], reverse=True),
+    }, indent=2))
+    return 0 if attributed else 1
+
+
+def cmd_stale(a):
+    """Work in flight that may have lost its agent, in two shapes the reason column tells
+    apart:
+
+    `no-pr`     In progress, claimed over `--older-than` hours ago, with no open PR to
+                show for it. Nothing is stranded by releasing one.
+    `pr-quiet`  an open PR whose newest update is older than the same threshold, at any
+                status. Never auto-release one: the branch is real work, and bouncing the
+                item to Backlog invites a second agent onto it. Report it and let a human
+                or an agent pick the PR back up.
+
+    Says nothing about whether the agent is alive — that is the caller's half, and the
+    only half that can tell abandoned from slow. An item whose claim marker is missing
+    reports agent `-`, which is most of them: only the daemon writes that marker, so
+    hand-started work is unattributable from the board alone.
+
+    A PR's `updatedAt` moves for a label or a bot comment, not just a push, so anything
+    that touches the PR resets `pr-quiet`. It under-reports and never over-reports, which
+    is the right way round for something whose output frees a slot.
+    """
+    now = datetime.now(timezone.utc)
+    for i in sorted([i for i in board() if i["status"] in IN_FLIGHT],
+                    key=rank_key):
+        agent, since = "-", None
+        for c in reversed(rest(f'repos/{i["repo"]}/issues/{i["n"]}/comments', 100)):
+            if RELEASE_RE.search(c["body"]):
+                break
+            if CLAIM_RE.search(c["body"]):
+                m = re.search(r"agent `([^`]+)`", c["body"])
+                agent, since = (m.group(1) if m else "-"), c["created_at"]
+                break
+        open_prs = [u for u in i["prs"] if i["pr_state"][u] == "OPEN"]
+        if open_prs:
+            # The freshest open PR governs: one moving PR means the work is not quiet.
+            quiet = min(hours_since(i["pr_updated"][u], now) for u in open_prs)
+            if quiet >= a.older_than:
+                print(f'{i["repo"]}#{i["n"]}\t{agent}\t{quiet:.1f}h\tpr-quiet\t{i["url"]}')
+            continue
+        # A review status with no open PR is a merged PR the board has not caught up with, not
+        # an abandoned run. Without a claim marker, a human moved it rather than a run.
+        if i["status"] != "In progress" or not since:
+            continue
+        hours = hours_since(since, now)
+        if hours >= a.older_than:
+            print(f'{i["repo"]}#{i["n"]}\t{agent}\t{hours:.1f}h\tno-pr\t{i["url"]}')
+
+
+def cmd_drop(a):
+    hit = [i for i in board() if i["repo"] == a.repo and i["n"] == a.number]
+    if not hit:
+        print(f"NOT-ON-BOARD\t{a.repo}#{a.number}")
+        return 1
+    for i in hit:
+        print(f'{"DROPPED" if a.apply else "WOULD-DROP"}\t{i["repo"]}#{i["n"]}\t{i["type"]}\t{i["item_id"]}')
+        if a.apply:
+            gql('mutation($p:ID!,$i:ID!){ deleteProjectV2Item(input:{projectId:$p, itemId:$i}){ deletedItemId } }',
+                p=project_id(), i=i["item_id"])
+    if not a.apply:
+        print("rerun with --apply")
+    return 0
+
+
+def cmd_triage(a):
+    values = [(f, v) for f, v in (("Priority", a.priority), ("Effort", a.effort),
+                                  ("Autonomy", a.autonomy)) if v]
+    if not values and not a.not_before:
+        return 0
+    # Locate before ensure_item: a rejected target must not be put on the board on its
+    # way to the error.
+    project_id, _, res, item_id = locate(a.repo, a.number)
+    # `resource()` on an /issues/<n> URL answers __typename "Issue" for a pull request
+    # while handing back its PR_ global id, so the id is what says which one this is.
+    if res["id"].startswith("PR_"):
+        sys.exit(f"{a.repo}#{a.number} is a pull request: the three axes are issue "
+                 "fields, and only an issue can carry them")
+    if not item_id:
+        gql('mutation($p:ID!,$c:ID!){ addProjectV2ItemById(input:{projectId:$p, contentId:$c}){ item{ id } } }',
+            p=project_id, c=res["id"])
+    assigns = [axis_assign(f, v) for f, v in values]
+    if a.not_before:
+        assigns.append(date_assign(a.not_before))
+        values.append((DATE_FIELD, a.not_before))
+    err = set_axes(res["id"], assigns)
+    if err:
+        sys.exit(err)
+    for field, value in values:
+        print(f"SET\t{a.repo}#{a.number}\t{field}={value}")
+
+
+# None is the date field: any YYYY-MM-DD, or `none` to clear it.
+BATCH_FIELDS = {"Priority": PRIORITIES, "Effort": EFFORTS, "Autonomy": AUTONOMY,
+                DATE_FIELD: None}
+# GitHub rejects a request past its own complexity guard with "Resource limits for this
+# query exceeded" — a different limit from the rate limit, and nothing is written when it
+# fires. The ceiling is not fixed: a 50-alias request refused deep into the hourly point
+# budget goes through untouched on a fresh one. So this is where `batch` starts rather
+# than what it trusts — a rejection halves the request and retries.
+ALIASES_PER_REQUEST = 15
+
+
+def cmd_batch(a):
+    """Set single-selects on many items in a handful of requests.
+
+    `triage` spends two points an item — one to locate it, one to write it — which a
+    sweep over the whole board turns into hundreds. The board read already carries every
+    item id, so the ids are the only thing still missing, and aliased mutations put a
+    request's worth of writes into one point.
+
+    stdin is one item a line: `<repo>#<n>` then a tab-separated `Field=Value` each
+    (`Start date=2026-10-26`, or `Start date=none` to clear it).
+    Unknown fields and values fail the whole run before anything is written. Past that
+    point a sweep is written request by request, so a failure mid-run says how many items
+    landed; re-running the remainder is safe, since setting a field to what it already
+    holds is a no-op."""
+    rows = []
+    for raw in sys.stdin:
+        line = raw.split("#!")[0].strip()
+        if not line:
+            continue
+        tag, *assigns = line.split("\t")
+        repo, _, n = tag.strip().partition("#")
+        if not n.isdigit():
+            sys.exit(f"not a <repo>#<n>: {tag!r}")
+        values = []
+        for assign in assigns:
+            field, _, value = assign.strip().partition("=")
+            if field not in BATCH_FIELDS:
+                sys.exit(f"no such field {field!r}: {', '.join(BATCH_FIELDS)}")
+            if BATCH_FIELDS[field] is None:
+                values.append((field, value))
+                continue
+            if value not in BATCH_FIELDS[field]:
+                sys.exit(f"{field} has no option {value!r}: {', '.join(BATCH_FIELDS[field])}")
+            values.append((field, value))
+        if values:
+            rows.append((repo, int(n), values))
+    if not rows:
+        sys.exit("nothing on stdin")
+
+    items = {(i["repo"], i["n"]): i for i in board()}
+    missing = [f"{r}#{n}" for r, n, _ in rows if (r, n) not in items]
+    if missing:
+        sys.exit(f"not on the board — `add` them first: {', '.join(missing)}")
+    not_issues = [f"{r}#{n}" for r, n, _ in rows if items[(r, n)]["type"] != "Issue"]
+    if not_issues:
+        sys.exit("the three axes are issue fields, and only an issue can carry them: "
+                 f"{', '.join(not_issues)}")
+
+    # One (aliases, report line) per item — one alias, since every axis of an item is set
+    # in the same mutation. A request is split between items and never inside one, so a
+    # printed SET line means every field on that item landed.
+    writes = []
+    for repo, n, values in rows:
+        assigns = ", ".join(date_assign(v) if f == DATE_FIELD else axis_assign(f, v)
+                            for f, v in values)
+        writes.append((
+            [f'setIssueFieldValue(input:{{issueId:"{items[(repo, n)]["content_id"]}", '
+             f'issueFields:[{assigns}]}}){{ clientMutationId }}'],
+            "\t".join(["SET", f"{repo}#{n}", *[f"{f}={v}" for f, v in values]])))
+
+    done, limit = 0, ALIASES_PER_REQUEST
+    while done < len(writes):
+        batch, size = [], 0
+        for w in writes[done:]:
+            if batch and size + len(w[0]) > limit:
+                break
+            batch.append(w); size += len(w[0])
+        query = "mutation{ " + " ".join(
+            f"f{i}: {alias}" for i, alias in enumerate(a for w in batch for a in w[0])) + " }"
+        err = gql_write(query)
+        if err is None:
+            for _, line in batch:
+                print(line)
+            done += len(batch)
+            continue
+        if "Resource limits" in err and len(batch) > 1:
+            limit = max(1, size // 2)
+            print(f"complexity guard hit at {size} aliases; retrying at {limit}", file=sys.stderr)
+            continue
+        sys.exit(f"{err}\n\n{done} of {len(writes)} items written. Re-run the rest — these "
+                 f"writes are idempotent, so replaying the whole input is also safe.")
+    print(f"\n{len(writes)} items", file=sys.stderr)
+
+
+def cmd_add(a):
+    _, _, _, item_id = ensure_item(a.repo, a.number)
+    print(f"ON-BOARD\t{a.repo}#{a.number}\t{item_id}")
+
+
+def project_id():
+    return gql("query($login:String!,$number:Int!){ organization(login:$login){ projectV2(number:$number){ id } } }",
+               login=OWNER, number=int(PROJECT))["organization"]["projectV2"]["id"]
+
+
+def cmd_archive_done(a):
+    items = [i for i in board() if i["status"] == "Done"]
+    now = datetime.now(timezone.utc)
+    stale = []
+    for i in items:
+        ts = i["updated"]
+        if ts and (now - datetime.fromisoformat(ts.replace("Z", "+00:00"))).days >= a.older_than:
+            stale.append(i)
+    pid = project_id() if a.apply and stale else None
+    for i in stale:
+        print(f'{"ARCHIVED" if a.apply else "WOULD-ARCHIVE"}\t{i["repo"]}#{i["n"]}\t{i["title"][:70]}')
+        if a.apply:
+            gql('mutation($p:ID!,$i:ID!){ archiveProjectV2Item(input:{projectId:$p, itemId:$i}){ item{ id } } }',
+                p=pid, i=i["item_id"])
+    print(f'\n{len(stale)} Done items idle >= {a.older_than}d' + ("" if a.apply else " — rerun with --apply"))
+
+
+def main():
+    p = argparse.ArgumentParser(prog="hoopit-board", description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = p.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("slots"); s.add_argument("target", nargs="?", type=int, default=15)
+    s.add_argument("--unattended", action="store_true"); s.set_defaults(fn=cmd_slots)
+    s = sub.add_parser("open"); s.set_defaults(fn=cmd_open)
+    s = sub.add_parser("scan"); s.set_defaults(fn=cmd_scan)
+    s = sub.add_parser("check"); s.add_argument("repo"); s.add_argument("number", type=int); s.set_defaults(fn=cmd_check)
+    s = sub.add_parser("claim"); s.add_argument("repo"); s.add_argument("number", type=int)
+    s.add_argument("--agent", required=True); s.add_argument("--tab")
+    s.add_argument("--model", help="model the agent was started on; recorded in the claim comment")
+    s.add_argument("--reasoning-effort", dest="reasoning_effort",
+                   choices=["low", "medium", "high", "xhigh", "max"],
+                   help="the model's effort level, not the board's Effort axis")
+    s.set_defaults(fn=cmd_claim)
+    s = sub.add_parser("start"); s.add_argument("repo"); s.add_argument("number", type=int)
+    s.set_defaults(fn=cmd_start)
+    s = sub.add_parser("release"); s.add_argument("repo"); s.add_argument("number", type=int)
+    s.add_argument("--reason", required=True); s.set_defaults(fn=cmd_release)
+    s = sub.add_parser("footprint"); s.add_argument("repos", nargs="+"); s.set_defaults(fn=cmd_footprint)
+    s = sub.add_parser("next"); s.add_argument("target", nargs="?", type=int, default=15)
+    s.add_argument("--exclude", action="append", default=[], metavar="REPO#N")
+    s.add_argument("--repo", action="append", dest="scope", default=[], metavar="OWNER/NAME",
+                   help="count flight and start work only in these repos; every repo when omitted")
+    s.add_argument("--no-judge", action="store_true",
+                   help="skip the System One collision judgement; exact paths only")
+    s.set_defaults(fn=cmd_next)
+    s = sub.add_parser("decisions"); s.add_argument("n", nargs="?", type=int, default=5)
+    s.add_argument("--lines", type=int, default=8)
+    s.add_argument("--unnamed", action="store_true")
+    s.add_argument("--out-of-reach", action="store_true", dest="out_of_reach")
+    s.set_defaults(fn=cmd_decisions)
+    s = sub.add_parser("stale"); s.add_argument("--older-than", type=float, default=6)
+    s.set_defaults(fn=cmd_stale)
+    s = sub.add_parser("dispatches")
+    s.add_argument("--since", type=int, default=14, metavar="DAYS")
+    s.add_argument("--limit", type=int, default=200, help="newest closed PRs to scan per repo")
+    s.add_argument("--repo", action="append", dest="repos", default=None, metavar="OWNER/NAME")
+    s.set_defaults(fn=cmd_dispatches)
+    s = sub.add_parser("drop"); s.add_argument("repo"); s.add_argument("number", type=int)
+    s.add_argument("--apply", action="store_true"); s.set_defaults(fn=cmd_drop)
+    s = sub.add_parser("triage"); s.add_argument("repo"); s.add_argument("number", type=int)
+    s.add_argument("--priority", choices=PRIORITIES); s.add_argument("--effort", choices=EFFORTS)
+    s.add_argument("--autonomy", choices=AUTONOMY)
+    s.add_argument("--not-before", dest="not_before", metavar="YYYY-MM-DD|none",
+                   help="earliest day to pick this up; `none` clears it")
+    s.set_defaults(fn=cmd_triage)
+    s = sub.add_parser("batch"); s.set_defaults(fn=cmd_batch)
+    s = sub.add_parser("add"); s.add_argument("repo"); s.add_argument("number", type=int); s.set_defaults(fn=cmd_add)
+    s = sub.add_parser("archive-done"); s.add_argument("--older-than", type=int, default=7)
+    s.add_argument("--apply", action="store_true"); s.set_defaults(fn=cmd_archive_done)
+    a = p.parse_args()
+    if getattr(a, "repos", "unset") is None:
+        a.repos = ["hoopit/api"]
+    sys.exit(a.fn(a) or 0)
+
+
+if __name__ == "__main__":
+    main()
