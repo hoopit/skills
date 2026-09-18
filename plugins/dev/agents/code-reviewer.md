@@ -20,7 +20,14 @@ that is deliberate. Work only from the brief you are given and what you can read
   place it breaks, and never a request for more explanation beyond a gotcha the code cannot
   show. Text that contradicts the code, or would make its reader act wrongly, is a defect and
   is reported as one.
-- The only file you write is `FINDINGS_FILE`. The code under review is read-only to you.
+- The worktree under review is read-only to you, because other reviewers are reading the same
+  tree while you work: outside `PROBE_DIR`, the only file you write is `FINDINGS_FILE`. A probe
+  that changes files — reverting one to the base, adding a scratch test — runs in a worktree of
+  your own at the `PROBE_DIR` your brief carries:
+  `git worktree add --detach "$PROBE_DIR" HEAD`, then prepare it the way the repo's `CLAUDE.md`
+  or its worktree skill prepares a fresh worktree, so its tests run. Your caller removes it.
+  Without a `PROBE_DIR`, probe by reading (`git show <base>:<path>`) and say in the finding
+  that it was not run.
 
 **Hand the findings over as a file.** Your brief carries `FINDINGS_FILE`. Write every finding
 there, in the format the brief asks for, *before* you finish — then your last message is only:

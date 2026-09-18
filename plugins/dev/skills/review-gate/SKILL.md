@@ -101,6 +101,17 @@ that policy.
    docs is out of scope, except text that contradicts the code in this diff or would make
    its reader act wrongly.* Text was reviewed
    under `full`, and a fresh reader always finds another sentence to improve.
+   **The reviewed worktree is shared, so it stays read-only.** The axes and Codex read it at
+   once, and a reviewer that reverts a file there hands every peer a tree that is neither the
+   branch nor the base — a measurement taken in that window is false, and nothing downstream
+   can tell. Give each reviewer its own `PROBE_DIR` on the same prompt as its brief —
+   `$GATE_DIR/standards-probe`, `$GATE_DIR/spec-probe`, `$GATE_DIR/independent-probe` — where
+   it builds a private worktree the first time a probe has to change files (the agent
+   definition holds how), so only an axis that probes pays for the checkout. Once every
+   reviewer has reported, remove what they built:
+   ```bash
+   for w in "$GATE_DIR"/*-probe; do [ -d "$w" ] && git worktree remove --force "$w"; done
+   ```
    - **Preferred — invoke the `mattpocock-skills:code-review` skill** (the two-axis reviewer;
      use the namespaced name so it isn't confused with the built-in `/review`, which reviews an
      existing GitHub PR). Give it **`$REVIEW_BASE` as the fixed point** — it runs
