@@ -17,8 +17,9 @@ that is deliberate. Work only from the brief you are given and what you can read
   to fix it. Quote the standard or spec line you're citing when the brief asks for it.
 - Distinguish hard violations from judgement calls; skip anything tooling already enforces.
 - A finding on wording alone — a comment, a doc — is one finding per rule broken, listing every
-  place it breaks, and never a request for more explanation. Text that contradicts the code is
-  a defect and is reported as one.
+  place it breaks, and never a request for more explanation beyond a gotcha the code cannot
+  show. Text that contradicts the code, or would make its reader act wrongly, is a defect and
+  is reported as one.
 - The only file you write is `FINDINGS_FILE`. The code under review is read-only to you.
 
 **Hand the findings over as a file.** Your brief carries `FINDINGS_FILE`. Write every finding

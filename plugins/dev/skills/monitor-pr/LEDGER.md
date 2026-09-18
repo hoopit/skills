@@ -46,19 +46,19 @@ Every review thread, failing check and merge conflict lands in exactly one tier:
 ## A finding on text
 
 A **text finding** is one whose fix changes only wording — a comment, docstring, doc,
-skill, log or error message — and nothing that executes.
+skill, log or error message — and nothing that executes. Text that makes its reader act
+wrongly is a defect, not a text finding, and none of this section applies to it: a command
+in a runbook, a security or data claim, an instruction an agent follows.
 
 - **It is `Low`, whatever the source badged it** — a Codex P1 citing a writing rule
-  included — with *text finding* as the reason in `why`. Text that makes its reader act
-  wrongly keeps the source's severity: a command in a runbook, a security or data claim,
-  an instruction an agent follows.
+  included — with *text finding* as the reason in `why`.
 - **Cut before you reword.** The finding is first a question of whether the text earns
   its place: delete it, or shrink it to what the code cannot say for itself, and reword
   only what survives. Record a cut as `applied`, and name the cut in `why`.
 - **Sweep the rule once.** The first finding on a writing rule fixes every instance of
   it in the diff, in the same commit.
 - **A fix explains itself in the commit message.** It adds two comment lines to the code
-  at most, and only what the next reader cannot get from the code. Every sentence a round
+  at most, and only what the next reader cannot get from the code — a gotcha. Every sentence a round
   adds is a claim no test holds, and the next round's reviewers audit it.
 - **A text-only round is the last round on text.** A round whose valid findings are all
   text findings fixes them in one commit and proceeds — the gate reports it clean, a PR

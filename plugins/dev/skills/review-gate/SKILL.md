@@ -98,7 +98,8 @@ that policy.
    is for. Every pass puts cold eyes on the code it covers: `light` narrows the diff and the axes,
    leaving the independence intact.
    **A `light` pass leaves wording out.** Add to its Standards brief: *wording of comments and
-   docs is out of scope, except text that contradicts the code in this diff.* Text was reviewed
+   docs is out of scope, except text that contradicts the code in this diff or would make
+   its reader act wrongly.* Text was reviewed
    under `full`, and a fresh reader always finds another sentence to improve.
    - **Preferred — invoke the `mattpocock-skills:code-review` skill** (the two-axis reviewer;
      use the namespaced name so it isn't confused with the built-in `/review`, which reviews an
