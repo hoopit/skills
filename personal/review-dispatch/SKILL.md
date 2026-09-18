@@ -23,8 +23,13 @@ not to add a tier. One move per run, or none.
 ## 1. Read the record
 
 ```bash
-hoopit-board dispatches --since <days>        # default 14; add --repo owner/name per extra repo
+hoopit-board dispatches --since <days> --limit 600   # default 14; add --repo owner/name per extra repo
 ```
+
+A non-empty `truncated` means `--limit` ended the walk inside the window and the oldest
+merges are missing: raise it and re-run before reading anything. `gate_judgement` other than
+`ran` means some PRs carry fix commits only — say how many, and read the rework numbers as
+covering the rest.
 
 Exit 1 means **nothing is attributed** — no PR in the window carries a rung. Say that and
 stop; everything below is unreadable without it.
@@ -45,15 +50,24 @@ what it would take to read it, rather than a verdict dressed in a hedge.
 ## 3. Compare against the baseline, not against another rung
 
 Rungs sit on different work — XS is not S — so rung-vs-rung says little. The population
-baseline is what a rung is read against. Measured 2026-09-18 over 10 days, 95 merged PRs:
-**471 fix commits, median 3 per PR, max 36, 25 PRs clean.** Re-read it from
-`by_rung["(unattributed)"]` each run; it drifts.
+baseline is what a rung is read against, on two axes. Measured 2026-09-19 over 14 days,
+283 merged PRs:
+
+- **Fix commits:** 1183, median 2 per PR, max 36, 101 PRs clean.
+- **Gate notes**, over the 196 PRs whose body carries them: **rework median 2.9** (mean 2.4)
+  on a scale of 0 clean · 1 nits only · 2 one real defect · 3 repeated defects · 4 the
+  approach was sent back; **20 PRs (10%)** where a Critical/High finding was disputed as
+  invalid; **5** where the challenge broke a claim a decline rested on.
+
+Re-read it from `population` each run; it drifts.
 
 The tripwires, in order of how loudly they speak:
 
 - `released_total` — the agent gave up and handed the slot back. Any non-zero on a rung that
   has few PRs is worth a look on its own.
-- `fix_commits_median` well above the baseline — the gate kept finding work.
+- `fix_commits_median` or `rework_median` well above the baseline — the gate kept finding
+  work. The rework score is the steadier of the two: one defect fixed in five commits and
+  five defects fixed in one read the same on it.
 - `clean_prs` near zero where the baseline clears a quarter.
 - `pr-quiet` rows from `hoopit-board stale`, which is a stalled agent rather than a bad diff.
 
@@ -61,13 +75,24 @@ The tripwires, in order of how loudly they speak:
 
 `fix_commits` counts findings the gate raised **and the agent fixed**. A finding skipped as
 invalid, or dropped at challenge, writes no commit — so the count misses exactly how an
-under-powered model fails: by generating findings that are not real. A rung that looks
-*too* clean is the one to check by hand.
+under-powered model fails: by generating findings that are not real, or by arguing real
+ones away.
 
-Open one PR from it and read the gate notes in the body — which reviewers ran, findings
-skipped with reasons, findings challenged and how they held. That prose is the only record
-of findings that never became commits. The reviewer is pinned Opus/high whatever wrote the
-diff, so the instrument is constant across rungs; only the author varies.
+The gate notes in each PR body record those findings, and `dispatches` reads them across
+the whole window. Per rung, beside the fix-commit median:
+
+- `disputed_rate` — the share of judged PRs where a Critical/High finding was disputed.
+- `challenge_broke_prs` — PRs where a decline did not survive the challenge.
+- `flags: ["clean-but-disputed"]` — the fix-commit median is under the population's while
+  the disputed rate is well over it. This is the rung that looks clean because it argued.
+
+Name a flagged rung as such in the report. Then open its disputed PRs — each row's
+`gate.disputed` at or above 0.5 — and read the notes: a flag is where to look, and whether
+the disputes were right is yours to judge. `gate_judged` is the n behind every gate number;
+step 2's floor of ~5 binds it as it binds `prs`.
+
+The reviewer is pinned Opus/high whatever wrote the diff, so the instrument is constant
+across rungs; only the author varies.
 
 ## 5. Move at most one rung
 
@@ -83,8 +108,9 @@ already encodes.
 
 ## 6. Report
 
-Per rung: PRs attributed, fix-commit median against the baseline, releases, and whether the
-row supports a verdict or only a description. Then the move you made and what it rests on,
+Per rung: PRs attributed, fix-commit median and rework median against the baseline,
+disputed rate, any flag, releases, and whether the row supports a verdict or only a
+description. Then the move you made and what it rests on,
 or that you made none and what would change that. Finally the attribution gap — how many PRs
 in the window carried no rung, since that is the number that decides when this is worth
 running again.

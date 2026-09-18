@@ -20,6 +20,7 @@ that handles it, and the failure it prevents is the expensive kind: a sweep that
 half the board and reports success. Nothing else exercises this path.
 """
 import argparse, contextlib, importlib.machinery, importlib.util, io, json, pathlib, re, sys
+import tempfile
 
 SCRIPT = pathlib.Path(__file__).with_name("hoopit-board")
 
@@ -526,6 +527,145 @@ def test_scan_no_judge_asks_nothing():
         raise AssertionError("asked")
     out, err = scan(m, refuse, no_judge=True)
     assert "## TITLE OVERLAP" in out and "hoopit/api#1\thoopit/api#2" in out and not err, (out, err)
+
+
+# --- dispatches: the gate-notes judgement --------------------------------------------
+
+NOTES = """## Summary
+
+Fixes the export.
+
+## Review gate
+
+One round. Codex and a cold Standards reviewer.
+
+### Skipped
+- Codex challenge (High): the race is already on master.
+
+## Testing
+
+pytest
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+"""
+
+
+def pr_row(n, rung, fix, notes="One round, clean."):
+    return {"repo": "hoopit/api", "pr": n, "issue": n, "merged": f"2026-09-{n:02d}T00:00:00Z",
+            "rung": rung, "model": None, "reasoning_effort": None, "commits": fix + 1,
+            "fix_commits": fix, "findings": [], "released": 0, "url": "", "title": f"PR {n}",
+            "gate_notes": notes, "gate": None}
+
+
+def gate_answer(rework, disputed=0.05, broke=0.05):
+    return {"rework": {"score": rework, "confidence": 0.9},
+            "disputed": {"noul": disputed}, "challenge_broke": {"noul": broke}}
+
+
+def dispatches(m, rows, ask, no_judge=False):
+    """cmd_dispatches over `rows`, with no cache on disk. Returns (report, stderr, code)."""
+    m.GATE_CACHE = None
+    m.GATE_RETRY_PAUSE = 0
+    m.dispatch_rows = lambda repo, since, limit: ([dict(r) for r in rows], False)
+    m.judge_gates.ask = ask
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        code = m.cmd_dispatches(argparse.Namespace(repos=["hoopit/api"], since=14, limit=200,
+                                                   no_judge=no_judge))
+    return json.loads(out.getvalue()), err.getvalue(), code
+
+
+def test_the_notes_block_runs_to_the_next_heading_of_its_depth():
+    m = load()
+    notes = m.gate_notes(NOTES)
+    assert notes.startswith("One round.") and "### Skipped" in notes, notes
+    assert "pytest" not in notes and "Fixes the export" not in notes, notes
+
+
+def test_a_trailing_notes_block_stops_at_the_footer():
+    m = load()
+    notes = m.gate_notes("## Summary\n\nx\n\n## Code review (review-gate)\n\nClean.\n\n"
+                         "🤖 Generated with [Claude Code](https://claude.com/claude-code)\n")
+    assert notes == "Clean.", notes
+
+
+def test_a_heading_about_reviewers_is_not_the_gate_notes():
+    m = load()
+    assert m.gate_notes("## Three decisions worth a reviewer's attention\n\nx\n") == ""
+    assert m.gate_notes(None) == ""
+
+
+def test_a_rung_clean_on_commits_and_disputed_in_the_notes_is_named():
+    """The case the skill exists for: few fix commits because findings were argued away."""
+    m = load()
+    rows = ([pr_row(n, "sonnet/medium", 0) for n in (1, 2, 3)]
+            + [pr_row(n, None, 4, notes="Four findings, all fixed.") for n in range(4, 14)])
+    def ask(state, questions):
+        return (gate_answer(1.0, disputed=0.9) if "clean" in state["notes"]
+                else gate_answer(2.0)), None
+    report, err, code = dispatches(m, rows, ask)
+    rung = report["by_rung"]["sonnet/medium"]
+    assert rung["fix_commits_median"] == 0 and rung["disputed_rate"] == 1.0, rung
+    assert rung["flags"] == ["clean-but-disputed"], rung
+    assert report["by_rung"]["(unattributed)"]["flags"] == [], report["by_rung"]
+    assert report["population"]["gate_judged"] == 13 and code == 0 and not err, (report, err)
+    assert report["dispatches"][0]["gate"]["rework"] == 2.0, report["dispatches"][0]
+    assert "gate_notes" not in report["dispatches"][0]
+
+
+def test_a_pr_without_notes_is_left_out_of_the_rework_numbers():
+    m = load()
+    rows = [pr_row(1, "opus/medium", 0, notes=""), pr_row(2, "opus/medium", 2)]
+    report, _, _ = dispatches(m, rows, lambda s, q: (gate_answer(3.0), None))
+    rung = report["by_rung"]["opus/medium"]
+    assert (rung["gate_noted"], rung["gate_judged"], rung["rework_median"]) == (1, 1, 3.0), rung
+    assert {r["pr"]: r["gate"] is None for r in report["dispatches"]} == {1: True, 2: False}
+
+
+def test_a_gate_judgement_that_cannot_run_keeps_the_fix_commits_and_says_so():
+    m = load()
+    rows = [pr_row(1, "opus/medium", 2), pr_row(2, "opus/medium", 4)]
+    report, err, code = dispatches(m, rows, lambda s, q: (None, "HTTP 429"))
+    rung = report["by_rung"]["opus/medium"]
+    assert rung["fix_commits_median"] == 4 and rung["rework_median"] is None, rung
+    assert rung["flags"] == [] and code == 0, rung
+    assert "HTTP 429" in err and "2 of 2" in report["gate_judgement"], (err, report)
+
+
+def test_a_stray_gate_failure_is_asked_once_more():
+    m = load()
+    seen = []
+    def ask(state, questions):
+        seen.append(state["title"])
+        if state["title"] == "PR 2" and seen.count("PR 2") == 1:
+            return None, "HTTP 503"
+        return gate_answer(1.0), None
+    report, err, _ = dispatches(m, [pr_row(1, "opus/medium", 0), pr_row(2, "opus/medium", 0)], ask)
+    assert report["by_rung"]["opus/medium"]["gate_judged"] == 2 and not err, (report, err)
+
+
+def test_judged_notes_are_not_asked_about_twice():
+    m = load()
+    with tempfile.TemporaryDirectory() as d:
+        asked = []
+        def ask(state, questions):
+            asked.append(state["title"])
+            return gate_answer(2.0), None
+        for _ in range(2):
+            m.GATE_CACHE = f"{d}/cache/gate-notes.json"
+            m.judge_gates.ask = ask
+            rows = [pr_row(1, "opus/medium", 1)]
+            assert m.judge_gates(rows) == [] and rows[0]["gate"]["rework"] == 2.0, rows
+        assert asked == ["PR 1"], asked
+
+
+def test_dispatches_no_judge_asks_nothing():
+    m = load()
+    def refuse(s, q):
+        raise AssertionError("asked")
+    report, err, _ = dispatches(m, [pr_row(1, "opus/medium", 1)], refuse, no_judge=True)
+    assert report["gate_judgement"] == "--no-judge" and not err, (report, err)
+    assert report["by_rung"]["opus/medium"]["rework_median"] is None
 
 
 if __name__ == "__main__":

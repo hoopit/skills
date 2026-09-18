@@ -29,6 +29,11 @@ in which block. It is additive in the same way — a decision heading the regex 
 named whatever the probability — and what it prints is copied out of the body by block
 index, never generated.
 
+`dispatches` asks it to read the review-gate notes out of each merged PR's body: how much
+rework the reviewers demanded, and whether a Critical/High finding was disputed or a
+challenge broke a decline — the findings that never became a fix commit. It fails open to
+the fix-commit count, and the thresholds that read its answers live here.
+
 Called as a bare command by `start-backlog-daemon` and by the `create-gh-issue`,
 `gh-triage` and `curate-backlog` skills, off a `~/.local/bin` symlink. PRIORITIES, EFFORTS and
 AUTONOMY below are the rubric tables in `create-gh-issue`: change the two
@@ -57,7 +62,7 @@ a release, and the issue that ships the code closes at merge, days before promot
   slots [X] [--unattended]       what to start, to reach X in flight (default 15)
   next [X] [--repo R]... [--exclude REPO#N]... [--no-judge]  one tick, as JSON; exit 1 = nothing to do
   decisions [N] [--unnamed] [--out-of-reach] [--no-judge]   the top N decisions to answer (default 5)
-  stale [--older-than H]         flight that may have lost its agent: no-pr | pr-quiet\n  dispatches [--since D] [--repo R]...  merged PRs by the rung that wrote them
+  stale [--older-than H]         flight that may have lost its agent: no-pr | pr-quiet\n  dispatches [--since D] [--repo R]... [--no-judge]  merged PRs by the rung that wrote them
   open                           every open item, one line each
   scan [--no-judge]              every open item, with curation signals and judged duplicate pairs
   check <repo> <n>               is this issue startable?  exit 0 yes / 1 no
@@ -72,7 +77,7 @@ a release, and the issue that ships the code closes at merge, days before promot
   add <repo> <n>                 put an issue on the board; prints its item id
   archive-done [--older-than N] [--apply]  (default 7 days)
 """
-import argparse, json, math, os, re, subprocess, sys, textwrap, time, urllib.error, urllib.request
+import argparse, hashlib, json, math, os, re, subprocess, sys, textwrap, time, urllib.error, urllib.request
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
@@ -213,6 +218,39 @@ DUP_RETRY_PAUSE = 2
 # the Noul and 0.99 on the sum, two caches in one workflow read 0.05 and 0.02, and two
 # runs of one pair land within 0.05 of each other.
 DUP_LOW, DUP_HIGH = 0.30, 0.60
+
+
+# `dispatches` counts `Reviewer finding (...)` commits, and a finding skipped as invalid or
+# dropped at challenge writes none. `review-gate` records those in the notes block its
+# caller pastes into the PR body — prose under a heading that opens with `Review` or
+# `Code review`: `## Review gate` mostly, `## Review history` or `## Code review
+# (review-gate)` now and then. One Jev request a PR turns that block into a rework Score
+# and two Nouls. Everything here fails open: a PR with no block, or whose request failed,
+# keeps its fix-commit count and carries no gate numbers.
+GATE_HEADING = re.compile(r"^(#{2,4}) +(?:code +)?review\b.*$", re.I | re.M)
+# Where a notes block stops when no heading follows it: the session footer and the HTML
+# comments bots append under the body.
+GATE_END = re.compile(r"^(?:🤖 Generated with|<!--)", re.M)
+GATE_MAX_NOTES = 12000
+GATE_WORKERS = 8
+GATE_RETRY_PAUSE = 2
+# The raw answers, keyed by a hash of the questions and the notes. A merged PR's notes do
+# not change, so re-reading a window costs inference only for the PRs new to it, and
+# moving a threshold below costs none. Rewording a question re-asks everything.
+GATE_CACHE = "~/.cache/hoopit-board/gate-notes.json"
+# Noul probabilities. At or above them the PR counts as one where a Critical/High finding
+# was disputed, or where the challenge broke a claim a decline rested on. Measured
+# 2026-09-19 over 196 judged PRs: 20 read disputed and 5 broken, and the ones read by hand
+# held — a High challenge finding declined as "already on master" reads 0.75, a decline
+# "taken when the rationale failed on re-raise" reads 0.83. The rework score tracks the
+# fix-commit count without repeating it: a mean of 1.8 over PRs with no fix commits, 2.8
+# over those with six or more.
+GATE_DISPUTED_YES = 0.5
+GATE_BROKE_YES = 0.5
+# A rung is named `clean-but-disputed` when its fix-commit median sits under the
+# population's while its disputed-PR rate is at least this far above the population's —
+# few commits because findings were argued away rather than because there were few.
+GATE_DISPUTED_MARGIN = 0.15
 
 
 def gh(*args, parse=True):
@@ -1507,10 +1545,16 @@ def dispatch_rows(repo, since_days, limit):
     The rung comes off the claim comment rather than the board's Effort, because the rung
     *is* (model, effort) — and a PR whose issue carries no claim marker is unattributable,
     which is most of what predates 2026-09-18. Those rows are reported, never guessed at.
+
+    Returns `(rows, whether the cap ended the walk inside the window)`.
     """
     cut = datetime.now(timezone.utc) - timedelta(days=since_days)
     rows = []
-    for pr in rest(f"repos/{repo}/pulls", limit, state="closed", sort="updated", direction="desc"):
+    closed = rest(f"repos/{repo}/pulls", limit, state="closed", sort="updated", direction="desc")
+    # The walk stopped at the cap while still inside the window: older merges are missing.
+    truncated = (len(closed) >= limit
+                 and datetime.fromisoformat(closed[-1]["updated_at"].replace("Z", "+00:00")) >= cut)
+    for pr in closed:
         if not pr.get("merged_at") or datetime.fromisoformat(pr["merged_at"].replace("Z", "+00:00")) < cut:
             continue
         m = CLOSES.search(pr.get("body") or "")
@@ -1533,54 +1577,255 @@ def dispatch_rows(repo, since_days, limit):
             "model": model, "reasoning_effort": effort,
             "commits": len(commits), "fix_commits": len(findings),
             "findings": findings, "released": released,
+            "gate_notes": gate_notes(pr.get("body")), "gate": None,
             "url": pr["html_url"], "title": pr["title"],
         })
-    return rows
+    return rows, truncated
+
+
+def gate_notes(body):
+    """The review-gate notes block of a PR body, or `""` where it carries none. The block
+    runs from its heading to the next heading of the same depth or shallower."""
+    m = GATE_HEADING.search(body or "")
+    if not m:
+        return ""
+    rest_ = body[m.end():]
+    ends = [e.start() for e in (re.search(rf"^#{{1,{len(m.group(1))}}} ", rest_, re.M),
+                                GATE_END.search(rest_)) if e]
+    return rest_[:min(ends)].strip() if ends else rest_.strip()
+
+
+def gate_questions():
+    """What is asked of one PR's gate notes, in one request. The Score is how much rework
+    the reviewers demanded; the two Nouls are the events a fix-commit count cannot see."""
+    return {
+        "rework": {
+            "type": "score",
+            "instructions": "`notes` is the code-review record of one pull request: which "
+                            "reviewers ran, what they found, what the author fixed and what "
+                            "the author declined. How much rework did the reviewers demand "
+                            "of this change?",
+            "criteria": [
+                "Clean: the reviewers found nothing, or nothing the author had to change.",
+                "Nits only: every fix was wording, naming, a comment, a docstring, style or "
+                "a test tidy-up. No reviewer found behaviour that was wrong.",
+                "One real defect: the reviewers found a genuine bug or wrong behaviour in "
+                "the change, the author fixed it, and that was the extent of it.",
+                "Repeated defects: the reviewers found several genuine defects, or a fix "
+                "for one defect introduced another of the same kind that a later round "
+                "had to catch.",
+                "The approach was sent back: the reviewers rejected the design or a central "
+                "premise of the change, and the author reworked it rather than patching it.",
+            ],
+        },
+        "disputed": {
+            "type": "noul",
+            "instructions": "Does `notes` record that the author disputed as invalid a "
+                            "finding the reviewer rated Critical, High, P0 or P1?",
+            "criteria": {
+                "true": "A reviewer raised a finding at Critical, High, P0 or P1 severity "
+                        "and the author declined, skipped or blocked on it on the grounds "
+                        "that the finding is wrong, does not apply, or describes something "
+                        "that cannot happen.",
+                "false": "Every Critical, High, P0 or P1 finding was fixed; or the only "
+                         "findings the author declined were lower severity, nits, style or "
+                         "out of scope; or the notes record no declined finding at all.",
+            },
+        },
+        "challenge_broke": {
+            "type": "noul",
+            "instructions": "When the author of this change declined a review finding, the "
+                            "claim the decline rested on was put to an adversarial "
+                            "challenge. Does `notes` record that such a challenge broke the "
+                            "claim, so that the author had to fix the finding after all?",
+            "criteria": {
+                "true": "The notes say a claim the author relied on to decline or dispute a "
+                        "finding was challenged and did not hold, and the finding was then "
+                        "fixed.",
+                "false": "No decline was challenged; or every challenged claim is recorded "
+                         "as standing; or the challenge only raised new findings of its own "
+                         "rather than overturning one of the author's declines.",
+            },
+        },
+    }
+
+
+def gate_cache_load():
+    try:
+        with open(os.path.expanduser(GATE_CACHE)) as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def gate_cache_save(cache):
+    """Best effort: an unwritable cache costs the next run its inference, nothing else."""
+    try:
+        path = os.path.expanduser(GATE_CACHE)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path + ".tmp", "w") as fh:
+            json.dump(cache, fh)
+        os.replace(path + ".tmp", path)
+    except Exception:
+        pass
+
+
+def judge_gates(rows):
+    """Set `gate` on every row whose PR body carries gate notes: the raw rework score
+    (0-4), its confidence and the two Noul probabilities — raw, so the thresholds that read
+    them stay in code. Returns why each unjudged PR went unjudged.
+
+    A row with no notes block, or whose request failed, keeps `gate` as None."""
+    questions = gate_questions()
+    salt = json.dumps(questions, sort_keys=True)
+    cache = gate_cache_load() if GATE_CACHE else {}
+
+    def key(r):
+        return hashlib.sha256((salt + r["gate_notes"]).encode()).hexdigest()
+
+    def ask(r):
+        answers, why = judge_gates.ask(
+            {"title": r["title"], "notes": r["gate_notes"][:GATE_MAX_NOTES]}, questions)
+        if why:
+            return r, None, why
+        rework = answers.get("rework") or {}
+        nouls = [(answers.get(q) or {}).get("noul") for q in ("disputed", "challenge_broke")]
+        if not all(isinstance(v, (int, float)) for v in (rework.get("score"), *nouls)):
+            return r, None, "the response carried no answer for the notes"
+        return r, {"rework": round(float(rework["score"]), 3),
+                   "rework_confidence": rework.get("confidence"),
+                   "disputed": round(float(nouls[0]), 3),
+                   "challenge_broke": round(float(nouls[1]), 3)}, None
+
+    todo = []
+    for r in rows:
+        if r["gate_notes"] and key(r) in cache:
+            r["gate"] = cache[key(r)]
+        elif r["gate_notes"]:
+            todo.append(r)
+
+    # One more pass over what failed, as `judge_pairs` does and for the same reason.
+    asked, failed = 0, []
+    for attempt, workers in enumerate((GATE_WORKERS, 1)):
+        with ThreadPoolExecutor(workers) as pool:
+            results = list(pool.map(ask, todo))
+        for r, gate, why in results:
+            if not why:
+                r["gate"] = cache[key(r)] = gate
+                asked += 1
+        failed = [why for _, _, why in results if why]
+        todo = [r for r, _, why in results if why]
+        if not todo or not asked or attempt:
+            break
+        time.sleep(GATE_RETRY_PAUSE)
+    if asked and GATE_CACHE:
+        gate_cache_save(cache)
+    return failed
+
+
+judge_gates.ask = typesafe
+
+
+def median(values):
+    values = sorted(values)
+    return values[len(values) // 2] if values else 0
+
+
+def rung_summary(rows):
+    """One rung's row. The gate numbers cover the PRs in `gate_judged` only — a PR with no
+    notes block says nothing about rework, so it is left out rather than counted clean."""
+    fx = [r["fix_commits"] for r in rows]
+    gates = [r["gate"] for r in rows if r["gate"]]
+    disputed = sum(1 for g in gates if g["disputed"] >= GATE_DISPUTED_YES)
+    return {
+        "prs": len(rows),
+        "fix_commits_total": sum(fx),
+        "fix_commits_median": median(fx),
+        "fix_commits_max": max(fx, default=0),
+        "clean_prs": sum(1 for v in fx if v == 0),
+        "released_total": sum(r["released"] for r in rows),
+        "gate_noted": sum(1 for r in rows if r["gate_notes"]),
+        "gate_judged": len(gates),
+        "rework_median": median(g["rework"] for g in gates) if gates else None,
+        "rework_mean": round(sum(g["rework"] for g in gates) / len(gates), 2) if gates else None,
+        "disputed_prs": disputed,
+        "disputed_rate": round(disputed / len(gates), 2) if gates else None,
+        "challenge_broke_prs": sum(1 for g in gates if g["challenge_broke"] >= GATE_BROKE_YES),
+    }
 
 
 def cmd_dispatches(a):
     """The dispatch ladder's record: one row per merged PR, grouped by the rung that wrote it.
 
-    `fix_commits` counts findings the gate raised **and the agent fixed**. A finding skipped
-    as invalid or dropped at challenge writes no commit, so this under-counts exactly the way
-    an under-powered model fails — read a gate's prose notes before trusting a clean rung.
-    The reviewer is pinned Opus/high whatever the author, so the instrument itself is constant.
+    Two instruments. `fix_commits` counts findings the gate raised **and the agent fixed**; a
+    finding skipped as invalid or dropped at challenge writes no commit, so it under-counts
+    exactly the way an under-powered model fails. The `gate` numbers are read off the notes
+    `review-gate` leaves in the PR body, which is where those findings are recorded: a rework
+    score from 0 (clean) to 4 (the approach was sent back), and whether a Critical/High
+    finding was disputed or a challenge broke a decline. The reviewer is pinned Opus/high
+    whatever the author, so both instruments are constant across rungs.
+
+    `population` is every merged PR in the window, attributed or not — what a rung is read
+    against. A rung's `flags` name it `clean-but-disputed` when its fix-commit median is
+    under the population's while its disputed rate is well over it.
 
     `--limit` caps the closed-PR walk per repo (200 rows, newest-updated first). Merging a PR
     updates it, so recent merges sit at the top — but a busy fortnight can push an early merge
-    past the cap, and the row simply will not appear. Raise `--limit` before widening `--since`.
-    Costs about two REST calls per merged PR in the window (its commits, its issue's comments),
-    so it is a review you run, never something you poll.
+    past the cap, and the row simply will not appear — `truncated` names the repos where the
+    walk ended inside the window. Raise `--limit` before widening `--since`.
+    Costs about two REST calls per merged PR in the window (its commits, its issue's comments)
+    and one Jev request per PR not judged before, so it is a review you run, never something
+    you poll.
     """
-    rows = []
+    rows, truncated = [], []
     for repo in a.repos:
-        rows += dispatch_rows(repo, a.since, a.limit)
+        found, cut_short = dispatch_rows(repo, a.since, a.limit)
+        rows += found
+        if cut_short:
+            truncated.append(repo)
+    if truncated:
+        print(f"!! --limit {a.limit} ended the walk inside the window for "
+              f"{', '.join(truncated)}: the oldest merges are missing — raise --limit",
+              file=sys.stderr)
+    noted = sum(1 for r in rows if r["gate_notes"])
+    if a.no_judge:
+        judgement = "--no-judge"
+    else:
+        failed = judge_gates(rows)
+        judgement = (f"did not run for {len(failed)} of {noted} PRs with gate notes: {failed[0]}"
+                     if failed else "ran")
+        if failed:
+            print(f"!! the gate-notes judgement {judgement} — those PRs carry fix commits "
+                  "only", file=sys.stderr)
     by = defaultdict(list)
     for r in rows:
         by[r["rung"] or "(unattributed)"].append(r)
+    population = rung_summary(rows)
     summary = {}
     for rung, rs in sorted(by.items()):
-        fx = sorted(r["fix_commits"] for r in rs)
-        summary[rung] = {
-            "prs": len(rs),
-            "fix_commits_total": sum(fx),
-            "fix_commits_median": fx[len(fx) // 2] if fx else 0,
-            "fix_commits_max": fx[-1] if fx else 0,
-            "clean_prs": sum(1 for v in fx if v == 0),
-            "released_total": sum(r["released"] for r in rs),
-        }
+        summary[rung] = row = rung_summary(rs)
+        row["flags"] = []
+        if (row["disputed_rate"] is not None and population["disputed_rate"] is not None
+                and row["fix_commits_median"] < population["fix_commits_median"]
+                and row["disputed_rate"] >= population["disputed_rate"] + GATE_DISPUTED_MARGIN):
+            row["flags"].append("clean-but-disputed")
     attributed = sum(1 for r in rows if r["rung"])
+    for r in rows:
+        del r["gate_notes"]
     print(json.dumps({
         "since_days": a.since,
         "repos": a.repos,
         "merged_prs": len(rows),
         "attributed": attributed,
         "unattributed": len(rows) - attributed,
+        "truncated": truncated,
+        "gate_judgement": judgement,
+        "population": population,
         "by_rung": summary,
         "dispatches": sorted(rows, key=lambda r: r["merged"], reverse=True),
     }, indent=2))
     return 0 if attributed else 1
-
 
 def cmd_stale(a):
     """Work in flight that may have lost its agent, in two shapes the reason column tells
@@ -1836,6 +2081,8 @@ def main():
     s.add_argument("--since", type=int, default=14, metavar="DAYS")
     s.add_argument("--limit", type=int, default=200, help="newest closed PRs to scan per repo")
     s.add_argument("--repo", action="append", dest="repos", default=None, metavar="OWNER/NAME")
+    s.add_argument("--no-judge", action="store_true",
+                   help="skip the gate-notes judgement; fix commits only")
     s.set_defaults(fn=cmd_dispatches)
     s = sub.add_parser("drop"); s.add_argument("repo"); s.add_argument("number", type=int)
     s.add_argument("--apply", action="store_true"); s.set_defaults(fn=cmd_drop)
