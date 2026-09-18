@@ -168,7 +168,8 @@ opening the PR.
   out of the commit.
 - One focused commit per logical move reads best (e.g. "document the payments lock
   order in the module's AGENTS.md").
-- Push and open the PR following the **`create-pull-request`** skill's recipe.
+- Push and open the PR following the **`create-pull-request`** skill's recipe, without
+  `--draft`: no watch follows a curation, so nothing would mark a draft ready.
   There's usually no tracked work item — say so in the body. Structure the body by
   destination: what graduated where, and (for reviewer context) what expired, what
   stayed in memory, and what went to the global `CLAUDE.md` outside this repo.
