@@ -15,13 +15,11 @@ Never expand existing frontmatter descriptions without approval.
 
 - **Commit straight to `main`.** Every skill/plugin change goes directly on `main` — no
   feature branch, no PR. Skip the usual "branch first on the default branch" step here.
-- **Edit skills in a working clone of `hoopit/skills`.** Everything under
-  `~/.claude/plugins/` is an install: `marketplaces/hoopit-skills` is Claude Code's own
-  checkout of this repo, reset to `origin/main` by auto-update, and `cache/` is built from
-  it. A commit made there exists only until the next refresh, while every install already
-  points at it. A skill is loaded from that path, so a fix prompted by running one starts by
-  switching to the working clone. When `git rev-parse --show-toplevel` answers with a path
-  under `~/.claude/plugins/`, stop and make the change in the working clone instead.
+- **Edit skills in a working clone of `hoopit/skills`.** `~/.claude/plugins/` is the
+  **install**: Claude Code's own checkout of this repo, which auto-update resets to
+  `origin/main`, dropping any commit made there. A running skill's path points into the
+  install, so before the first edit read `git rev-parse --show-toplevel` — a path under the
+  install means the change belongs in the working clone.
 
 ## Skill scope — Hoopit-specific is fine, single-project is not
 
