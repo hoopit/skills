@@ -49,6 +49,12 @@ Set by the caller; unset, the pass is a full review of the whole branch.
   the shape taken and the alternatives set aside, or the mechanism being stepped back
   from. Findings earlier passes skipped on judgement go into the focus as settled ground,
   each with its reason. A `light` pass runs it only when `CHALLENGE` is set.
+- `CODEX_MODEL` *(optional)* — the Codex model for Codex's **standard review**, overriding what the
+  scope would pick (step 2). The challenge is not steerable at all: questioning an approach is
+  what a strong model buys, so it always runs on the model `~/.codex/config.toml` names.
+  Reasoning effort is **not** an input either: `codex-companion` takes `--effort` on `task` alone,
+  and the standard review goes through `review/start`, which carries no effort field — both reviews
+  read `model_reasoning_effort` from `~/.codex/config.toml`, so that file is where effort changes.
 - `PRIOR_ROUNDS` *(optional)* — one line per earlier pass: the highest severity among its valid
   findings. It is what lets this pass close (step 5).
 
@@ -75,10 +81,10 @@ that policy.
    A workflow, a config file or a script is code. Say in the notes that the diff was text-only.
 2. **External reviewer (Codex, required).** Run the bundled script:
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh" "$REVIEW_BASE" --challenge "$CHALLENGE"
+   bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh" "$REVIEW_BASE" --challenge "$CHALLENGE" --model "$MODEL" $SKIP_DOCS_ONLY
    ```
    Pass `--challenge` on every `full` pass and on a `light` pass that was given one; leave it
-   off otherwise. It prints `codex=<ran|error|unavailable>[:file]` and, with a challenge,
+   off otherwise. It prints `codex=<ran|cached|skipped|error|unavailable>[:file]` and, with a challenge,
    `codex_challenge=…` on its own line — read each `:file` for that reviewer's findings — and
    for either that did not run a `<name>_reason=<what went wrong>` line. `codex=error` or
    `codex=unavailable` **ends the pass**: the moment the script returns, print
@@ -92,6 +98,31 @@ that policy.
    line at all never started — read it as `unavailable`, with whatever the shell said as the
    reason. The script is the whole external-reviewer step: Codex is the only external engine
    this gate runs locally.
+
+  **`cached` reads exactly as `ran`** — same reviewer, same tree, findings the script
+   kept from the run that first saw it; read its `:file` and treat the findings as this pass's.
+   It answers the re-ask — a pass re-run after a block settled without touching the code, a round
+   re-armed after an interruption — not a first review: no tree ever passes this step unreviewed.
+   A fresh run would be a second *sample*, which does catch what a first missed, and that is the
+   whole of what reuse trades away; `--no-cache` buys it back when a pass wants it.
+   **`skipped`** is neither: the diff held nothing but `docs/` and `*.md`, so no reviewer was
+   spent on it. It does not block — there is no code for a second engine to read — and the notes
+   say the external step skipped and why.
+
+   **The model follows the scope, not a judgement about the diff.** Under `full`,
+   `MODEL="$CODEX_MODEL"` — empty unless the caller overrode it, leaving Codex on its own default.
+   Under `light`, `MODEL="${CODEX_MODEL:-gpt-5.6-luna}"`: that pass reviews only the previous
+   pass's fix commits, behind a `full` pass that cleared everything before `REVIEWED_AT`, which is
+   the same reason it already drops the Spec axis. Nobody — not the caller, not this gate — rules a
+   change "simple" and reviews it more cheaply for it: that judgement is what the review exists to
+   test, and the passes most likely to be misjudged are the ones it would weaken. `--model` is
+   safe to pass empty. A model Codex doesn't know fails the run, so the pass blocks with the id in
+   `codex_reason` — set `CODEX_MODEL=""` to take the next pass back to the config model.
+
+   **`SKIP_DOCS_ONLY`**: `--skip-docs-only` under `light`, empty under `full`. On a `light` pass
+   the diff *is* the fix commits, so a docs-only one has nothing for a code reviewer; on a `full`
+   pass the diff is a whole branch, and in a docs or skills repo the Markdown is the code, which
+   would leave that repo with no external reviewer at all.
 3. **Independent review (always).** Prefer a cold, independent reviewer over grading your own
    work. Under `full` run both axes; under `light` run the **Standards** axis only — a pass over a
    handful of fix commits rarely re-opens the spec question, and a spec answer is what a `full` pass
