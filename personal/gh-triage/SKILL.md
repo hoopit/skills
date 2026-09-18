@@ -1,7 +1,7 @@
 ---
 name: gh-triage
 description: Triage the backlog with the user — fill missing fields, collapse the false decisions, grill the real ones, until every item is Unattended.
-argument-hint: "[repo#n] — grill this issue first, instead of the top of the queue"
+argument-hint: "[grill] [repo#n] — grill: start at the grill; repo#n: grill this issue first"
 disable-model-invocation: true
 ---
 
@@ -16,6 +16,9 @@ eventually works them will read it.
 
 Three passes, in order: **fields**, **collapse**, **grill**. Each costs more per item than
 the one before it, so an item that settles early never reaches a question.
+
+Every pass writes what it learned onto the issues, so the grill starts from the board
+alone. Invoked with `grill`, reach the board and go straight to step 5.
 
 ## 1. Reach the board
 
@@ -87,7 +90,7 @@ gate that still binds; `--not-before none` is for one that has stopped binding.
 ## 3. Collapse
 
 ```bash
-hoopit-board decisions 40
+hoopit-board decisions 40 --lines 1
 hoopit-board decisions --unnamed
 ```
 
@@ -120,6 +123,22 @@ Four things retire an item:
   act is an unresolved fork. The default plus the condition removes the hold and leaves
   the judgement where it can be exercised.
 
+**Fan the reading out.** Testing the four retirements is code paths, prod and Sentry per
+item, and the context that later grills has no use for any of it. Batch the pile by
+domain and dispatch one subagent per batch, in parallel, read-only on GitHub and the
+repos. Each gets this section as its contract, its issues, and the clues you already hold
+— the merged PR an issue follows, the ADR that bears on it. For each issue it writes one
+file under a fresh scratchpad directory:
+
+- the verdict, the retirement it rests on, and a one-line reason;
+- the exact comment to post — the evidence for a retirement; for a survivor, each
+  retirement tested and what ruled it out;
+- for a survivor whose body lacks one, the `## The decision` section to add.
+
+It returns one line per issue: `<repo>#<n> RETIRE|SURVIVE <retirement> — <reason>`. The
+verdict and the writes stay yours. Post each comment from its file, and open a file only
+where the one line leaves you doubting the verdict.
+
 Write the evidence as a comment on the issue, then move the field:
 
 ```bash
@@ -143,7 +162,9 @@ never needed one waits for a human forever. Bias accordingly.
 An item that survives all four is a real decision, and it leaves this pass with a
 `## The decision` section in its body — the same one the fields pass writes, for the same
 reason. Naming it is the precondition for grilling it: the question has to be readable
-before it can be asked, and the naming is what survives a round nobody answers.
+before it can be asked, and the naming is what survives a round nobody answers. Its
+comment carries each retirement tested and what ruled it out, so the grill and the next
+run start past them.
 
 A finding of your own that falls out of this pass gets its own issue through
 `create-gh-issue`, naming the decision that turned it up.
@@ -151,11 +172,32 @@ A finding of your own that falls out of this pass gets its own issue through
 **Done when** every item in both listings has been tested against all four retirements
 with each verdict stated, and every survivor names its decision.
 
-## 4. Grill
+## 4. Report the triage
+
+- Fields filled, with the values.
+- Items retired in the collapse — each with the evidence that retired it. This is
+  the number that matters: a retired item is a slot an unattended run fills from then on
+  with nobody present.
+- Defects fixed: gate lines added or corrected, decisions named, paths supplied.
+- The `Out of reach` count alone, and that `gh-followup` is what works that bucket.
+- Whether anything is draining the queue: `systemctl --user is-active
+  start-backlog.service` plus a `start-backlog-daemon` process check. A queue of
+  `Unattended` items with nothing consuming it is the one way a clean triage run still
+  leaves the backlog stopped. Report the fact; enabling it is the user's call.
+
+Flight counts move while the report is being read, so leave them to the daemon.
+
+This report is the boundary. A collapse that fanned out leaves this context heavy with
+reads the grill never uses, and every round would carry them. Ask the user: clear and run
+`/gh-triage grill` (recommended), or continue here. A collapse small enough to need no
+fan-out continues straight into the grill.
+
+## 5. Grill
 
 What survives is the user's: product behaviour, domain modelling, UX, scope, a trade with
 no measurable answer. Work it **one issue at a time**, highest priority first —
-`hoopit-board decisions` is already in that order — in the format
+`hoopit-board decisions` is already in that order, a `repo#n` argument ahead of it — in
+the format
 `mattpocock-skills:grilling` defines. Read that skill for the round structure and the
 question format; three things are particular to this use:
 
@@ -185,19 +227,9 @@ An issue's frontier empties, and then:
 `Needs decision` with the round written onto it as a comment. That comment is what
 survives the run: the next pass answers it instead of re-deriving it.
 
-## 5. Report
+## 6. Report the grill
 
-- Fields filled, with the values.
-- Items retired in the collapse — each with the evidence that retired it. This is
-  the number that matters: a retired item is a slot an unattended run fills from then on
-  with nobody present.
 - Decisions the user answered, and which issues reached `Unattended`.
 - Issues mid-grill, with the round they wait on.
-- Defects fixed: gate lines added or corrected, decisions named, paths supplied.
-- The `Out of reach` count alone, and that `gh-followup` is what works that bucket.
-- Whether anything is draining the queue: `systemctl --user is-active
-  start-backlog.service` plus a `start-backlog-daemon` process check. A queue of
-  `Unattended` items with nothing consuming it is the one way a clean triage run still
-  leaves the backlog stopped. Report the fact; enabling it is the user's call.
-
-Flight counts move while the report is being read, so leave them to the daemon.
+- The `hoopit-board decisions --unnamed` count: the grill skips those, and the next full
+  run names them.
