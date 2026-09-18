@@ -3,7 +3,7 @@
 
 Fetching, filtering, ranking, freshness gates and bulk writes live here so the
 skills that use it spend their tokens on judgement instead. Every subcommand is
-deterministic: nothing here decides what is a duplicate, or what a change is worth.
+deterministic, and nothing here decides what a change is worth.
 
 `next` is the exception, and deliberately so: it ranks, footprints and rejects
 collisions itself, because `start-backlog-daemon` calls it with no model in the
@@ -18,6 +18,11 @@ timeout or an error and the tick is exactly the tick it would have been, with th
 in the `judgement` field. `--no-judge` turns it off outright. A candidate whose
 probability lands between `COLLIDE_LOW` and `COLLIDE_HIGH` goes to `needs_judgement`
 rather than being dispatched or rejected: untuned thresholds hand work back.
+
+`scan` asks it which pairs of open issues are one piece of work. Code draws the
+shortlist — title overlap plus BM25 neighbours over title and body — and the model judges
+each pair off both bodies. It fails open to the title-overlap list, and it only nominates:
+closing a duplicate stays with whoever reads the pair.
 
 `decisions` asks the same model whether a `Needs decision` body names its decision, and
 in which block. It is additive in the same way — a decision heading the regex finds stays
@@ -54,7 +59,7 @@ a release, and the issue that ships the code closes at merge, days before promot
   decisions [N] [--unnamed] [--out-of-reach] [--no-judge]   the top N decisions to answer (default 5)
   stale [--older-than H]         flight that may have lost its agent: no-pr | pr-quiet\n  dispatches [--since D] [--repo R]...  merged PRs by the rung that wrote them
   open                           every open item, one line each
-  scan                           every open item, with curation signals
+  scan [--no-judge]              every open item, with curation signals and judged duplicate pairs
   check <repo> <n>               is this issue startable?  exit 0 yes / 1 no
   claim <repo> <n> --agent A [--tab T]    status -> In progress, then comment
   start <repo> <n>               the same, for work taken in this session
@@ -67,8 +72,8 @@ a release, and the issue that ships the code closes at merge, days before promot
   add <repo> <n>                 put an issue on the board; prints its item id
   archive-done [--older-than N] [--apply]  (default 7 days)
 """
-import argparse, json, os, re, subprocess, sys, textwrap, urllib.error, urllib.request
-from collections import defaultdict
+import argparse, json, math, os, re, subprocess, sys, textwrap, time, urllib.error, urllib.request
+from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 
@@ -181,6 +186,33 @@ DECISION_MAX_BLOCKS = 254
 DECISION_MAX_SPAN = 6
 # One body read and one judgement per Needs decision item, and neither depends on another.
 DECISION_WORKERS = 8
+# `scan` nominates duplicates in two steps, and code owns the first: a shortlist of pairs,
+# cheap and lexical, then one Jev request a pair with both titles and bodies in `state`.
+# The shortlist is every pair whose titles share three words — a pair a reader would stop
+# on, so the judgement has to be seen to clear it — plus each issue's nearest neighbours
+# by BM25 over title and body, which is what reaches a duplicate whose title shares
+# nothing. A pair is one request rather than the board one: two bodies fill a useful part
+# of a request's 32k tokens on their own.
+DUP_NEIGHBOURS = 2
+# BM25 similarity, each direction scaled by the issue's score against itself. Under this
+# the nearest neighbour is only the least distant issue on the board.
+DUP_MIN_SIM = 0.15
+# A guard, not a budget: 217 open issues shortlist about 260 pairs, judged in under half a
+# minute. `scan` says when it bites.
+DUP_MAX_PAIRS = 400
+DUP_MAX_BODY = 6000
+DUP_WORKERS = 8
+DUP_RETRY_PAUSE = 2
+# The Choice's options are `curate-backlog`'s buckets, and two of them — duplicate and
+# absorb — are one action: close an issue into another. A pair the model is sure should
+# merge still splits its probability between the two, which the Choice's own `confidence`
+# reads as doubt. So the policy is on their sum, beside the Noul. Both under DUP_LOW and
+# the pair is dropped; the sum at DUP_HIGH or above and it is a nomination; anything else
+# is a doubt, with the numbers that made it one. Measured 2026-09-19 over this board's
+# shortlist and five written cases: a same-fix pair in different vocabulary reads 0.95 on
+# the Noul and 0.99 on the sum, two caches in one workflow read 0.05 and 0.02, and two
+# runs of one pair land within 0.05 of each other.
+DUP_LOW, DUP_HIGH = 0.30, 0.60
 
 
 def gh(*args, parse=True):
@@ -251,7 +283,7 @@ BOARD_QUERY = """query($login:String!,$number:Int!,$after:String){
       pageInfo{ hasNextPage endCursor }
       nodes{ id
         content{ __typename
-          ... on Issue{ id number title url updatedAt repository{nameWithOwner} }
+          ... on Issue{ id number title url updatedAt repository{nameWithOwner} BODY }
           ... on PullRequest{ number title url updatedAt repository{nameWithOwner} } }
         status: fieldValueByName(name:"Status"){ ... on ProjectV2ItemFieldSingleSelectValue{name} }
         priority: fieldValueByName(name:"Priority"){ ...axis }
@@ -288,10 +320,13 @@ def scheduled(it):
     return bool(it["not_before"]) and it["not_before"] > today()
 
 
-def board():
+def board(bodies=False):
+    """Every item on the board. `bodies` adds each issue's body — the same one point a
+    page, but megabytes of response, so only `scan` asks for it."""
+    query = BOARD_QUERY.replace("BODY", "body" if bodies else "")
     out, after = [], None
     while True:
-        page = gql(BOARD_QUERY, login=OWNER, number=int(PROJECT), after=after)
+        page = gql(query, login=OWNER, number=int(PROJECT), after=after)
         items = page["organization"]["projectV2"]["items"]
         for i in items["nodes"]:
             c = i.get("content") or {}
@@ -307,7 +342,7 @@ def board():
                 "effort": axis(i.get("effort")),
                 "autonomy": axis(i.get("autonomy")),
                 "not_before": day(i.get("not_before")),
-                "content_id": c.get("id"),
+                "content_id": c.get("id"), "body": c.get("body") or "",
                 "prs": [p["url"] for p in prs],
                 "pr_state": {p["url"]: p["state"] for p in prs},
                 "pr_updated": {p["url"]: p["updatedAt"] for p in prs},
@@ -474,7 +509,7 @@ def cmd_open(a):
 
 
 def cmd_scan(a):
-    items = board()
+    items = board(bodies=True)
     openi = [i for i in items if i["status"] != "Done"]
     now = datetime.now(timezone.utc)
     print("## OPEN ITEMS — priority, effort, item, signals, title")
@@ -493,17 +528,190 @@ def cmd_scan(a):
             days = (now - datetime.fromisoformat(ts.replace("Z", "+00:00"))).days
             sig.append(f"idle:{days}d")
         print(row(i, i["status"], ",".join(sig) or "-"))
-    print("\n## TITLE OVERLAP — candidate duplicates, judge them yourself")
-    words = {i["n"]: {w for w in re.findall(r"[a-z_]{4,}", i["title"].lower()) if w not in STOPWORDS}
-             for i in openi}
-    seen = set()
-    for a_, b_ in ((x, y) for x in openi for y in openi if x["n"] < y["n"]):
-        shared = words[a_["n"]] & words[b_["n"]]
-        if len(shared) >= 3 and (a_["n"], b_["n"]) not in seen:
-            seen.add((a_["n"], b_["n"]))
-            print(f'{a_["repo"]}#{a_["n"]}\t{b_["repo"]}#{b_["n"]}\t{",".join(sorted(shared))}')
-    if not seen:
+    issues = [i for i in openi if i["type"] == "Issue"]
+    overlap, pairs = shortlist(issues)
+    judged, failed = ({}, ["--no-judge"]) if a.no_judge or not pairs else judge_pairs(issues, pairs)
+    if not judged:
+        # Failing open is the list this printed before there was a judgement to ask.
+        if not a.no_judge and pairs:
+            print(f"!! the duplicate judgement did not run: {failed[0]}", file=sys.stderr)
+        print("\n## TITLE OVERLAP — candidate duplicates, judge them yourself")
+        for (x, y), shared in sorted(overlap.items()):
+            print(f'{x}\t{y}\t{",".join(sorted(shared))}')
+        if not overlap:
+            print("(none)")
+        return
+    if failed:
+        print(f"!! the duplicate judgement did not run for {len(failed)} of {len(pairs)} "
+              f"pairs: {failed[0]}", file=sys.stderr)
+
+    title = {item_key(i): i["title"] for i in issues}
+    merge, doubt, dropped = [], [], 0
+    for pair, (same, probs) in judged.items():
+        together = probs.get("duplicate", 0) + probs.get("absorb", 0)
+        if max(same, together) < DUP_LOW:
+            dropped += 1
+        elif together >= DUP_HIGH:
+            bucket = "duplicate" if probs.get("duplicate", 0) >= probs.get("absorb", 0) else "absorb"
+            merge.append((together, pair, bucket, same, together))
+        else:
+            doubt.append((max(same, together), pair, max(probs, key=probs.get), same, together))
+
+    def show(rows):
+        for _, (x, y), bucket, same, together in sorted(rows, reverse=True):
+            print(f"{x}\t{y}\t{bucket}\tsame-change:{same:.2f}\tmerge:{together:.2f}")
+            print(f"\t{title[x][:90]}\n\t{title[y][:90]}")
+
+    print("\n## DUPLICATE / ABSORB — judged off both bodies; read the pair, then settle it")
+    show(merge)
+    if not merge:
         print("(none)")
+    print(f"\n## DUPLICATE DOUBT — between {DUP_LOW:.2f} and {DUP_HIGH:.2f}, so the call is yours")
+    show(doubt)
+    if not doubt:
+        print("(none)")
+    unjudged = sorted(p for p in overlap if p not in judged)
+    if unjudged:
+        print("\n## TITLE OVERLAP — shortlisted but not judged, so judge them yourself")
+        for x, y in unjudged:
+            print(f'{x}\t{y}\t{",".join(sorted(overlap[(x, y)]))}')
+    print(f"\n{len(judged)} pairs judged · {dropped} dropped as separate work")
+
+
+def item_key(i):
+    return f'{i["repo"]}#{i["n"]}'
+
+
+def shortlist(issues):
+    """`(title-overlap pairs -> their shared words, every pair worth a judgement)`.
+
+    Nothing here decides what a duplicate is. It only bounds what is asked: the overlap
+    pairs first, then each issue's nearest BM25 neighbours, nearest pairs first, up to
+    DUP_MAX_PAIRS."""
+    words = {item_key(i): {w for w in re.findall(r"[a-z_]{4,}", i["title"].lower())
+                           if w not in STOPWORDS} for i in issues}
+    keys = sorted(words, key=lambda k: (k.split("#")[0], int(k.split("#")[1])))
+    order = {k: n for n, k in enumerate(keys)}
+    overlap = {}
+    for n, x in enumerate(keys):
+        for y in keys[n + 1:]:
+            if len(words[x] & words[y]) >= 3:
+                overlap[(x, y)] = words[x] & words[y]
+
+    def terms(text):
+        return [w for w in re.findall(r"[a-z_]{3,}", text.lower()) if w not in STOPWORDS]
+
+    # A title says what an issue is about in a tenth of the words, so it counts three times.
+    docs = {item_key(i): Counter(terms(i["title"]) * 3 + terms(i["body"][:DUP_MAX_BODY]))
+            for i in issues}
+    docs = {k: c for k, c in docs.items() if c}
+    if len(docs) < 2:
+        return overlap, list(overlap)
+    length = {k: sum(c.values()) for k, c in docs.items()}
+    mean = sum(length.values()) / len(docs)
+    postings = defaultdict(list)
+    for k, c in docs.items():
+        for w, tf in c.items():
+            postings[w].append((k, tf))
+    k1, b = 1.5, 0.75
+    score = defaultdict(float)              # (the issue read as a query, the issue scored)
+    for w, plist in postings.items():
+        idf = math.log(1 + (len(docs) - len(plist) + 0.5) / (len(plist) + 0.5))
+        weight = {k: idf * tf * (k1 + 1) / (tf + k1 * (1 - b + b * length[k] / mean))
+                  for k, tf in plist}
+        for q in weight:
+            for d, v in weight.items():
+                score[(q, d)] += v
+    near = defaultdict(list)
+    for (q, d), v in score.items():
+        if q != d:
+            sim = (v / score[(q, q)] + score[(d, q)] / score[(d, d)]) / 2
+            if sim >= DUP_MIN_SIM:
+                near[q].append((sim, d))
+    ranked = {}
+    for q, rows in near.items():
+        for sim, d in sorted(rows, reverse=True)[:DUP_NEIGHBOURS]:
+            ranked[tuple(sorted((q, d), key=order.get))] = sim
+    pairs = list(overlap)
+    pairs += [p for p in sorted(ranked, key=ranked.get, reverse=True) if p not in overlap]
+    if len(pairs) > DUP_MAX_PAIRS:
+        print(f"!! {len(pairs)} pairs shortlisted, the nearest {DUP_MAX_PAIRS} judged",
+              file=sys.stderr)
+    return overlap, pairs[:DUP_MAX_PAIRS]
+
+
+def pair_questions():
+    """The two things asked of one pair of issues. The Choice's options are
+    `curate-backlog`'s own buckets, and its two merge rubrics are that skill's words."""
+    return {
+        "same_change": {
+            "type": "noul",
+            "instructions": "`a` and `b` are two open issues in one team's backlog. Do they "
+                            "ask for the same change?",
+            "criteria": {
+                "true": "Carrying out either issue in full would leave nothing for the "
+                        "other to do: the same fix or feature, in the same place, however "
+                        "differently the two are worded.",
+                "false": "Each asks for something the other does not. Work that shares a "
+                         "module, a theme, a template or a vocabulary, or the same kind of "
+                         "fix applied in different places, is not the same change.",
+            },
+        },
+        "relation": {
+            "type": "choice",
+            "instructions": "`a` and `b` are two open issues in one team's backlog. How "
+                            "does the work one asks for relate to the work the other asks "
+                            "for?",
+            "criteria": {
+                "duplicate": "Another open issue covers the same change. Doing either in "
+                             "full would leave the other with nothing to do, so one of "
+                             "them can be closed.",
+                "absorb": "The two issues are one piece of work: the same file, the same "
+                          "fix, one pull request. Neither covers the other completely, but "
+                          "nobody would do them separately.",
+                "related": "They touch the same area, share a cause, follow one from the "
+                           "other, or apply the same kind of fix in different places — but "
+                           "each is its own piece of work, with its own pull request.",
+                "unrelated": "They have nothing to do with each other beyond shared "
+                             "wording, a shared template or the same repository.",
+            },
+        },
+    }
+
+
+def judge_pairs(issues, pairs):
+    """`({pair: (P(same change), the relation's probabilities)}, why each other pair went
+    unjudged)`. A pair that fails is only missing: the caller lists what it still has."""
+    by_key = {item_key(i): i for i in issues}
+    questions = pair_questions()
+
+    def ask(pair):
+        state = {side: {"repo": by_key[k]["repo"], "title": by_key[k]["title"],
+                        "body": by_key[k]["body"][:DUP_MAX_BODY]}
+                 for side, k in zip("ab", pair)}
+        answers, why = judge_pairs.ask(state, questions)
+        if why:
+            return pair, None, why
+        same = (answers.get("same_change") or {}).get("noul")
+        probs = (answers.get("relation") or {}).get("probabilities")
+        if not isinstance(same, (int, float)) or not isinstance(probs, dict):
+            return pair, None, "the response carried no answer for the pair"
+        return pair, (float(same), probs), None
+
+    # One more pass over what failed, after a pause and one at a time: a few hundred
+    # requests meet a stray 429 or 503 most runs, and somebody is waiting on this one.
+    # The pass is skipped when nothing got through — that is an outage, not a stray.
+    judged, failed = {}, []
+    for attempt, workers in enumerate((DUP_WORKERS, 1)):
+        with ThreadPoolExecutor(workers) as pool:
+            results = list(pool.map(ask, pairs))
+        judged.update({pair: verdict for pair, verdict, why in results if not why})
+        failed = [why for _, _, why in results if why]
+        pairs = [pair for pair, _, why in results if why]
+        if not pairs or not judged or attempt:
+            break
+        time.sleep(DUP_RETRY_PAUSE)
+    return judged, failed
 
 
 GATES_QUERY = """query($url:URI!){ resource(url:$url){ ... on Issue{
@@ -767,6 +975,7 @@ def judge_candidate(body, prs, claims, apps):
 # Named so the offline tests can stand in for the network without reaching into the module
 # that calls it.
 judge_candidate.ask = typesafe
+judge_pairs.ask = typesafe
 
 
 def rest_one(path, _cache={}):
@@ -1592,6 +1801,8 @@ def main():
     s.add_argument("--unattended", action="store_true"); s.set_defaults(fn=cmd_slots)
     s = sub.add_parser("open"); s.set_defaults(fn=cmd_open)
     s = sub.add_parser("scan"); s.set_defaults(fn=cmd_scan)
+    s.add_argument("--no-judge", action="store_true",
+                   help="skip the duplicate judgement; print the title-overlap pairs instead")
     s = sub.add_parser("check"); s.add_argument("repo"); s.add_argument("number", type=int); s.set_defaults(fn=cmd_check)
     s = sub.add_parser("claim"); s.add_argument("repo"); s.add_argument("number", type=int)
     s.add_argument("--agent", required=True); s.add_argument("--tab")

@@ -30,11 +30,20 @@ hoopit-board scan
 `hoopit-board` is the board's mechanical half; `--help` lists it. It lives in
 the `create-gh-issue` skill, at `scripts/hoopit-board`, and reaches `PATH`
 through a symlink. `scan` prints every open item with the signals that nominate it, then
-the pairs whose titles share enough vocabulary to be worth reading as
-duplicates.
+the pairs of issues it judged to be one piece of work. Code shortlists the pairs — title
+overlap, plus each issue's nearest neighbours by title and body — and TypeSafe's Jev reads
+both bodies of each:
 
-Bodies stay out of it deliberately — they run to thousands of tokens each. Pull
-them a cluster at a time, for the pairs and the flagged items only:
+- **DUPLICATE / ABSORB** — a nomination, with the bucket it leans to.
+- **DUPLICATE DOUBT** — the judgement landed between its thresholds. These go on the
+  doubt list unless the bodies settle it for you.
+- Everything else on the shortlist was judged separate work and is only counted.
+
+With no judgement to ask — no key, an outage, `--no-judge` — the section is
+**TITLE OVERLAP** instead: pairs sharing three title words, judged by nobody.
+
+Bodies stay out of your context deliberately — they run to thousands of tokens each. Pull
+them a cluster at a time, for the listed pairs and the flagged items only:
 
 ```bash
 gh api repos/<repo>/issues/<n> --jq '{number, title, state, body}'
@@ -60,15 +69,18 @@ run is done when each one sits in exactly one, and the report names which.
 | **Not an issue** | A `PullRequest` item on the board — its issue already tracks it. |
 | **Doubt** | Anything above that you cannot show. |
 
-`scan`'s signals nominate most of these on their own. Duplicate and Absorbed
-are the two it can only suggest: those are yours to judge, off the bodies.
+`scan`'s signals nominate most of these on their own. Duplicate and Absorbed come
+nominated off the issue text alone, so read both bodies of a nominated pair before
+settling it — which one survives is yours to pick either way. A pair `scan` did not
+list needs no second look for duplication.
 
 ## 3. Verify the flagged ones against the code
 
 Cheap signals nominate Shipped, Invalid and Stale; only the code confirms them.
-Dispatch one Sonnet subagent per flagged item, in parallel, read-only, each
-given the issue body, the repo, and one question: **does this still describe
-the code as it is?**
+Dispatch one Sonnet subagent per item flagged for one of those three, in parallel,
+read-only, each given the issue body, the repo, and one question: **does this still
+describe the code as it is?** A Duplicate or Absorbed nomination gets no subagent:
+it turns on the two issue texts, which `scan` has already read.
 
 Send the signal that flagged it too — "the linked PR looks merged", "the path
 it names is gone" — as a lead, not a finding. The verdict it owes you is on the

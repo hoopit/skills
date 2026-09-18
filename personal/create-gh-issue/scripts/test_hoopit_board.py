@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Pins `hoopit-board batch`'s write loop, `next`'s collision judgement and `decisions`'
-naming judgement. Run it by hand after editing any of them:
+"""Pins `hoopit-board batch`'s write loop, `next`'s collision judgement, `decisions`'
+naming judgement and `scan`'s duplicate judgement. Run it by hand after editing any of them:
 
     python3 scripts/test_hoopit_board.py
 
@@ -396,6 +396,136 @@ def test_no_judge_asks_nothing():
         raise AssertionError("asked")
     out, err = decisions(m, {1: PROSE}, refuse, no_judge=True)
     assert "1 name no decision" in out and not err, (out, err)
+
+
+# --- scan: the duplicate judgement ---------------------------------------------------
+
+PODS = ("The iOS deploy job in `.github/workflows/deploy.yml` runs `pod install` from "
+        "scratch. Cache `ios/Pods` keyed on `ios/Podfile.lock` with `actions/cache`.")
+PUB = ("Every deploy job in `.github/workflows/deploy.yml` runs `flutter pub get` cold. "
+       "Cache `~/.pub-cache` keyed on `pubspec.lock` with `actions/cache`.")
+LOGOUT = ("Opening the app in the morning lands on the login screen. The access token only "
+          "renews on a foreground timer in `lib/auth/session_manager.dart`, so the first "
+          "request returns 401, which `AuthInterceptor` treats as a sign-out. On a 401, try "
+          "the refresh token once before signing the user out.")
+RENEW = ("`AuthInterceptor.onError` in `lib/auth/auth_interceptor.dart` calls `signOut()` "
+         "for every 401. An expired access JWT is the common case, and the refresh token "
+         "is still valid. On 401, call `SessionManager.refresh()` once and replay.")
+SCAN_ISSUES = {1: ("ci: cache CocoaPods between deploys", PODS),
+               2: ("ci: cache pub packages between deploys", PUB),
+               3: ("Members get logged out when the app was in the background overnight", LOGOUT),
+               4: ("auth: AuthInterceptor signs out on an expired JWT instead of renewing it", RENEW),
+               5: ("economy: read money objects on the training-fee screens",
+                   "The training-fee list in `economy/fees.tsx` renders `amount` as a bare "
+                   "number. Read the money object the endpoint serves.")}
+
+
+def scan(m, ask, no_judge=False, issues=SCAN_ISSUES):
+    """cmd_scan over `issues` ({number: (title, body)}). Returns (stdout, stderr)."""
+    rows = [{**item(n, title=t), "body": b} for n, (t, b) in issues.items()]
+    m.board = lambda bodies=False: rows if bodies else [{**r, "body": ""} for r in rows]
+    m.judge_pairs.ask = ask
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        m.cmd_scan(argparse.Namespace(no_judge=no_judge))
+    return out.getvalue(), err.getvalue()
+
+
+def relation(same, **probs):
+    base = {"duplicate": 0.0, "absorb": 0.0, "related": 0.0, "unrelated": 0.0, **probs}
+    return {"same_change": {"noul": same},
+            "relation": {"choice": max(base, key=base.get), "probabilities": base}}
+
+
+def by_titles(verdicts, default):
+    """An `ask` that answers by the pair of titles in `state`, whichever way round."""
+    def ask(state, questions):
+        pair = frozenset((state["a"]["title"][:8], state["b"]["title"][:8]))
+        return verdicts.get(pair, default), None
+    return ask
+
+
+AUTH = frozenset(("Members ", "auth: Au"))
+
+
+def test_a_duplicate_with_no_shared_title_words_is_shortlisted_and_nominated():
+    m = load()
+    asked = []
+    def ask(state, questions):
+        asked.append(frozenset((state["a"]["title"][:8], state["b"]["title"][:8])))
+        assert set(questions["relation"]["criteria"]) == {"duplicate", "absorb", "related", "unrelated"}
+        assert state["a"]["body"] and state["b"]["body"], "the bodies are the evidence"
+        return by_titles({AUTH: relation(0.95, duplicate=0.7, absorb=0.29, related=0.01)},
+                         relation(0.05, related=0.98, absorb=0.02))(state, questions)
+    out, err = scan(m, ask)
+    assert AUTH in asked, asked
+    merge = out.split("## DUPLICATE / ABSORB")[1].split("## DUPLICATE DOUBT")[0]
+    # 0.70 on `duplicate` is a split between two ways of merging, not doubt about merging.
+    assert "hoopit/api#3\thoopit/api#4\tduplicate" in merge and "merge:0.99" in merge, out
+
+
+def test_a_title_overlap_pair_the_model_separates_is_dropped():
+    m = load()
+    out, err = scan(m, by_titles({}, relation(0.05, related=0.98, absorb=0.02)))
+    assert "TITLE OVERLAP" not in out and "hoopit/api#1\t" not in out.split("## DUPLICATE /")[1], out
+    assert "dropped as separate work" in out, out
+
+
+def test_the_band_between_the_thresholds_is_a_doubt_with_its_numbers():
+    m = load()
+    out, _ = scan(m, by_titles({AUTH: relation(0.2, related=0.56, duplicate=0.42, absorb=0.02)},
+                               relation(0.02, unrelated=1.0)))
+    doubt = out.split("## DUPLICATE DOUBT")[1]
+    assert "hoopit/api#3\thoopit/api#4\trelated\tsame-change:0.20\tmerge:0.44" in doubt, out
+    assert "(none)" in out.split("## DUPLICATE /")[1].split("## DUPLICATE DOUBT")[0], out
+
+
+def test_a_noul_the_choice_disagrees_with_is_a_doubt_not_a_drop():
+    m = load()
+    out, _ = scan(m, by_titles({AUTH: relation(0.8, related=0.9, duplicate=0.1)},
+                               relation(0.02, unrelated=1.0)))
+    assert "hoopit/api#3\thoopit/api#4" in out.split("## DUPLICATE DOUBT")[1], out
+
+
+def test_a_judgement_that_cannot_run_prints_the_overlap_list_and_says_so():
+    m = load()
+    out, err = scan(m, lambda s, q: (None, "HTTP 503"))
+    assert "## TITLE OVERLAP — candidate duplicates, judge them yourself" in out, out
+    assert "hoopit/api#1\thoopit/api#2\tbetween,cache,deploys" in out, out
+    assert "DUPLICATE" not in out and "HTTP 503" in err, (out, err)
+
+
+def test_a_stray_failure_is_asked_once_more():
+    m = load()
+    m.DUP_RETRY_PAUSE = 0
+    calls = []
+    def ask(state, questions):
+        calls.append(1)
+        if len(calls) == 1:
+            return None, "HTTP 503"
+        return relation(0.02, unrelated=1.0), None
+    out, err = scan(m, ask)
+    assert not err and "shortlisted but not judged" not in out, (out, err)
+
+
+def test_an_overlap_pair_whose_request_failed_is_still_listed():
+    m = load()
+    m.DUP_RETRY_PAUSE = 0
+    def ask(state, questions):
+        if state["a"]["title"].startswith("ci:") and state["b"]["title"].startswith("ci:"):
+            return None, "HTTP 429"
+        return relation(0.02, unrelated=1.0), None
+    out, err = scan(m, ask)
+    assert "shortlisted but not judged" in out and "hoopit/api#1\thoopit/api#2" in out, out
+    assert "1 of" in err and "HTTP 429" in err, err
+
+
+def test_scan_no_judge_asks_nothing():
+    m = load()
+    def refuse(s, q):
+        raise AssertionError("asked")
+    out, err = scan(m, refuse, no_judge=True)
+    assert "## TITLE OVERLAP" in out and "hoopit/api#1\thoopit/api#2" in out and not err, (out, err)
 
 
 if __name__ == "__main__":
