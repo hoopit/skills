@@ -45,10 +45,25 @@ Every review thread, failing check and merge conflict lands in exactly one tier:
 
 ## A finding on text
 
-A finding on wording (a comment, docstring, doc, log or error message) is first a
-question of whether the text earns its place. Cut before you reword: delete the text,
-or shrink it to what the code cannot say for itself, and reword only what survives.
-Record a cut as `applied`, and name the cut in `why`.
+A **text finding** is one whose fix changes only wording — a comment, docstring, doc,
+skill, log or error message — and nothing that executes.
+
+- **It is `Low`, whatever the source badged it** — a Codex P1 citing a writing rule
+  included — with *text finding* as the reason in `why`. Text that makes its reader act
+  wrongly keeps the source's severity: a command in a runbook, a security or data claim,
+  an instruction an agent follows.
+- **Cut before you reword.** The finding is first a question of whether the text earns
+  its place: delete it, or shrink it to what the code cannot say for itself, and reword
+  only what survives. Record a cut as `applied`, and name the cut in `why`.
+- **Sweep the rule once.** The first finding on a writing rule fixes every instance of
+  it in the diff, in the same commit.
+- **A fix explains itself in the commit message.** It adds two comment lines to the code
+  at most, and only what the next reader cannot get from the code. Every sentence a round
+  adds is a claim no test holds, and the next round's reviewers audit it.
+- **A text-only round is the last round on text.** A round whose valid findings are all
+  text findings fixes them in one commit and proceeds — the gate reports it clean, a PR
+  round pushes it, and the tally records it as `text-only round R<k>`, which is how a
+  later round knows. Text findings arriving after it are *not worth a round*.
 
 ## What a decline carries
 
@@ -58,7 +73,7 @@ A decline is the row a fresh reviewer re-raises, so it carries more than a `why`
   the N+1 a `select_related` already prevents — is answered by the code itself. A finding
   that reads the code right and asks for a change deliberately not made leaves the code
   looking wrong to every fresh reader, and the thread reply reaches none of them: write
-  the reason at the flagged line, one or two lines, as documentation of the code — the
+  the reason at the flagged line, in one line, as documentation of the code — the
   invariant or the trade-off, in the present — and commit it with the round. The scope
   note says where: `rationale at <file:line>` — except in a closing round (*Closing the
   rounds*), which commits nothing. A finding raised again with its rationale
@@ -91,12 +106,13 @@ holds, commits nothing, and so opens no review of its own. It leaves the PR with
 open to review.
 
 **Not worth a round.** A valid finding is ordinarily fixed. A `Med` or `Low` one may
-instead be `declined — not worth a round`, with the evidence in `why`, when either holds:
+instead be `declined — not worth a round`, with the evidence in `why`, when any of these holds:
 
 - the round before took nothing above `Med` either — the reviewers have moved from defects
   to polish;
 - it lands in code a round added (`fixes R<k>`) — the fix it asks for is one more patch on
-  a patch.
+  a patch;
+- it is a text finding and a text-only round has run (*A finding on text*).
 
 A `Critical` or `High` finding is fixed, or declined on its merits under *What a decline
 carries*. Only a closing round declines as not worth a round: a round that fixes anything

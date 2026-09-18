@@ -16,13 +16,14 @@ that cannot run it blocks rather than passing on one engine's word.
 ## Contract
 
 Call after the fix is committed on the branch, **before** push/PR. One call is **one pass** — review,
-fix, report — and the caller runs another until one comes back `PASS` with no fix commits.
+fix, report — and the caller runs another until one comes back `PASS` with no fix commits, or
+with text-only ones (step 5).
 Return exactly one verdict:
 
 - **`PASS`** — every *valid* finding is fixed; anything left is Low/Medium that you deliberately
   skipped with a one-line justification. Say which **scope** ran and against which fixed point, and
-  whether this pass **made fix commits**: fixed code no reviewer has seen is what the caller's next
-  round is for. Caller opens the PR and pastes the gate notes into it.
+  whether this pass **made fix commits** — none, `text-only`, or code: fixed code no reviewer has
+  seen is what the caller's next round is for. Caller opens the PR and pastes the gate notes into it.
 - **`BLOCK: <reason>`** — **Codex did not run** (step 2), there is a **disputed Critical/High** finding
   (you judge it invalid/not worth fixing), or a valid Critical/High that isn't safe to fix here. You
   may **not** unilaterally dismiss a Critical/High. Caller must NOT open the PR — surface the blocking findings; unattended, the
@@ -66,6 +67,12 @@ that policy.
    reviewer's findings land in one directory this pass
    owns, so set `GATE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/review-gate.XXXXXX")` and keep it for the
    whole pass.
+
+   **A text-only diff** — every path in `git diff --name-only "$REVIEW_BASE"...HEAD` is prose:
+   `*.md`, `*.mdx`, `*.txt`, `*.rst` — runs Codex's standard review and the **Standards** axis
+   alone, whatever `SCOPE` says: no `--challenge`, no Spec axis. There is no approach to argue
+   with and no behaviour to hold to a spec, and both reviewers, handed prose, review the prose.
+   A workflow, a config file or a script is code. Say in the notes that the diff was text-only.
 2. **External reviewer (Codex, required).** Run the bundled script:
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh" "$REVIEW_BASE" --challenge "$CHALLENGE"
@@ -90,6 +97,9 @@ that policy.
    handful of fix commits rarely re-opens the spec question, and a spec answer is what a `full` pass
    is for. Every pass puts cold eyes on the code it covers: `light` narrows the diff and the axes,
    leaving the independence intact.
+   **A `light` pass leaves wording out.** Add to its Standards brief: *wording of comments and
+   docs is out of scope, except text that contradicts the code in this diff.* Text was reviewed
+   under `full`, and a fresh reader always finds another sentence to improve.
    - **Preferred — invoke the `mattpocock-skills:code-review` skill** (the two-axis reviewer;
      use the namespaced name so it isn't confused with the built-in `/review`, which reviews an
      existing GitHub PR). Give it **`$REVIEW_BASE` as the fixed point** — it runs
@@ -126,9 +136,10 @@ that policy.
    location + same issue → one finding, keep the highest severity and note which reviewers raised it).
 5. **Triage each finding (judgment on all):**
    - **Valid → fix it.** Commit each fix separately (convention below). Re-reviewing the fixed
-     code is the caller's next round, not a loop inside this pass. A finding on text is fixed
-     as *A finding on text* in [`../monitor-pr/LEDGER.md`](../monitor-pr/LEDGER.md) says:
-     cut before you reword.
+     code is the caller's next round, not a loop inside this pass. *A finding on text* in
+     [`../monitor-pr/LEDGER.md`](../monitor-pr/LEDGER.md) holds what a text finding is, its
+     severity, and how it is fixed. When every valid finding of the pass is one, fix them in
+     one commit and report the fix commits as `text-only`: the caller runs no round over them.
    - **Fix the class, not the instance.** When a finding reveals a *class* of defect (one
      unvalidated field among several consumed, one call site among many, one write path of
      several), sweep for every instance of the class and fix them all — following it past the

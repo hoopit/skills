@@ -20,8 +20,8 @@ once per repo, independently.
 
 Flags:
 
-- `--rounds <N>` — a hard cap on review-gate rounds (Step 6). Unset, there is none: rounds
-  run until one comes back clean.
+- `--rounds <N>` — the cap on review-gate rounds (Step 6). Unset, Step 6 sizes it from the
+  work item.
 - `--unattended` — nobody is there to answer. Wherever this skill would ask the user, it
   **hands back** instead: the run stops and returns the same substance — the findings,
   your reasoning, what you would do about each — to the caller as its result. Every other
@@ -106,6 +106,17 @@ A **round** is one run of the **`review-gate`** skill from inside the worktree, 
 fix commits that run makes. Work rounds until the gate comes back clean — a round that
 declines every finding, the gate's closing pass, is clean too.
 
+**The cap** is `--rounds` when given. Otherwise it follows the work item's Effort — `XS`/`S`
+4, `M` 6, `L`/`XL` 10 — and is 10 where there is none. On a GitHub issue, Effort is an org
+issue field:
+
+```bash
+gh api graphql -f query='{repository(owner:"<owner>",name:"<repo>"){issue(number:<n>){
+  issueFieldValues(first:20){nodes{... on IssueFieldSingleSelectValue{
+    name field{... on IssueFieldSingleSelect{name}}}}}}}}' \
+  --jq '.data.repository.issue.issueFieldValues.nodes[] | select(.field.name=="Effort") | .name'
+```
+
 Hand the gate `PRIOR_ROUNDS` from the rounds before, and `WORK_ITEM` and `BRIEF` as its
 `SPEC` — without the spec its Spec axis self-skips and half the review silently
 disappears. The spec is all it gets: keep your
@@ -133,13 +144,21 @@ Each round returns one verdict:
 
 - **`PASS`, no fixes made** — clean. Keep the gate's notes block for the PR body and go
   to Step 7.
+- **`PASS` after `text-only` fixes** — clean. Wording changed and nothing that executes
+  did; a round over it would review the wording again. Go to Step 7.
 - **`PASS` after fixes** — the reviewers never saw the fixed code, and a fix is where the
   next round's findings come from. Run another round: clean means nothing left, not
   nothing new.
 - **`BLOCK: <reason>`** — **do not push, do not open a PR.** Ask.
 
-At the `--rounds` cap with the gate still unclean, stop and ask, saying whether the
-rounds were converging.
+**Three rounds running on one file** — each with a valid finding in it, the later ones in
+code an earlier round's fix added — is a design that does not fit, and a fourth patch is not
+the answer. Step back before the next fix: weigh removing the mechanism or taking a simpler
+shape against patching it again, and take the simpler one where it still delivers `BRIEF`.
+Where it would not, ask, on the cap's path below.
+
+At the cap with the gate still unclean, stop and ask, saying whether the rounds were
+converging.
 
 Both paths reach the user the same way. Put the substance in chat first — the
 blocking or surviving findings, your reasoning, what you would do about each — then fire
@@ -161,7 +180,7 @@ asked with nobody there stops the work and reaches no one.
 The head you push is one the gate has passed. A commit made after the last round's
 reviewers ran — a docstring, a measurement, a line a peer suggested — is code no cold eye
 has seen, and it is where a PR's first review threads come from. Run a `light` round over
-it first, or leave it out.
+it first, or leave it out — a `text-only` fix commit is the exception (Step 6).
 
 ```bash
 git push -u origin "$BRANCH"
