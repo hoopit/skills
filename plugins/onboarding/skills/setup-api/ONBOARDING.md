@@ -199,6 +199,39 @@ at startup, which requires a valid AWS session for the
 
 - [ ] `aws --version` works (skip if you don't need staging/prod access yet)
 
+### 1h. Windows only — git symlinks
+
+`api` commits symlinks that bridge agent config (`.agents/skills` →
+`../.claude/skills`). Git for Windows writes `core.symlinks=false` into each
+clone, so those links check out as text files holding the target path, and
+Claude Code / Codex load no project skills natively. macOS/Linux need nothing —
+skip to Step 2.
+
+▶ **Prompt:**
+> I'm on Windows. Check that Developer Mode is on (Settings > For developers) or
+> that git runs elevated, then set `git config --global core.symlinks true`. If
+> `api` is already cloned, repair its committed symlinks and those in any
+> worktree under `.claude/worktrees` or `.worktrees`.
+
+Manual:
+```powershell
+# once per machine: enable Developer Mode (Settings > For developers), or run git elevated
+git config --global core.symlinks true
+```
+
+A clone that already exists keeps its own `core.symlinks=false`; repair it in place:
+```bash
+git config core.symlinks true
+git ls-files -s | awk '$1=="120000"'        # lists the committed symlinks
+rm <path> && git checkout -- <path>          # per listed path
+```
+Repeat inside every worktree under `.claude/worktrees` and `.worktrees`.
+
+- [ ] `git config --get core.symlinks` prints `true` inside the clone and each
+  worktree (Windows only, after Step 2a)
+- [ ] `.agents/skills` is a directory, not a file, in the clone and each worktree
+  (after Step 2a)
+
 ---
 
 ## Step 2 — Clone & bootstrap the project
@@ -362,6 +395,7 @@ uv run pytest users/tests
 - [ ] `gh auth status` ✓ · `acli --version` ✓ · `sentry --version` ✓
 - [ ] `python3 --version` reports 3.14 via mise · `uv --version` ✓
 - [ ] `api` cloned as a sibling of `skills` (`../api`)
+- [ ] *(Windows)* `git config --get core.symlinks` prints `true` inside the clone and `.agents/skills` is a directory
 - [ ] `uv sync` completed; `.venv/` present
 - [ ] `pre-commit` hooks installed (pre-commit, pre-push, post-checkout) and `--all-files` passes
 - [ ] Postgres reachable at the `local.env` host/port (default `127.0.0.1:5435`)

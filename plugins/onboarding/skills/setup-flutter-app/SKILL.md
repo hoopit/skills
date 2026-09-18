@@ -21,6 +21,22 @@ follow it step by step. This file is the orchestration contract.
    logins (GitHub, Atlassian, Figma), or the DCM license. Ask before running it.
 5. **Stop and surface blockers** rather than guessing around a failure.
 
+## Windows only: git symlinks (before cloning)
+
+`flutter-app` commits symlinks that bridge agent config (`.claude/skills` and
+`.claude/rules` → `../.agents/...`). Git for Windows writes
+`core.symlinks=false` into each clone, so those links check out as text files
+holding the target path, and Claude Code / Codex load no project skills natively
+— they reach them only through the skill names in `AGENTS.md`. macOS/Linux need
+nothing.
+
+1. Enable Windows Developer Mode (Settings > For developers), or run git elevated.
+2. `git config --global core.symlinks true`.
+3. For a clone that already exists: inside it, `git config core.symlinks true`,
+   then for each committed symlink `rm <path>` and `git checkout -- <path>`.
+   List them with `git ls-files -s | awk '$1=="120000"'`. Worktrees under
+   `.claude/worktrees` and `.worktrees` need the same repair.
+
 ## Critical: where the repo goes
 
 This skill runs from inside the **`skills`** repo. Clone `flutter-app` as a
@@ -39,7 +55,8 @@ This yields `…/flutter-app` next to `…/skills`. Run the rest of the bootstra
 
 1. **Step 0** — Claude Code is already installed (you're in it). Skip.
 2. **Step 1** — Core CLIs: `gh` (+auth), `mise` (+Python), `FVM`, `DCM` (+license),
-   `sentry` & `sentry-cli`, `acli` (+auth).
+   `sentry` & `sentry-cli`, `acli` (+auth). **Windows only**: Developer Mode +
+   `core.symlinks` (above).
 3. **Step 2** — Clone flutter-app **as a sibling** (above), then `fvm install`,
    `pub get` (app + `packages/hoopit_api` + `packages/network_bloc`),
    build_runner (app **and** API), gen-l10n, and `pre-commit install` (commit
