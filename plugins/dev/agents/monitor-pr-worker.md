@@ -56,7 +56,7 @@ git -C <REPO_ROOT> worktree list --porcelain | grep -B2 "refs/heads/$BRANCH"
 `<GH_PR_API>` gives you `pr_meta`, `pr_checks` and `pr_open_threads`: read the PR through
 them, and edit its labels through `<PR_LABELS>`. Both stay on REST, keeping the GraphQL
 bucket — shared by every agent on the machine — for the thread query, the resolves, and
-the draft toggle, which REST cannot write.
+step 5's draft toggle, which REST cannot write.
 
 On `BACK_MERGE`, your entire report is `HALT back-merge PR: head is $DEFAULT_BRANCH`.
 
@@ -75,18 +75,18 @@ path you created in the report, so the user knows a new worktree is on disk.
 
 Then run `git pull --ff-only` in the worktree and do all edits and commits there.
 
-**Round bracket.** Opening a round does two things, as its first action: it adds the
-`agent-working` label so humans see the PR is being worked, and it returns the PR to
-draft, since a PR with a round open is not ready. Read the draft state over REST first —
-from round 2 on the PR is already a draft, and the toggle is two GraphQL requests to be
-told so:
+**Round bracket.** Bracket every round with the `agent-working` label so humans see the
+PR is being worked — first action of the round:
 
 ```bash
 bash <PR_LABELS> <OWNER_REPO> <PR> +agent-working
-[ "$(gh api repos/<OWNER_REPO>/pulls/<PR> --jq .draft)" = true ] || gh pr ready <PR> --repo <OWNER_REPO> --undo
 ```
 
-and remove the label (`bash <PR_LABELS> <OWNER_REPO> <PR> -agent-working`) at the end of step 6, after the ledger
+The label says someone is on it; draft says the head is about to change, and that waits
+for step 5's push. A round that only reads, replies and declines leaves a ready PR ready —
+a human's comment answered in words is no reason to take their PR out of review.
+
+Remove the label (`bash <PR_LABELS> <OWNER_REPO> <PR> -agent-working`) at the end of step 6, after the ledger
 write and before returning the report — also when the round ends in HALT or an error.
 
 **One push per round.** Each axis below ends in a local commit where it changed anything; the branch is pushed
@@ -201,8 +201,17 @@ questioned rather than patched.
    A **closing round** (*Closing the rounds* in `LEDGER`) ends here: it committed nothing,
    and it pushes nothing and starts no re-review — go to step 6.
 
-   Then `git push` once, if anything was committed — plain, never forced. A rejected push
-   is a stop to report, not something to force past.
+   Then, if anything was committed, return the PR to draft and `git push` once — plain,
+   never forced. Draft first, so the new head is never up for review before the agent has
+   seen what the reviewers make of it. Read the state over REST: from the second pushing
+   round on the PR is already a draft, and the toggle is two GraphQL requests to be told so.
+
+   ```bash
+   [ "$(gh api repos/<OWNER_REPO>/pulls/<PR> --jq .draft)" = true ] || gh pr ready <PR> --repo <OWNER_REPO> --undo
+   git push
+   ```
+
+   A rejected push is a stop to report, not something to force past.
 
    If any other round committed **nothing** and no hard fork is open, the reviewers have
    nothing new to look at: start the next review round yourself and note it in the

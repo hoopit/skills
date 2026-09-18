@@ -332,8 +332,8 @@ bash <SKILL_DIR>/scripts/pr-labels.sh <OWNER_REPO> <PR> -agent-working
 gh pr ready <PR> --repo <OWNER_REPO>
 ```
 
-The ready mark vouches for this head alone: the next round returns the PR to draft as it
-opens (the worker briefing's round bracket).
+The ready mark vouches for this head alone: a round that pushes returns the PR to draft
+before it does (the worker briefing's step 5). A round that pushes nothing leaves it ready.
 
 **The merge briefing.** A `GREEN` asks someone to merge code they have not read, so the
 question carries the read that tells them how hard to look before they do. Seven lines,
