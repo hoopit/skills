@@ -15,7 +15,7 @@ Never expand existing frontmatter descriptions without approval.
 
 - **Commit straight to `main`.** Every skill/plugin change goes directly on `main` — no
   feature branch, no PR. Skip the usual "branch first on the default branch" step here.
-- **Edit skills in a working clone, e.g. `~/Dev/Hoopit/skills`.** Everything under
+- **Edit skills in a working clone of `hoopit/skills`.** Everything under
   `~/.claude/plugins/` is an install: `marketplaces/hoopit-skills` is Claude Code's own
   checkout of this repo, reset to `origin/main` by auto-update, and `cache/` is built from
   it. A commit made there exists only until the next refresh, while every install already
