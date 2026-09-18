@@ -38,9 +38,10 @@ gh api repos/<owner>/<repo>/pulls/<pr_number> --jq .html_url
 ### 1a. Label the PR while you work
 Mark the PR so humans see an agent is on it, and clear the label as your final action
 before the summary (also on failure or early exit). A PR with comments being worked is
-not ready, so `ready-for-review` comes off as you start:
+not ready, so it returns to draft as you start:
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/skills/monitor-pr/scripts/pr-labels.sh" <owner>/<repo> <pr_number> +agent-working -ready-for-review  # now
+bash "${CLAUDE_PLUGIN_ROOT}/skills/monitor-pr/scripts/pr-labels.sh" <owner>/<repo> <pr_number> +agent-working  # now
+gh pr ready <pr_number> --repo <owner>/<repo> --undo  # now
 bash "${CLAUDE_PLUGIN_ROOT}/skills/monitor-pr/scripts/pr-labels.sh" <owner>/<repo> <pr_number> -agent-working  # when done
 ```
 

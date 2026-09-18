@@ -75,11 +75,12 @@ path you created in the report, so the user knows a new worktree is on disk.
 Then run `git pull --ff-only` in the worktree and do all edits and commits there.
 
 **Round label.** Bracket every round with the `agent-working` label so humans see the
-PR is being worked — first action of the round, taking `ready-for-review` off in the same
-edit, since a PR with a round open is not ready:
+PR is being worked — first action of the round, returning the PR to draft alongside it,
+since a PR with a round open is not ready:
 
 ```bash
-bash <PR_LABELS> <OWNER_REPO> <PR> +agent-working -ready-for-review
+bash <PR_LABELS> <OWNER_REPO> <PR> +agent-working
+gh pr ready <PR> --repo <OWNER_REPO> --undo
 ```
 
 and remove it (`bash <PR_LABELS> <OWNER_REPO> <PR> -agent-working`) at the end of step 6, after the ledger

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Add and remove labels on a PR over REST.
 # Usage: pr-labels.sh <owner/repo> <pr> [+label | -label]...
-#   pr-labels.sh hoopit/api 123 +agent-working -ready-for-review
+#   pr-labels.sh hoopit/api 123 +agent-working -monitored
 #
 # `gh pr edit --add-label/--remove-label` is GraphQL underneath — three requests an edit —
 # and every agent on the machine shares that bucket. A label is an issue label in REST,

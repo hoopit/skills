@@ -220,11 +220,11 @@ Whenever the watch ends — a closing round, the cap, a hard fork, an error stop
 `PR_CLOSED` — drop the label again, so it only ever marks PRs under an active watch — and
 `agent-working` with it, which comes off at every hand-back to the user, here and before
 a `GREEN`'s merge question (Step 5): a PR waiting on the user is not being worked, and
-the next round puts it back. `ready-for-review` comes off too: only a watch can take it
-off the moment the PR stops being ready, so it never outlives one.
+the next round puts it back. Draft state stays as it is: a PR already marked ready is
+still the user's after the watch stops.
 
 ```bash
-bash <SKILL_DIR>/scripts/pr-labels.sh <OWNER_REPO> <PR> -monitored -agent-working -ready-for-review
+bash <SKILL_DIR>/scripts/pr-labels.sh <OWNER_REPO> <PR> -monitored -agent-working
 ```
 
 ## Step 4a — Land the merge
@@ -319,14 +319,15 @@ re-running the challenge on this head, is what turns the recommendation back.
 
 Drop `agent-working` before asking (Step 4): the PR is the user's until they answer.
 When this head is ready on the agent's side — the challenge ran and held nothing, and the
-`GREEN` carries no `pending_gates` — add `ready-for-review` in the same edit:
+`GREEN` carries no `pending_gates` — mark the PR ready for review, the hand-off:
 
 ```bash
-bash <SKILL_DIR>/scripts/pr-labels.sh <OWNER_REPO> <PR> -agent-working +ready-for-review
+bash <SKILL_DIR>/scripts/pr-labels.sh <OWNER_REPO> <PR> -agent-working
+gh pr ready <PR> --repo <OWNER_REPO>
 ```
 
-The label vouches for this head alone. The next round takes it off as it opens (the
-worker briefing's round label), and the watch ending takes it off with the rest (Step 4).
+It vouches for this head alone: the next round returns the PR to draft as it opens
+(the worker briefing's round label).
 
 **The merge briefing.** A `GREEN` asks someone to merge code they have not read, so the
 question carries the read that tells them how hard to look before they do. Seven lines,

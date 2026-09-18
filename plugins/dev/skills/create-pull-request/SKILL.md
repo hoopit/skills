@@ -92,11 +92,21 @@ status nobody set by hand*.
 
 ## Creating the PR
 
+**An agent's PR is born a draft.** Draft says the review rounds are still the
+agent's, and `gh pr ready` at the merge question is the hand-off -- the only one a
+workflow can trigger on, since a resolved review thread raises no event. A human
+opening their own PR omits `--draft`.
+
+*Born*, never opened-then-converted: the reviewers and the board automation fire on
+`opened`, so a PR ready for even an instant spends a review and sets a board status
+that must then be corrected.
+
 Open the PR with the GitHub CLI, from inside the worktree:
 
 ```bash
 cd "$WORKTREE_DIR"   # if working in a worktree
 gh pr create \
+  --draft \
   --title "<ITEM_ID>: <what the change does>" \
   --body "## Summary
 <what the change does>
