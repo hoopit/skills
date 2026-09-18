@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Pins `hoopit-board batch`'s write loop and `next`'s collision judgement. Run it by
-hand after editing either:
+"""Pins `hoopit-board batch`'s write loop, `next`'s collision judgement and `decisions`'
+naming judgement. Run it by hand after editing any of them:
 
     python3 scripts/test_hoopit_board.py
 
@@ -297,6 +297,105 @@ def test_an_unowned_migration_token_still_guards_the_rest_of_the_tick():
     assert only(d, "blocked") == ["hoopit/api#2"], d["blocked"]
     print("  the first pick takes the migration graph, the second is held")
 
+
+
+
+# ── decisions: is the decision named, and where ─────────────────────────────────────────
+
+PROSE = """## Want
+
+An order and its payment belong to the same member.
+
+```
+a = b
+
+c = d
+```
+
+Repairing the three money-carrying rows changes what a member is charged, so it is
+LK's call per #17017 — bring the pre-repair values here first.
+"""
+HEADED = "## The decision\n\nWhat expiry, and who refreshes?\n\n## Notes\n\nNone.\n"
+
+
+def decisions(m, bodies, ask, **flags):
+    """cmd_decisions over `bodies` ({issue number: body}). Returns (stdout, stderr)."""
+    m.board = lambda: [{"repo": "hoopit/api", "n": n, "title": f"t{n}", "type": "Issue",
+                        "status": "Backlog", "priority": "P2", "effort": "S",
+                        "autonomy": "Needs decision", "url": f"u{n}"} for n in bodies]
+    m.gh = lambda *args, **kw: bodies[int(args[1].rsplit("/", 1)[1])]
+    m.judge_decision.ask = ask
+    a = argparse.Namespace(**{"n": 5, "lines": 8, "unnamed": False, "out_of_reach": False,
+                              "no_judge": False, **flags})
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        m.cmd_decisions(a)
+    return out.getvalue(), err.getvalue()
+
+
+def test_a_fence_is_one_block_and_a_heading_its_own():
+    blocks = load().body_blocks(PROSE)
+    assert [b[0] for b in blocks] == ["## Want", "An order and its payment belong to the same member.",
+                                      "```", "Repairing the three money-carrying rows changes "
+                                      "what a member is charged, so it is"], blocks
+    assert len(blocks[2]) == 5, blocks[2]
+
+
+def test_a_decision_named_in_prose_is_quoted_from_the_body():
+    m = load()
+    out, _ = decisions(m, {1: PROSE}, lambda s, q: (
+        {"named": {"noul": 0.75}, "opens": {"choice": "B03"}, "closes": {"choice": "B03"}}, None))
+    assert "ANSWER THESE — 1 of 1" in out, out
+    assert "    LK's call per #17017 — bring the pre-repair values here first." in out, out
+    assert "0 name no decision" in out, out
+
+
+def test_the_model_is_handed_block_ids_and_a_none():
+    m, seen = load(), {}
+    def ask(state, questions):
+        seen.update(state=state, q=questions)
+        return None, "stop here"
+    decisions(m, {1: PROSE}, ask)
+    assert seen["state"]["body"].startswith("B00| ## Want\n\nB01| An order"), seen["state"]
+    assert list(seen["q"]["opens"]["criteria"]) == ["B00", "B01", "B02", "B03", "none"]
+
+
+def test_a_low_probability_never_unnames_a_heading():
+    m = load()
+    out, _ = decisions(m, {1: HEADED}, lambda s, q: (
+        {"named": {"noul": 0.2}, "opens": {"choice": "none"}, "closes": {"choice": "none"}}, None))
+    assert "ANSWER THESE — 1 of 1" in out and "What expiry, and who refreshes?" in out, out
+
+
+def test_a_judgement_that_cannot_run_leaves_the_regex_and_says_so():
+    m = load()
+    out, err = decisions(m, {1: PROSE, 2: HEADED}, lambda s, q: (None, "HTTP 429"))
+    assert "ANSWER THESE — 1 of 1" in out and "1 name no decision" in out, out
+    assert "HTTP 429" in err and "2 of 2" in err, err
+
+
+def test_an_answer_outside_the_body_quotes_nothing():
+    m = load()
+    out, _ = decisions(m, {1: PROSE}, lambda s, q: (
+        {"named": {"noul": 0.9}, "opens": {"choice": "B99"}, "closes": {"choice": "B00"}}, None))
+    assert "no block of the body was picked out" in out, out
+
+
+def test_a_stray_closing_block_does_not_widen_the_quote():
+    m = load()
+    body = "\n\n".join(f"para {n}" for n in range(12))
+    out, _ = decisions(m, {1: body}, lambda s, q: (
+        {"named": {"noul": 0.9}, "opens": {"choice": "B01"}, "closes": {"choice": "B11"}}, None),
+        lines=40)
+    assert "para 1" in out and "para 2" not in out, out
+
+
+def test_no_judge_asks_nothing():
+    m = load()
+    def refuse(s, q):
+        raise AssertionError("asked")
+    out, err = decisions(m, {1: PROSE}, refuse, no_judge=True)
+    assert "1 name no decision" in out and not err, (out, err)
 
 
 if __name__ == "__main__":

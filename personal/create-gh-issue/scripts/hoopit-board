@@ -12,13 +12,17 @@ writes them exact — kept only when they resolve against the repo checkout, so 
 footprint is exact where an issue is exact and empty where it is vague.
 
 Where it is empty, `next` asks a System One model (TypeSafe's Jev) whether the work
-would reach code already in flight. That is the one judgement in this file, and it is
-strictly additive: a resolved path outranks any probability, and nothing the model says
+would reach code already in flight. That judgement is strictly additive: a resolved path outranks any probability, and nothing the model says
 clears a collision the paths found. It also fails open — no `TYPESAFE_API_KEY`, a
 timeout or an error and the tick is exactly the tick it would have been, with the reason
 in the `judgement` field. `--no-judge` turns it off outright. A candidate whose
 probability lands between `COLLIDE_LOW` and `COLLIDE_HIGH` goes to `needs_judgement`
 rather than being dispatched or rejected: untuned thresholds hand work back.
+
+`decisions` asks the same model whether a `Needs decision` body names its decision, and
+in which block. It is additive in the same way — a decision heading the regex finds stays
+named whatever the probability — and what it prints is copied out of the body by block
+index, never generated.
 
 Called as a bare command by `start-backlog-daemon` and by the `create-gh-issue`,
 `gh-triage` and `curate-backlog` skills, off a `~/.local/bin` symlink. PRIORITIES, EFFORTS and
@@ -47,7 +51,7 @@ a release, and the issue that ships the code closes at merge, days before promot
 
   slots [X] [--unattended]       what to start, to reach X in flight (default 15)
   next [X] [--repo R]... [--exclude REPO#N]... [--no-judge]  one tick, as JSON; exit 1 = nothing to do
-  decisions [N] [--unnamed] [--out-of-reach]   the top N decisions to answer (default 5)
+  decisions [N] [--unnamed] [--out-of-reach] [--no-judge]   the top N decisions to answer (default 5)
   stale [--older-than H]         flight that may have lost its agent: no-pr | pr-quiet\n  dispatches [--since D] [--repo R]...  merged PRs by the rung that wrote them
   open                           every open item, one line each
   scan                           every open item, with curation signals
@@ -65,6 +69,7 @@ a release, and the issue that ships the code closes at merge, days before promot
 """
 import argparse, json, os, re, subprocess, sys, textwrap, urllib.error, urllib.request
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 
 PROJECT, OWNER = "2", "hoopit"
@@ -160,6 +165,22 @@ LIST_ITEM = re.compile(r"^(\d+[.)]|[-*+])\s")
 DECISION_NAMED = re.compile(
     rf"^(?:#{{2,4}} .*\b{DECISION_WORD}\w*\b.*|\*\*[^*\n]*\b{DECISION_WORD}\w*\b[^*\n]*\*\*)",
     re.I | re.M)
+# The regex above reads formatting, and a decision is as often named in a closing sentence
+# of prose as under a heading. `decisions` also asks Jev, and an item is named when either
+# says so. A Noul carries no confidence of its own, so this is a probability threshold;
+# two runs over one body land within about 0.05 of each other. Measured 2026-09-19: a body
+# naming its decision only in prose reads 0.70 and one whose open point is a measurement
+# an agent can take reads 0.12. Of eight Unattended bodies with no decision heading, five
+# read 0.12-0.38, two sit on the threshold (0.50, 0.53) and one reads 0.83 — so a yes
+# here is a reason to read the quoted block, not proof the item needs a decision.
+NAMED_YES = 0.5
+# A Choice takes 255 options; one of them is `none`.
+DECISION_MAX_BLOCKS = 254
+# How far past the opening block a quoted decision may run. The closing block is a second,
+# independent answer, so a stray one must not quote half the issue.
+DECISION_MAX_SPAN = 6
+# One body read and one judgement per Needs decision item, and neither depends on another.
+DECISION_WORKERS = 8
 
 
 def gh(*args, parse=True):
@@ -1006,6 +1027,133 @@ def cmd_next(a):
     return 0 if out["startable"] else 1
 
 
+def body_blocks(body):
+    """The body cut into blocks, each a list of its lines verbatim. A blank line ends a
+    block, a heading is a block of its own, and a fenced code block stays whole however
+    many blank lines it holds. This decides nothing about what a block means — it only
+    gives the model something to point at and the code something to copy."""
+    blocks, cur, fenced = [], [], False
+    for raw in (body or "").replace("\r\n", "\n").split("\n"):
+        line = raw.rstrip()
+        fence = line.lstrip().startswith(("```", "~~~"))
+        if not fenced and not fence and (not line.strip() or line.startswith("#")):
+            if cur:
+                blocks.append(cur)
+                cur = []
+            if line.strip():
+                blocks.append([line])
+            continue
+        cur.append(line)
+        if fence:
+            fenced = not fenced
+    if cur:
+        blocks.append(cur)
+    return blocks
+
+
+def block_id(n):
+    return f"B{n:02d}"
+
+
+def decision_questions(n_blocks):
+    """The three things asked of one Needs decision body, in one request. Whether the
+    decision is named is a Noul of its own because a Choice's probabilities sum to 1 —
+    some block ranks first even in a body that names nothing."""
+    ids = {block_id(n): None for n in range(n_blocks)}
+    return {
+        "named": {
+            "type": "noul",
+            "instructions": "Does `body` state a specific open question that only the "
+                            "issue's author can settle, clearly enough that the author "
+                            "could answer it in a sentence?",
+            "criteria": {
+                "true": "Somewhere in the body — under any heading or none, in a list or "
+                        "in a closing sentence of prose — it says what has to be decided: "
+                        "a choice between stated options, a yes-or-no on a stated action, "
+                        "a value or policy the author has to pick, or an approval that is "
+                        "explicitly theirs to give.",
+                "false": "The body describes work or a problem without putting a question "
+                         "to the author; or it says a decision is needed without saying "
+                         "what the decision is; or what is open is a measurement or an "
+                         "investigation an agent could carry out itself; or it is too "
+                         "vague to tell what an answer would look like.",
+            },
+        },
+        "opens": {
+            "type": "choice",
+            "instructions": "Each line of `body` starts with the id of the block it "
+                            "belongs to. In which block does the body first put to the "
+                            "issue's author the open question they have to settle?",
+            "criteria": {**ids, "none": "No block puts a question to the author."},
+        },
+        "closes": {
+            "type": "choice",
+            "instructions": "Each line of `body` starts with the id of the block it "
+                            "belongs to. The body puts an open question to the issue's "
+                            "author. Which block is the last one that is part of stating "
+                            "that question — the question itself, or the last of the "
+                            "options or trade-offs listed for it?",
+            "criteria": {**ids, "none": "No block puts a question to the author."},
+        },
+    }
+
+
+def judge_decision(title, body):
+    """Whether one body names its decision, and where: `(probability, (first, last) block
+    indices or None, blocks, None)`, or `(None, None, blocks, why it did not run)`.
+
+    The model only ever points. What `decisions` prints is copied out of the body by
+    index, so a wrong answer quotes the wrong lines and can never invent one."""
+    blocks = body_blocks((body or "")[:JUDGE_MAX_BODY])[:DECISION_MAX_BLOCKS]
+    if not blocks:
+        return 0.0, None, blocks, None
+    tagged = "\n\n".join("\n".join(f"{block_id(n)}| {l}" for l in b)
+                         for n, b in enumerate(blocks))
+    answers, why = judge_decision.ask({"title": title, "body": tagged},
+                                      decision_questions(len(blocks)))
+    if why:
+        return None, None, blocks, why
+    p = (answers.get("named") or {}).get("noul")
+    if not isinstance(p, (int, float)):
+        return None, None, blocks, "the response carried no `named` answer"
+
+    def index(qid):
+        m = re.fullmatch(r"B(\d+)", str((answers.get(qid) or {}).get("choice")))
+        return int(m.group(1)) if m and int(m.group(1)) < len(blocks) else None
+
+    first, last = index("opens"), index("closes")
+    if first is None:
+        return float(p), None, blocks, None
+    if last is None or not first <= last <= first + DECISION_MAX_SPAN:
+        last = first
+    # A heading is a label, not a statement: chosen alone, what it labels is the decision,
+    # and one sitting directly above the opening block is quoted with it.
+    while last + 1 < len(blocks) and all(b[0].startswith("#") for b in blocks[first:last + 1]):
+        last += 1
+    if first and blocks[first - 1][0].startswith("#"):
+        first -= 1
+    return float(p), (first, last), blocks, None
+
+
+judge_decision.ask = typesafe
+
+
+def quoted(blocks, span, max_lines, width=116):
+    """Blocks `span` of the body as the author wrote them. A line is wrapped only where
+    it overruns the terminal; nothing is joined, reflowed or reworded."""
+    out = []
+    for n in range(span[0], span[1] + 1):
+        if out:
+            out.append("")
+        for l in blocks[n]:
+            pad = l[:len(l) - len(l.lstrip())]
+            out += textwrap.wrap(l.strip(), width=width, initial_indent=pad,
+                                 subsequent_indent=pad) or [""]
+        if len(out) > max_lines:
+            return out[:max_lines] + ["…"]
+    return out
+
+
 def decision_text(rest, max_lines, width=94):
     """The decision as prose you can answer, wrapped rather than cut mid-word.
 
@@ -1047,6 +1195,10 @@ def cmd_decisions(a):
     body names its decision, because those are the ones answerable in a sentence — the
     whole point of the rubric asking for it. Everything else is a count and a flag, so a
     run of this is a pass you finish rather than a board you re-read.
+
+    The column after the status is the probability that the body names a decision, `-`
+    where the judgement did not run. A low one on a named item is worth a second look at
+    its triage: the heading is there, and the model found nothing under it to decide.
     """
     items = [i for i in board()
              if i["status"] != "Done" and i["type"] == "Issue"
@@ -1064,27 +1216,61 @@ def cmd_decisions(a):
             print(line(i, i["url"]))
         return 0
 
-    # One body read per item, so only the ones about to be printed or counted.
-    named, unnamed = [], []
-    for i in pending:
+    # One body read and one judgement per item, none depending on another.
+    def read(i):
         body = gh("api", f'repos/{i["repo"]}/issues/{i["n"]}', "--jq", ".body", parse=False)
+        if a.no_judge:
+            return i, body, None, None, [], "--no-judge"
+        return (i, body, *judge_decision(i["title"], body))
+
+    with ThreadPoolExecutor(DECISION_WORKERS) as pool:
+        judged = list(pool.map(read, pending))
+
+    # Additive, like `next`: a heading the regex finds is the author's own label and no
+    # probability unnames it, so the judgement only ever moves an item out of `unnamed`.
+    # That is also the whole of failing open — a judgement that did not run leaves the
+    # regex's verdict standing. Where both name it the model's span is what gets quoted:
+    # it points at the question, where the regex points at a heading and guesses the rest.
+    named, unnamed, failed = [], [], []
+    for i, body, p, span, blocks, why in judged:
+        if why and not a.no_judge:
+            failed.append(why)
         m = DECISION_NAMED.search(body or "")
-        (named if m else unnamed).append((i, body, m))
+        shown = "-" if p is None else f"{p:.2f}"
+        if p is not None and p >= NAMED_YES and span:
+            named.append((i, shown, ("span", blocks, span)))
+        elif m:
+            named.append((i, shown, ("regex", body, m)))
+        elif p is not None and p >= NAMED_YES:
+            named.append((i, shown, None))
+        else:
+            unnamed.append((i, shown, None))
+    if failed:
+        print(f"!! the judgement did not run for {len(failed)} of {len(judged)} — those rest "
+              f"on the DECISION_NAMED regex alone: {failed[0]}", file=sys.stderr)
 
     if a.unnamed:
         print(f"## DECISION NOT NAMED — {len(unnamed)}, each a re-read before it can be answered")
-        for i, _, _ in unnamed:
-            print(line(i, i["url"]))
+        for i, p, _ in unnamed:
+            print(line(i, p, i["url"]))
         return 0
 
     show = named[:a.n]
     print(f"## ANSWER THESE — {len(show)} of {len(named)}, then "
           "`hoopit-board triage <repo> <n> --autonomy Unattended`")
-    for i, body, m in show:
-        print(line(i, i["url"]))
-        print(f'\n  {m.group(0).strip().strip("#* ").rstrip(".")}')
-        for text in decision_text(body[m.end():], a.lines):
-            print(f"    {text}")
+    for i, p, where in show:
+        print(line(i, p, i["url"]))
+        print()
+        if not where:
+            texts = ["(named, but no block of the body was picked out — read the issue)"]
+        elif where[0] == "regex":
+            _, body, m = where
+            print(f'  {m.group(0).strip().strip("#* ").rstrip(".")}')
+            texts = decision_text(body[m.end():], a.lines)
+        else:
+            texts = quoted(where[1], where[2], a.lines)
+        for text in texts:
+            print(f"    {text}".rstrip())
         print()
     if not show:
         print("(none — every Needs decision item needs a re-read first; see --unnamed)")
@@ -1430,6 +1616,8 @@ def main():
     s.add_argument("--lines", type=int, default=8)
     s.add_argument("--unnamed", action="store_true")
     s.add_argument("--out-of-reach", action="store_true", dest="out_of_reach")
+    s.add_argument("--no-judge", action="store_true",
+                   help="skip the System One judgement; the DECISION_NAMED regex only")
     s.set_defaults(fn=cmd_decisions)
     s = sub.add_parser("stale"); s.add_argument("--older-than", type=float, default=6)
     s.set_defaults(fn=cmd_stale)
