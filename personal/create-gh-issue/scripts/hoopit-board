@@ -127,6 +127,10 @@ MIGRATION_ANY = f"{MIGRATION_TOKEN}:*"
 # Every call here fails open. No key, a timeout, a 429, a malformed answer — `next`
 # returns what it returned before and says so in its `judgement` field. An outage must
 # degrade the daemon, never stall it.
+# The key comes from the environment, else from `~/.claude/settings.json`, which is where
+# this machine keeps its API keys. One copy reaches every caller: a plain shell, a systemd
+# unit whose environment carries nothing, and a Claude Code session alike.
+TYPESAFE_SETTINGS = "~/.claude/settings.json"
 TYPESAFE_URL = "https://api.typesafe.ai/v1/systemone"
 TYPESAFE_MODEL = "jev-latest"
 TYPESAFE_TIMEOUT = 30
@@ -594,14 +598,29 @@ def footprints(repos):
     return owners, per_pr
 
 
+def typesafe_key(_cache=[]):
+    """The API key, read once. An unreadable or keyless settings file is not an error
+    here — it is one of the ways the judgement fails open."""
+    if not _cache:
+        key = os.environ.get("TYPESAFE_API_KEY", "")
+        if not key:
+            try:
+                with open(os.path.expanduser(TYPESAFE_SETTINGS)) as fh:
+                    key = (json.load(fh).get("env") or {}).get("TYPESAFE_API_KEY", "")
+            except Exception:
+                key = ""
+        _cache.append(key)
+    return _cache[0]
+
+
 def typesafe(state, questions):
     """One System One request: `(answers, None)`, or `(None, why it went unanswered)`.
 
     Never raises and never retries. `next` runs on a tick with nobody watching, so a retry
     loop costs the tick; a tick that says the judgement did not run costs nothing."""
-    key = os.environ.get("TYPESAFE_API_KEY")
+    key = typesafe_key()
     if not key:
-        return None, "TYPESAFE_API_KEY is not set"
+        return None, f"no TYPESAFE_API_KEY, in the environment or in {TYPESAFE_SETTINGS}"
     payload = json.dumps({"state": state, "model": TYPESAFE_MODEL,
                           "questions": questions}).encode()
     req = urllib.request.Request(TYPESAFE_URL, data=payload, headers={

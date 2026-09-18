@@ -194,7 +194,7 @@ def next_module(items, owners=None, per_pr=None, bodies=None, footprint=None, ap
 def run_next(m, target=15, no_judge=False):
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
-        code = m.cmd_next(argparse.Namespace(target=target, exclude=[], repos=None,
+        code = m.cmd_next(argparse.Namespace(target=target, exclude=[], scope=None,
                                              no_judge=no_judge))
     return json.loads(out.getvalue()), code
 
