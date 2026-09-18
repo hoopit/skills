@@ -6,8 +6,7 @@
 # spends three GraphQL calls a minute per PR, and a machine running several agents
 # exhausts the GraphQL bucket while the REST one sits idle. Everything REST can answer
 # is asked over REST here. Only review-thread resolution stays on GraphQL, because no
-# REST endpoint exposes it, and `reviewDecision` rides along in the same query rather
-# than costing a second one. A poller spends even that one only when `pr_meta`'s review
+# REST endpoint exposes it. A poller spends even that one only when `pr_meta`'s review
 # marker says the threads can have changed.
 #
 # mise prints its activation banner to stdout on every tool invocation, which would land
@@ -21,7 +20,7 @@ export MISE_QUIET=1
 #                  the same way GraphQL's UNKNOWN did; the next poll sees the answer.
 #   review_marker  "<review_comment_count>@<updated_at>". A new thread or a reply raises
 #                  the count, and a submitted review moves updated_at, so a marker that
-#                  has not moved means `pr_review_state` would answer what it answered
+#                  has not moved means `pr_open_threads` would answer what it answered
 #                  last time — except a thread resolved or unresolved without a comment,
 #                  which moves neither. Read it with `read -r state conflicting head _`.
 pr_meta() {
@@ -61,29 +60,25 @@ pr_checks() {
       else "fail" end), .context, (.target_url // "")] | @tsv' <<<"$statuses"
 }
 
-# pr_review_state <owner/repo> <pr> — the one GraphQL call. Prints a `review=` line
-# followed by one `<thread_id>:<comment_count>` line per unresolved thread, sorted.
-# The comment count is what makes a reply to an already-seen thread a change.
+# pr_open_threads <owner/repo> <pr> — the one GraphQL call. Prints one
+# `<thread_id>:<comment_count>` line per unresolved thread, sorted. The comment count is
+# what makes a reply to an already-seen thread a change.
 #
-# Both halves need GraphQL: a review thread's resolved flag appears in no REST
-# response, and reviewDecision folds in the repo's protection rules, which the reviews
-# endpoint cannot see — it cannot tell REVIEW_REQUIRED from NONE.
+# GraphQL because a review thread's resolved flag appears in no REST response. The PR's
+# review decision is deliberately not read: no Hoopit repo requires an approval, so it
+# never says anything a merge could wait on.
 PR_REVIEW_QUERY='query($owner:String!,$name:String!,$pr:Int!,$endCursor:String){
   repository(owner:$owner,name:$name){ pullRequest(number:$pr){
-    reviewDecision
     reviewThreads(first:100,after:$endCursor){
       pageInfo{hasNextPage endCursor}
       nodes{ id isResolved comments{totalCount} }
     } } } }'
 
-pr_review_state() {
+pr_open_threads() {
   local raw
   raw=$(gh api graphql --paginate -f query="$PR_REVIEW_QUERY" \
           -F owner="${1%/*}" -F name="${1#*/}" -F pr="$2") || return 1
-  # --paginate prints one document per page, so read the scalar off the first and
-  # concatenate the node arrays across all of them.
-  printf 'review=%s\n' \
-    "$(jq -r '.data.repository.pullRequest.reviewDecision // "NONE"' <<<"$raw" | head -1)"
+  # --paginate prints one document per page; jq reads the node arrays across all of them.
   jq -r '.data.repository.pullRequest.reviewThreads.nodes[]
          | select(.isResolved | not) | "\(.id):\(.comments.totalCount)"' <<<"$raw" | sort
 }

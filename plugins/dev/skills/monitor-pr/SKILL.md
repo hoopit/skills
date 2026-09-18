@@ -100,7 +100,7 @@ The script polls every 60 s and prints only:
   newly-replied-to unresolved thread, a red check, or a conflict. The round fires on it
   immediately; `pending_gates` names the reviewers yet to report on this head, and what
   they post while the round runs is what its last look collects.
-- `GREEN head=… review=<decision> [pending_gates=<names>]` — this head has nothing left:
+- `GREEN head=… [pending_gates=<names>]` — this head has nothing left:
   no unresolved thread, no failing check, none still running, no conflict. Fired once per
   head; the merge decision goes to the user (Step 5). `pending_gates` here means a
   reviewer never reported at all and `GATE_TIMEOUT` (default 900s) elapsed waiting.
@@ -317,7 +317,7 @@ and your reachability read in `GUIDANCE`, inline by working them yourself as the
 briefing says. Its push brings the next `GREEN`, and that one carries the merge question.
 The rest go into the tally as weighed and not held. A `codex_challenge_reason` line is
 Step 4's `CODEX DOWN`, and the merge question still goes — but it goes **recommending
-hold**, whatever `review` says. The one read of the PR as a whole never happened, and
+hold**. The one read of the PR as a whole never happened, and
 recommending a merge would be claiming a check that did not run. Say that in the question
 and name what the challenge would have weighed: the ledger's judgement rows. *Merge it*
 stays on the table — the merge is the user's call, always — and restoring Codex, then
@@ -361,16 +361,15 @@ Rate the risk on blast radius and reversibility, the two things a revert cannot 
 | **Very high** | Effects land before anyone can react — a destructive migration, a send to users, a deletion sweep, a credential rotation. |
 
 Risk is not a recommendation. A low-risk PR with a reviewer still owed recommends
-holding; a very-high-risk PR that is approved, green and challenged recommends merging.
+holding; a very-high-risk PR that is green and challenged recommends merging.
 The recommendation answers *may this merge*; the risk answers *how long to look first*.
 
-The merge is the user's call, always: ask. Recommend it when
-`review` reads `APPROVED` or `NONE` — `NONE` means the repo requires no approval, not that
-one is missing — and recommend holding on `REVIEW_REQUIRED` or `CHANGES_REQUESTED`, naming
-the reviewer the PR is waiting on. A `GREEN` carrying `pending_gates` went green with a
-reviewer that never reported on the head: name it and recommend holding until it has. A
-merge-readiness challenge that did not run holds the recommendation the same way, for the
-same reason — a reviewer that never reported.
+The merge is the user's call, always: ask, and recommend it. No Hoopit repo requires an
+approval, so a `GREEN` waits on nobody's review; two things alone turn the recommendation
+to holding. A `GREEN` carrying `pending_gates` went green with a reviewer that never
+reported on the head: name it and recommend holding until it has. A merge-readiness
+challenge that did not run holds it the same way, for the same reason — a reviewer that
+never reported.
 On *Merge it*, merge with a method the repo allows. Mark the PR ready first: a question
 that went out recommending hold left it a draft, GitHub refuses to merge one, and `gh pr
 merge` has no guard of its own for it. On a PR already ready the call warns and exits 0.

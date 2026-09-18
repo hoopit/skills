@@ -39,7 +39,7 @@ REVIEW_MAX_AGE=${REVIEW_MAX_AGE:-600}
 
 fired_threads=""; fired_fail=""; fired_conflict=0; fired_head=""; fired_green=""; fetch_fails=0
 gate_wait_start=0
-review_state=""; review_key=""; review_read_at=0
+threads=""; review_key=""; review_read_at=0
 while true; do
   if ! meta=$(pr_meta "$REPO" "$PR" 2>&1); then
     fetch_fails=$((fetch_fails + 1))
@@ -76,7 +76,7 @@ while true; do
 
   now=$(date +%s)
   if [ "$head $review_marker" != "$review_key" ] || [ $((now - review_read_at)) -ge "$REVIEW_MAX_AGE" ]; then
-    if ! fresh=$(pr_review_state "$REPO" "$PR" 2>&1); then
+    if ! fresh=$(pr_open_threads "$REPO" "$PR" 2>&1); then
       fetch_fails=$((fetch_fails + 1))
       if [ "$fetch_fails" -ge "$MAX_FETCH_FAILS" ]; then
         echo "WATCH_ERROR fetch_failures=$fetch_fails last=$(tr '\n' ' ' <<<"$fresh")"
@@ -84,11 +84,9 @@ while true; do
       fi
       sleep "$INTERVAL"; continue
     fi
-    review_state=$fresh; review_key="$head $review_marker"; review_read_at=$now
+    threads=$fresh; review_key="$head $review_marker"; review_read_at=$now
   fi
   fetch_fails=0
-  review=$(sed -n 's/^review=//p' <<<"$review_state" | head -1)
-  threads=$(grep -v '^review=' <<<"$review_state")
 
   new_threads=$(comm -13 <(printf '%s\n' "$fired_threads") <(printf '%s\n' "$threads") | grep -c .)
   new_fail=$(comm -13 <(printf '%s\n' "$fired_fail") <(printf '%s\n' "$failing") | grep . | paste -sd, -)
@@ -110,7 +108,7 @@ while true; do
       if [ $((now - gate_wait_start)) -lt "$GATE_TIMEOUT" ]; then sleep "$INTERVAL"; continue; fi
     fi
     gate_wait_start=0
-    echo "GREEN head=${head:0:7} review=$review${pending_gates:+ pending_gates=$pending_gates}"
+    echo "GREEN head=${head:0:7}${pending_gates:+ pending_gates=$pending_gates}"
     fired_green=$head
     [ "${ONCE:-0}" = 1 ] && exit 0
   else

@@ -53,7 +53,7 @@ read -r BRANCH DEFAULT_BRANCH < <(gh api repos/<OWNER_REPO>/pulls/<PR> \
 git -C <REPO_ROOT> worktree list --porcelain | grep -B2 "refs/heads/$BRANCH"
 ```
 
-`<GH_PR_API>` gives you `pr_meta`, `pr_checks` and `pr_review_state`: read the PR through
+`<GH_PR_API>` gives you `pr_meta`, `pr_checks` and `pr_open_threads`: read the PR through
 them, and edit its labels through `<PR_LABELS>`. Both stay on REST, keeping the GraphQL
 bucket — shared by every agent on the machine — for the thread query, the resolves, and
 the draft toggle, which REST cannot write.

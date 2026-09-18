@@ -17,8 +17,8 @@ read -r _state conflicting head _ <<<"$meta"
 
 # A failed read must not print a clean state: the caller diffs two of these, and empty
 # threads would read as "everything got resolved while the round worked".
-review=$(pr_review_state "$REPO" "$PR") || { echo "pr-state: could not read review threads" >&2; exit 1; }
-threads=$(grep -v '^review=' <<<"$review" | paste -sd, -)
+open_threads=$(pr_open_threads "$REPO" "$PR") || { echo "pr-state: could not read review threads" >&2; exit 1; }
+threads=$(paste -sd, - <<<"$open_threads")
 checks=$(pr_checks "$REPO" "$head") || { echo "pr-state: could not read checks" >&2; exit 1; }
 failing=$(awk -F'\t' '$1=="fail"{print $2}' <<<"$checks" | sort | paste -sd, -)
 
