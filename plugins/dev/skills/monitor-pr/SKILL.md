@@ -220,11 +220,17 @@ Whenever the watch ends — a closing round, the cap, a hard fork, an error stop
 `PR_CLOSED` — drop the label again, so it only ever marks PRs under an active watch — and
 `agent-working` with it, which comes off at every hand-back to the user, here and before
 a `GREEN`'s merge question (Step 5): a PR waiting on the user is not being worked, and
-the next round puts it back. `ready-for-review` comes off too: only a watch can take it
-off the moment the PR stops being ready, so it never outlives one.
+the next round puts it back.
+
+**A PR is a draft exactly while an agent owns its review rounds.** So an ending that hands
+the PR to the user with the rounds over — a closing round, the cap, or any *Stop, I'll take
+it* answer — marks it ready, or it stays unmergeable with its issue parked in `AI review`
+and no event left to move it. A hard fork and an error stop leave it a draft on purpose:
+that work is unfinished, and re-arming the watch picks it up where it stands.
 
 ```bash
-bash <SKILL_DIR>/scripts/pr-labels.sh <OWNER_REPO> <PR> -monitored -agent-working -ready-for-review
+bash <SKILL_DIR>/scripts/pr-labels.sh <OWNER_REPO> <PR> -monitored -agent-working
+gh pr ready <PR> --repo <OWNER_REPO>   # closing round, cap, or "Stop, I'll take it" only
 ```
 
 ## Step 4a — Land the merge
@@ -319,14 +325,15 @@ re-running the challenge on this head, is what turns the recommendation back.
 
 Drop `agent-working` before asking (Step 4): the PR is the user's until they answer.
 When this head is ready on the agent's side — the challenge ran and held nothing, and the
-`GREEN` carries no `pending_gates` — add `ready-for-review` in the same edit:
+`GREEN` carries no `pending_gates` — mark the PR ready for review, the hand-off:
 
 ```bash
-bash <SKILL_DIR>/scripts/pr-labels.sh <OWNER_REPO> <PR> -agent-working +ready-for-review
+bash <SKILL_DIR>/scripts/pr-labels.sh <OWNER_REPO> <PR> -agent-working
+gh pr ready <PR> --repo <OWNER_REPO>
 ```
 
-The label vouches for this head alone. The next round takes it off as it opens (the
-worker briefing's round label), and the watch ending takes it off with the rest (Step 4).
+The ready mark vouches for this head alone: the next round returns the PR to draft as it
+opens (the worker briefing's round bracket).
 
 **The merge briefing.** A `GREEN` asks someone to merge code they have not read, so the
 question carries the read that tells them how hard to look before they do. Seven lines,
@@ -364,10 +371,13 @@ the reviewer the PR is waiting on. A `GREEN` carrying `pending_gates` went green
 reviewer that never reported on the head: name it and recommend holding until it has. A
 merge-readiness challenge that did not run holds the recommendation the same way, for the
 same reason — a reviewer that never reported.
-On *Merge it*, merge with a method the repo allows:
+On *Merge it*, merge with a method the repo allows. Mark the PR ready first: a question
+that went out recommending hold left it a draft, GitHub refuses to merge one, and `gh pr
+merge` has no guard of its own for it. On a PR already ready the call warns and exits 0.
 
 ```bash
 gh api repos/<OWNER_REPO> --jq '{squash: .allow_squash_merge, merge: .allow_merge_commit, rebase: .allow_rebase_merge}'
+gh pr ready <PR> --repo <OWNER_REPO>
 gh pr merge <PR> --repo <OWNER_REPO> --<squash|merge|rebase>
 ```
 

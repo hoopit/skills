@@ -55,7 +55,8 @@ git -C <REPO_ROOT> worktree list --porcelain | grep -B2 "refs/heads/$BRANCH"
 
 `<GH_PR_API>` gives you `pr_meta`, `pr_checks` and `pr_review_state`: read the PR through
 them, and edit its labels through `<PR_LABELS>`. Both stay on REST, keeping the GraphQL
-bucket — shared by every agent on the machine — for the thread query and resolves.
+bucket — shared by every agent on the machine — for the thread query, the resolves, and
+the draft toggle, which REST cannot write.
 
 On `BACK_MERGE`, your entire report is `HALT back-merge PR: head is $DEFAULT_BRANCH`.
 
@@ -74,15 +75,18 @@ path you created in the report, so the user knows a new worktree is on disk.
 
 Then run `git pull --ff-only` in the worktree and do all edits and commits there.
 
-**Round label.** Bracket every round with the `agent-working` label so humans see the
-PR is being worked — first action of the round, taking `ready-for-review` off in the same
-edit, since a PR with a round open is not ready:
+**Round bracket.** Opening a round does two things, as its first action: it adds the
+`agent-working` label so humans see the PR is being worked, and it returns the PR to
+draft, since a PR with a round open is not ready. Read the draft state over REST first —
+from round 2 on the PR is already a draft, and the toggle is two GraphQL requests to be
+told so:
 
 ```bash
-bash <PR_LABELS> <OWNER_REPO> <PR> +agent-working -ready-for-review
+bash <PR_LABELS> <OWNER_REPO> <PR> +agent-working
+[ "$(gh api repos/<OWNER_REPO>/pulls/<PR> --jq .draft)" = true ] || gh pr ready <PR> --repo <OWNER_REPO> --undo
 ```
 
-and remove it (`bash <PR_LABELS> <OWNER_REPO> <PR> -agent-working`) at the end of step 6, after the ledger
+and remove the label (`bash <PR_LABELS> <OWNER_REPO> <PR> -agent-working`) at the end of step 6, after the ledger
 write and before returning the report — also when the round ends in HALT or an error.
 
 **One push per round.** Each axis below ends in a local commit where it changed anything; the branch is pushed
