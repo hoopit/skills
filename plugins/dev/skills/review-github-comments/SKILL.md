@@ -33,16 +33,22 @@ gh api repos/<owner>/<repo>/pulls/<pr_number> --jq .html_url
 ```
 > Every call REST can serve goes over REST — `gh api` for reads, the label script for
 > labels. The GraphQL bucket is metered separately and far more tightly, and this skill
-> needs it for the thread query in step 2 and the resolves in step 4.
+> needs it for the thread query in step 2, the resolves in step 4, and the draft toggle in
+> step 1a, which REST cannot write.
 
 ### 1a. Label the PR while you work
 Mark the PR so humans see an agent is on it, and clear the label as your final action
 before the summary (also on failure or early exit). A PR with comments being worked is
-not ready, so it returns to draft as you start:
+not ready, so it returns to draft as you start — and goes back to ready when you finish,
+if that is how you found it. No watch follows a standalone run, so nothing else would
+restore it: the PR would stay unmergeable, its issue parked in `AI review`. A PR you found
+as a draft stays one.
 ```bash
+WAS_DRAFT=$(gh api repos/<owner>/<repo>/pulls/<pr_number> --jq .draft)  # now, before anything else
 bash "${CLAUDE_PLUGIN_ROOT}/skills/monitor-pr/scripts/pr-labels.sh" <owner>/<repo> <pr_number> +agent-working  # now
-gh pr ready <pr_number> --repo <owner>/<repo> --undo  # now
+[ "$WAS_DRAFT" = true ] || gh pr ready <pr_number> --repo <owner>/<repo> --undo  # now
 bash "${CLAUDE_PLUGIN_ROOT}/skills/monitor-pr/scripts/pr-labels.sh" <owner>/<repo> <pr_number> -agent-working  # when done
+[ "$WAS_DRAFT" = true ] || gh pr ready <pr_number> --repo <owner>/<repo>  # when done
 ```
 
 ### 1b. Work in the PR's worktree if one exists

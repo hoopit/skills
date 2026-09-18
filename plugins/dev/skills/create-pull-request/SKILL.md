@@ -92,14 +92,15 @@ status nobody set by hand*.
 
 ## Creating the PR
 
-**An agent's PR is born a draft.** Draft says the review rounds are still the
-agent's, and `gh pr ready` at the merge question is the hand-off -- the only one a
-workflow can trigger on, since a resolved review thread raises no event. A human
-opening their own PR omits `--draft`.
+**A PR an agent will work the review rounds of is born a draft** — the `ship` →
+`monitor-pr` path. Draft says the rounds are still the agent's, and `gh pr ready` is the
+hand-off — the only one a workflow can trigger on, since a resolved review thread raises
+no event. A PR handed straight to humans on creation, with no watch to follow, omits
+`--draft`: nothing would ever mark it ready, and it would sit unmergeable with its issue
+in `AI review`.
 
-*Born*, never opened-then-converted: the reviewers and the board automation fire on
-`opened`, so a PR ready for even an instant spends a review and sets a board status
-that must then be corrected.
+*Born*, never opened-then-converted: the board automation fires on `opened`, so a PR ready
+for even an instant sets a board status that must then be corrected.
 
 Open the PR with the GitHub CLI, from inside the worktree:
 
