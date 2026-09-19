@@ -8,16 +8,20 @@ deterministic, and nothing here decides what a change is worth.
 `next` is the exception, and deliberately so: it ranks, footprints and rejects
 collisions itself, because `start-backlog-daemon` calls it with no model in the
 loop. An issue's footprint is the backticked paths its body names — `create-gh-issue`
-writes them exact — kept only when they resolve against the repo checkout, so a
-footprint is exact where an issue is exact and empty where it is vague.
+writes them exact — kept only when they resolve against the repo checkout, plus the
+migration graph of any of them that is itself a migration file. So a footprint is exact
+where an issue is exact and empty where it is vague, and nothing in it is a guess.
 
 Where it is empty, `next` asks a System One model (TypeSafe's Jev) whether the work
-would reach code already in flight. That judgement is strictly additive: a resolved path outranks any probability, and nothing the model says
+would reach code already in flight, and whether it adds a migration — the collisions a
+path test cannot see, since neither the files nor the migration exist yet. That judgement
+is strictly additive: a resolved path outranks any probability, and nothing the model says
 clears a collision the paths found. It also fails open — no `TYPESAFE_API_KEY`, a
-timeout or an error and the tick is exactly the tick it would have been, with the reason
-in the `judgement` field. `--no-judge` turns it off outright. A candidate whose
-probability lands between `COLLIDE_LOW` and `COLLIDE_HIGH` goes to `needs_judgement`
-rather than being dispatched or rejected: untuned thresholds hand work back.
+timeout or an error and the tick is exactly the tick it would have been, `MIGRATION_HINT`
+guessing at migrations from prose in the judgement's place, with the reason in the
+`judgement` field. `--no-judge` turns it off outright. A candidate whose probability lands
+between `COLLIDE_LOW` and `COLLIDE_HIGH` goes to `needs_judgement` rather than being
+dispatched or rejected: untuned thresholds hand work back.
 
 `scan` asks it which pairs of open issues are one piece of work. Code draws the
 shortlist — title overlap plus BM25 neighbours over title and body — and the model judges
@@ -123,14 +127,17 @@ LINEREF = re.compile(r":\d+(?:-\d+)?$")
 # Two pieces of work that each add a migration conflict on the graph however far apart
 # their files sit, and an issue rarely says "migration" — it says what it enforces.
 # `CHECK (` stays case-sensitive under the re.I: lowercased it matches English prose
-# ("a reciprocal check (or route through it)", a `## Check (...)` heading), which hands a
-# migration footprint to issues that write no migration.
+# ("a reciprocal check (or route through it)", a `## Check (...)` heading). It is a guess
+# over prose either way — `constraint` and `migrat\w+` match issues that write no
+# migration ("the constraint here is time"), and it misses work that adds one without
+# saying so — so it stands in only where nothing better reads the same words: see
+# `body_footprint`.
 MIGRATION_HINT = re.compile(r"migrat\w+|(?-i:CHECK)\s*\(|\bAdd(?:Constraint|Field|Index)\b"
                             r"|\bAlter(?:Field|ModelOptions|UniqueTogether)\b|\bconstraint\b", re.I)
 MIGRATION_FILE = re.compile(r"(^|/)migrations/\d{4}_[^/]+\.py$")
 # Scoped per Django app: two migrations conflict on a shared parent, which only happens
-# within one app. `:*` is an issue that wants a migration but names no path to place it
-# in, and collides with any app's — conservative, because it cannot be placed.
+# within one app. `:*` is work that wants a migration nothing could place in an app, so it
+# collides with any app's, in either direction — held by a candidate or held against one.
 MIGRATION_TOKEN = "MIGRATION-GRAPH"
 MIGRATION_ANY = f"{MIGRATION_TOKEN}:*"
 # `next` decides with nobody watching, and `body_footprint` is exact where an issue is
@@ -155,8 +162,12 @@ TYPESAFE_TIMEOUT = 30
 # deliberately: thresholds nobody has tuned against this board should hand work back
 # rather than invent a verdict.
 COLLIDE_LOW, COLLIDE_HIGH = 0.35, 0.70
-# One threshold, because the answer only ever adds a footprint token. A false yes costs a
-# tick's delay; a false no is the collision this exists to catch.
+# One threshold, because the answer only ever adds a footprint token. What a false yes
+# costs depends on which token it mints: a placed `:<app>` waits for that app's graph, so
+# a tick or two; `:*` — what an unplaceable migration earns — waits for every migration in
+# the repo to clear, and in `hoopit/api` one is nearly always in flight, so it waits for a
+# human to name the app in the body. A false no is a Django leaf-node conflict, which CI
+# catches and a rebase settles.
 MIGRATION_YES = 0.55
 # A Jev request carries `state` plus every question inside 32k tokens, and accuracy drifts
 # as state grows. These bound it: the longest issue bodies on this board run past 3k words.
@@ -841,6 +852,15 @@ def cmd_release(a):
     print(f"RELEASED\t{a.repo}#{a.number}")
 
 
+def migration_app(path):
+    """The Django app a migration file belongs to: the directory holding its `migrations/`.
+
+    The one derivation, so a token minted from a file, from a checkout sweep and from an
+    issue body all name the same app. Taking the path's first segment instead agrees only
+    where every app sits at the repository root."""
+    return path.split("/migrations/")[0].split("/")[-1]
+
+
 def footprints(repos):
     """`((repo, path) -> the open PRs touching it, key -> one open PR's own file list)`.
 
@@ -860,8 +880,7 @@ def footprints(repos):
             for name in files:
                 owners[(repo, name)].append(tag)
                 if MIGRATION_FILE.search(name):
-                    app = name.split("/migrations/")[0].split("/")[-1]
-                    owners[(repo, f"{MIGRATION_TOKEN}:{app}")].append(tag)
+                    owners[(repo, f"{MIGRATION_TOKEN}:{migration_app(name)}")].append(tag)
     return owners, per_pr
 
 
@@ -880,14 +899,23 @@ def typesafe_key(_cache=[]):
     return _cache[0]
 
 
+def judgement_unavailable():
+    """Why no judgement can run this tick, or None. Answerable without spending a request,
+    so a keyless tick decides its footprints the fail-open way from the start rather than
+    finding out at its first candidate."""
+    if not typesafe_key():
+        return f"no TYPESAFE_API_KEY, in the environment or in {TYPESAFE_SETTINGS}"
+    return None
+
+
 def typesafe(state, questions):
     """One System One request: `(answers, None)`, or `(None, why it went unanswered)`.
 
     Never raises and never retries. `next` runs on a tick with nobody watching, so a retry
     loop costs the tick; a tick that says the judgement did not run costs nothing."""
+    if why := judgement_unavailable():
+        return None, why
     key = typesafe_key()
-    if not key:
-        return None, f"no TYPESAFE_API_KEY, in the environment or in {TYPESAFE_SETTINGS}"
     payload = json.dumps({"state": state, "model": TYPESAFE_MODEL,
                           "questions": questions}).encode()
     req = urllib.request.Request(TYPESAFE_URL, data=payload, headers={
@@ -908,8 +936,7 @@ def migration_apps(repo):
     """The apps whose migrations directory already exists in the checkout — the only
     places a new migration can land, and so the only options worth offering."""
     paths, _, _ = repo_files(repo)
-    return sorted({p.split("/migrations/")[0].split("/")[-1]
-                   for p in paths if MIGRATION_FILE.search(p)})
+    return sorted({migration_app(p) for p in paths if MIGRATION_FILE.search(p)})
 
 
 def judge_questions(prs, claims, apps):
@@ -1094,11 +1121,20 @@ def repo_files(repo, _cache={}):
     return _cache[repo]
 
 
-def body_footprint(repo, body):
+def body_footprint(repo, body, judged=True):
     """The paths an issue body names, as `create-gh-issue` writes them: backticked, and
     exact enough to resolve in the checkout. A bare filename counts only when it is
     unambiguous. Prose is never mined for paths — a wrong path is worse than no path,
-    because it reads as a collision that is not there."""
+    because it reads as a collision that is not there.
+
+    A resolved migration file also carries its app's graph token: that one has a file
+    behind it, so it is as hard as the path it came from.
+
+    `judged` is whether a migration judgement will speak for this body. With it on,
+    nothing here is minted from prose — `adds_migration` reads the same words and can be
+    overruled by nothing, so a regex guess ahead of it only blocks the judgement from
+    running. With it off there is no second reader, and `MIGRATION_HINT` is the fallback
+    that keeps the tick as conservative as it was."""
     paths, basenames, _ = repo_files(repo)
     out = set()
     for span in BACKTICK.findall(body or ""):
@@ -1107,9 +1143,14 @@ def body_footprint(repo, body):
             out.add(cand)
         elif "/" not in cand and basenames.get(cand) and len(basenames[cand]) == 1:
             out.add(basenames[cand][0])
-    if MIGRATION_HINT.search(body or ""):
-        apps = {path.split("/")[0] for path in out if "/" in path}
-        out |= {f"{MIGRATION_TOKEN}:{app}" for app in apps} or {MIGRATION_ANY}
+    out |= {f"{MIGRATION_TOKEN}:{migration_app(p)}"
+            for p in out if MIGRATION_FILE.search(p)}
+    if not judged and MIGRATION_HINT.search(body or ""):
+        # Only where a migration could land: a repo with no migrations at all has no graph
+        # to collide on, and a token there is one no PR can ever own.
+        if apps := set(migration_apps(repo)):
+            named = {p.split("/")[0] for p in out if "/" in p} & apps
+            out |= {f"{MIGRATION_TOKEN}:{app}" for app in named} or {MIGRATION_ANY}
     return sorted(out)
 
 
@@ -1190,37 +1231,64 @@ def cmd_next(a):
     owners, pr_files = footprints(repos)
 
     # An item claimed minutes ago has no PR yet, so the open-PR sweep cannot see it. Its
-    # own body is the only account of what it is about to touch.
-    claims = {}
+    # own body is the only account of what it is about to touch. Nothing judges a claim —
+    # the questions are asked about a candidate — so its regex-only tokens are held back
+    # in `hint` and applied exactly when the candidates fall back to the regex too.
+    claims, hint = {}, defaultdict(list)
     for i in flight:
         if any(i["pr_state"][u] == "OPEN" for u in i["prs"]):
             continue
         body = gh("api", f'repos/{i["repo"]}/issues/{i["n"]}', "--jq", ".body", parse=False)
         claims[f'{i["repo"]}#{i["n"]}'] = {"repo": i["repo"], "title": i["title"],
                                            "body": body or ""}
-        for path in body_footprint(i["repo"], body):
-            owners[(i["repo"], path)].append(f'#{i["n"]} (claimed, no PR)')
+        tag = f'#{i["n"]} (claimed, no PR)'
+        hard = body_footprint(i["repo"], body)
+        for path in hard:
+            owners[(i["repo"], path)].append(tag)
+        for path in body_footprint(i["repo"], body, judged=False):
+            if path not in hard:
+                hint[(i["repo"], path)].append(tag)
 
     judge = not a.no_judge
-    out["judgement"] = "on" if judge else "off"
-    taken = dict(owners)
+    if judge and (why := judgement_unavailable()):
+        judge, out["judgement"] = False, f"failed: {why}"
+    else:
+        out["judgement"] = "on" if judge else "off"
+    taken = {k: list(v) for k, v in owners.items()}
+
+    def fall_back_to_the_regex():
+        """What the claims sweep held back, once it is settled that nothing will judge."""
+        for key, tags in hint.items():
+            taken.setdefault(key, []).extend(tags)
+
+    if not judge:
+        fall_back_to_the_regex()
     for i in shortlist:
         body = gh("api", f'repos/{i["repo"]}/issues/{i["n"]}', "--jq", ".body", parse=False)
         gate = deploy_gate(i["repo"], body)
         if gate:
             out["awaiting_deploy"].append(brief(i, "priority", "effort") | {"gate": gate})
             continue
-        fp = body_footprint(i["repo"], body)
+        fp = body_footprint(i["repo"], body, judged=judge)
         short = brief(i, "priority", "effort")
 
         def owned_by(path):
-            if path == MIGRATION_ANY:
-                return sorted({t for (r, k), v in taken.items() if r == i["repo"]
-                               and k.startswith(f"{MIGRATION_TOKEN}:") for t in v})
-            return sorted(set(taken.get((i["repo"], path), [])))
+            if not path.startswith(f"{MIGRATION_TOKEN}:"):
+                return sorted(set(taken.get((i["repo"], path), [])))
+            # `:*` is a migration nothing could place, so it collides with every app's
+            # graph — and, held by anything, with every app a later candidate does place.
+            keys = ([k for (r, k) in taken if r == i["repo"]
+                     and k.startswith(f"{MIGRATION_TOKEN}:")]
+                    if path == MIGRATION_ANY else [path, MIGRATION_ANY])
+            # The holder's own token rides along where it differs: `:*` collides across
+            # apps, so the name of the graph the other side took is the whole explanation.
+            return sorted({t if k == path else f"{t} ({k})"
+                           for k in keys for t in taken.get((i["repo"], k), [])})
 
-        hits = {path: owned for path in fp if (owned := owned_by(path))}
-        if hits:
+        def blocked_by_a_path():
+            return {path: owned for path in fp if (owned := owned_by(path))}
+
+        if hits := blocked_by_a_path():
             out["blocked"].append(short | {"collides": hits})
             continue
 
@@ -1242,6 +1310,13 @@ def cmd_next(a):
                 # line each would bury the rest of the output under an outage.
                 out["judgement"] = f"failed: {why}"
                 judge = False
+                # Fail open: this candidate asked and got nothing, so it is footprinted
+                # the way a tick with no judgement at all would have footprinted it.
+                fall_back_to_the_regex()
+                fp = body_footprint(i["repo"], body, judged=False)
+                if hits := blocked_by_a_path():
+                    out["blocked"].append(short | {"collides": hits})
+                    continue
             elif migration:
                 token, p = migration
                 if token in fp:

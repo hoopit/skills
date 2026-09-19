@@ -68,8 +68,9 @@ section:
 Two more things the body owes whoever starts it, both visible only from here:
 
 - **A backticked path that resolves in the checkout.** Footprints come from those, so an
-  issue naming none reads as collision-free, and one wanting a migration with no app to
-  place it in (`MIGRATION-GRAPH:*`) collides with every app and starves. Name the file.
+  issue naming none reads as collision-free, and one whose migration the judgement cannot
+  place in an app (`MIGRATION-GRAPH:*`) collides with every migration in flight, in both
+  directions, and starves. Name the file, or at least the app.
 - **A lead** — a file, a symbol, a log line worth starting from. A lead points; the agent
   draws the conclusion.
 

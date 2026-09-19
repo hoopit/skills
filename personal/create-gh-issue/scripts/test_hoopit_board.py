@@ -177,17 +177,22 @@ def item(n, status="Backlog", effort="M", repo="hoopit/api", prs=(), title=None)
             "pr_updated": {}, "item_id": f"I{n}"}
 
 
-def next_module(items, owners=None, per_pr=None, bodies=None, footprint=None, apps=()):
+def next_module(items, owners=None, per_pr=None, bodies=None, paths=(), apps=()):
     """A `next` with the whole network stubbed: the board, the open-PR sweep, the issue
-    body reads and the checkout. Only the judgement is left to the test."""
+    body reads and the checkout. Only the judgement is left to the test.
+
+    `paths` is what the checkout holds, so `body_footprint` runs for real — which is where
+    a body's prose and its backticked paths are told apart."""
     m = load()
     m.board = lambda: items
     m.footprints = lambda repos: (m.defaultdict(list, owners or {}), dict(per_pr or {}))
-    m.repo_files = lambda repo, _c={}: (set(), {}, True)
     m.migration_apps = lambda repo: list(apps)
     m.deploy_gate = lambda repo, body: ""
-    m.body_footprint = lambda repo, body: list((footprint or {}).get(body, []))
+    m.repo_files = lambda repo, _c={}: (set(paths or ()), {}, True)
     m.gh = lambda *a, **k: (bodies or {}).get(int(a[1].rsplit("/", 1)[-1]), "")
+    # A key on the machine running the tests must not decide whether the judgement is
+    # reachable: every test here says so itself, by stubbing `ask`.
+    m.typesafe_key = lambda: "test-key"
     m.judge_candidate.ask = lambda state, questions: (None, "the test set no stub")
     return m
 
@@ -258,7 +263,8 @@ def test_an_exact_collision_is_never_put_to_the_model():
     overruled, and a model that said `no` must not be able to clear it."""
     items = [item(1)]
     m = next_module(items, owners={("hoopit/api", "payments/models.py"): ["#900"]},
-                    bodies={1: "b"}, footprint={"b": ["payments/models.py"]})
+                    bodies={1: "rework `payments/models.py`"},
+                    paths=["payments/models.py"])
 
     def refuse(state, questions):
         raise AssertionError("asked the model about a path collision it already had")
@@ -298,6 +304,104 @@ def test_an_unowned_migration_token_still_guards_the_rest_of_the_tick():
     assert only(d, "blocked") == ["hoopit/api#2"], d["blocked"]
     print("  the first pick takes the migration graph, the second is held")
 
+
+
+
+def test_prose_about_a_constraint_does_not_hold_the_migration_graph():
+    """`MIGRATION_HINT` matches ordinary English. With the judgement reading the same
+    words, a body that only talks about constraints mints nothing and dispatches."""
+    items = [item(1)]
+    owners = {("hoopit/api", "MIGRATION-GRAPH:payments"): ["#900"]}
+    m = next_module(items, owners=owners, apps=["payments"],
+                    bodies={1: "the constraint here is time: we regressed when we "
+                               "migrated the reminder copy"})
+    m.judge_candidate.ask = lambda s, q: ({"adds_migration": {"noul": 0.04}}, None)
+    d, code = run_next(m)
+    assert only(d, "startable") == ["hoopit/api#1"], d
+    assert d["startable"][0]["footprint"] == []
+    print("  a prose-only 'constraint' body starts, holding no graph")
+
+
+def test_a_migration_the_prose_hinted_at_is_still_blocked_by_the_judgement():
+    """The other half: the regex loses nothing it was right about. The same body, judged
+    above `MIGRATION_YES`, is held exactly as it was before."""
+    items = [item(1)]
+    owners = {("hoopit/api", "MIGRATION-GRAPH:payments"): ["#900"]}
+    m = next_module(items, owners=owners, apps=["payments"],
+                    bodies={1: "add a constraint: an order must name its user"})
+    m.judge_candidate.ask = lambda s, q: ({"adds_migration": {"noul": 0.84},
+                                           "migration_app": {"choice": "payments"}}, None)
+    d, code = run_next(m)
+    assert only(d, "blocked") == ["hoopit/api#1"]
+    assert d["blocked"][0]["judged"] == {"MIGRATION-GRAPH:payments held by #900": 0.84}
+    print("  the same body, judged a migration, is held as before")
+
+
+def test_the_regex_takes_over_when_the_judgement_cannot_run():
+    """Fail-open in the one place it now matters: with nothing to read the prose, the
+    guess is better than no migration test at all, so the tick is the old tick."""
+    items = [item(1)]
+    owners = {("hoopit/api", "MIGRATION-GRAPH:payments"): ["#900"]}
+    body = "add a constraint: an order must name its user"
+    for label, m in (("a failed request",
+                      next_module([item(1)], owners=owners, apps=["payments"],
+                                  bodies={1: body})),
+                     ("--no-judge",
+                      next_module([item(1)], owners=owners, apps=["payments"],
+                                  bodies={1: body}))):
+        m.judge_candidate.ask = lambda s, q: (None, "HTTP 429")
+        d, code = run_next(m, no_judge=(label == "--no-judge"))
+        assert only(d, "blocked") == ["hoopit/api#1"], (label, d)
+        assert d["blocked"][0]["collides"] == {
+            "MIGRATION-GRAPH:*": ["#900 (MIGRATION-GRAPH:payments)"]}, (label, d)
+    print("  no judgement, and the regex holds the candidate as it always did")
+
+
+def test_a_held_wildcard_collides_with_the_app_a_later_candidate_names():
+    """`:*` is symmetric. Held by work in flight, it collides with a placed token the
+    same way a candidate's `:*` collides with a held one — otherwise the token starves
+    its own carrier and guards nothing."""
+    items = [item(1)]
+    owners = {("hoopit/api", "MIGRATION-GRAPH:*"): ["#900"]}
+    m = next_module(items, owners=owners, apps=["payments"], bodies={1: "b"})
+    m.judge_candidate.ask = lambda s, q: ({"adds_migration": {"noul": 0.9},
+                                           "migration_app": {"choice": "payments"}}, None)
+    d, code = run_next(m)
+    assert only(d, "blocked") == ["hoopit/api#1"], d
+    assert d["blocked"][0]["judged"] == {
+        "MIGRATION-GRAPH:payments held by #900 (MIGRATION-GRAPH:*)": 0.9}, d
+    print("  a held `:*` blocks the migration a later candidate places")
+
+
+def test_a_repo_with_no_migrations_mints_no_migration_token():
+    """`hoopit/web-admin` and `hoopit/flutter-app` have no migrations directory, so a
+    token there is one no PR can ever own — and it would still enter `taken` and hold up
+    a second pick on the same tick."""
+    items = [item(1, repo="hoopit/web-admin")]
+    m = next_module(items, bodies={1: "the migration to the new grid dropped a constraint"})
+    d, code = run_next(m, no_judge=True)
+    assert only(d, "startable") == ["hoopit/web-admin#1"], d
+    assert d["startable"][0]["footprint"] == [], d
+    print("  a repo with no migrations mints nothing, even on the regex path")
+
+
+def test_a_migration_file_in_the_body_is_a_hard_token():
+    """A resolved migration file is not a guess, so it holds its app's graph whatever the
+    judgement says — and it is the only token the regex-free path mints."""
+    items = [item(1)]
+    owners = {("hoopit/api", "MIGRATION-GRAPH:payments"): ["#900"]}
+    m = next_module(items, owners=owners, apps=["payments"],
+                    paths=["payments/migrations/0042_order_user.py"],
+                    bodies={1: "follow `payments/migrations/0042_order_user.py`"})
+
+    def refuse(state, questions):
+        raise AssertionError("asked the model about a path collision it already had")
+
+    m.judge_candidate.ask = refuse
+    d, code = run_next(m)
+    assert only(d, "blocked") == ["hoopit/api#1"], d
+    assert d["blocked"][0]["collides"] == {"MIGRATION-GRAPH:payments": ["#900"]}, d
+    print("  a migration file named in the body holds its app's graph")
 
 
 
