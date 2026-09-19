@@ -364,19 +364,15 @@ Risk is not a recommendation. A low-risk PR with a reviewer still owed recommend
 holding; a very-high-risk PR that is green and challenged recommends merging.
 The recommendation answers *may this merge*; the risk answers *how long to look first*.
 
-Post the briefing as the PR's **sticky comment** before asking, so whoever merges from
-GitHub reads what the chat got. Sticky means one comment per PR, found by the marker on
-its first line, and every `GREEN` rewrites it for its head. Write `briefing.md` as the
-marker, a `## 🤖 Merge briefing · <head sha, 7 chars>` heading, the seven lines, then the
-recommendation — merge or hold — with its reason. Done when the PR holds exactly one
-marked comment and its heading names this head:
-
-```bash
-gh api "repos/<OWNER_REPO>/issues/<PR>/comments?per_page=100" \
-  --jq '[.[] | select(.body | startswith("<!-- agent-merge-briefing -->"))][0].id // empty'
-gh api -X PATCH repos/<OWNER_REPO>/issues/comments/<id> -F body=@briefing.md  # an id came back
-gh api repos/<OWNER_REPO>/issues/<PR>/comments -F body=@briefing.md           # none did
-```
+Write the briefing into the PR description before asking, so whoever merges from GitHub
+reads what the chat got. It is a block of its own at the top of the body: a
+`## 🤖 Merge briefing · <head sha, 7 chars>` heading, the seven lines, then the
+recommendation — merge or hold — with its reason, between
+`<!-- agent-merge-briefing:start -->` and `<!-- agent-merge-briefing:end -->`. Write it
+the way [`LEDGER.md`](LEDGER.md) writes its block — the body read fresh, the region
+between the markers replaced — and prepend it when the markers are absent. Done when the
+body holds one briefing block, its heading names this head, and the rest of the
+description reads as it did.
 
 When the write fails, say so in the merge question and ask anyway.
 
