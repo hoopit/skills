@@ -237,6 +237,9 @@ asking, so the answer is an informed one, and act on it immediately. An ending's
 ends on the `AskUserQuestion`, never on prose: a watch that goes dark without one is a
 watch the user restarts by hand, with its answers lost.
 
+Every such turn, and every stop, closes on one bare link: `$URL` from Step 1, or the
+issue it closes if the PR does not exist yet.
+
 Under `--subagent` the worker reports forks and the session asks them: a question from a
 background agent reaches nobody.
 
