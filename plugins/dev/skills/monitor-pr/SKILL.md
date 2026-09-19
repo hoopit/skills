@@ -244,14 +244,3 @@ background agent reaches nobody.
 
 Under `--unattended`, read [UNATTENDED.md](UNATTENDED.md) before the first question: it
 decides which of the paths above still ask.
-
-### Write down what an answer settles
-
-An answer that settles a term or a decision gets captured while it is fresh: invoke
-`mattpocock-skills:domain-modeling` and follow it — resolved terms into `CONTEXT.md` as
-they resolve, an ADR under `docs/adr/` when the decision is hard to reverse, surprising
-without context, and the result of a real trade-off. Create either file when the repo
-has none.
-
-Write and commit in the session, in the PR's worktree; the next round's push carries the
-commit, which puts the ADR under review alongside the rest of the PR.
