@@ -188,13 +188,10 @@ questioned rather than patched.
 
    A difference is new feedback — a thread you have not handled, a reply on one you
    thought settled, a check that went red, a conflict that appeared. Work it through the
-   same axes, make it the new snapshot, and look again. Push only on a last look that
-   comes back clean.
-
-   Three sweeps is the bound: a PR receiving feedback faster than a round can work it
-   should ship what is settled rather than never push, so on a fourth difference push
-   what you have and name what you left in the report. A **hard fork** ends the sweeps
-   too — it makes the head not worth reviewing, so push the settled work and report.
+   same axes, make it the new snapshot, and look again. Push only on a look that comes
+   back clean — the reviewers are reading a head that is not changing, so the looks run
+   dry. A **hard fork** ends them early: it makes the head not worth reviewing, so push
+   the settled work and report.
 
    A **closing round** (*Closing the rounds* in `LEDGER`) ends here: it committed nothing,
    and it pushes nothing and starts no re-review — go to step 6. An **appeal** (same

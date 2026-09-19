@@ -72,6 +72,7 @@ Day-to-day dev workflows and CLIs: Jira/Sentry issues, PR review, Atlassian, Cir
 | `curate-memory` | Manual | Curate agent memory as a short-lived working set. |
 | `fix-sentry-issue` | Auto | Fix a Sentry issue end-to-end. |
 | `handle-jira-issue` | Auto | Handle any Jira issue end-to-end. |
+| `merge-briefing` | Auto | Brief a PR for whoever merges it. |
 | `monitor-pr` | Auto | Monitor a single pull request. |
 | `review-gate` | Auto | Run independent code reviewers. |
 | `review-github-comments` | Auto | Handle all review comments on a GitHub PR. |

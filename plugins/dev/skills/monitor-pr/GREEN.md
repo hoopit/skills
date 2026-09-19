@@ -38,46 +38,11 @@ bash <SKILL_DIR>/scripts/pr-labels.sh <OWNER_REPO> <PR> -agent-working
 gh pr ready <PR> --repo <OWNER_REPO>
 ```
 
-**The merge briefing.** A `GREEN` asks someone to merge code they have not read, so the
-question carries the read that tells them how hard to look before they do. Seven lines,
-not a second PR description:
-
-- what was wrong, and who felt it;
-- what this changes, in a line;
-- **Warranted: yes · larger than the issues · beyond the issues**, with the reason — the
-  diff's size and reach weighed against the issues it closes, the rounds' additions
-  included, since a watch is where scope grows;
-- the decisions that could have gone the other way — the ledger's judgement rows, read
-  off it rather than re-derived;
-- **Merge risk: low · moderate · high · very high**, with the reason;
-- what to look at first, if they read one thing;
-- anything else that moves the depth of that read — a check that passed on retry, an
-  approval given on an earlier head, a challenge finding weighed and not held.
-
-Rate the risk on blast radius and reversibility, the two things a revert cannot fix:
-
-| Risk | What puts it there |
-| --- | --- |
-| **Low** | Isolated or additive, a test went red on it, and a revert is a full undo. |
-| **Moderate** | Changes behaviour on a path in use, or edits code others share — still fully revertible. |
-| **High** | A revert alone no longer restores it: a data migration, a permissions or money path, a job whose runs land while it is live. |
-| **Very high** | Effects land before anyone can react — a destructive migration, a send to users, a deletion sweep, a credential rotation. |
-
-Risk is not a recommendation. A low-risk PR with a reviewer still owed recommends
-holding; a very-high-risk PR that is green and challenged recommends merging.
-The recommendation answers *may this merge*; the risk answers *how long to look first*.
-
-Write the briefing into the PR description before asking, so whoever merges from GitHub
-reads what the chat got. It is a block of its own at the top of the body: a
-`## 🤖 Merge briefing · <head sha, 7 chars>` heading, the seven lines, then the
-recommendation — merge or hold — with its reason, between
-`<!-- agent-merge-briefing:start -->` and `<!-- agent-merge-briefing:end -->`. Write it
-the way [`LEDGER.md`](LEDGER.md) writes its block — the body read fresh, the region
-between the markers replaced — and prepend it when the markers are absent. Done when the
-body holds one briefing block, its heading names this head, and the rest of the
-description reads as it did.
-
-When the write fails, say so in the merge question and ask anyway.
+**The merge briefing.** Settle the recommendation (below), then invoke the
+`merge-briefing` skill for this PR as the owner of its rounds, handing it the issues the
+challenge weighed, the recommendation with its reason, and the challenge findings weighed
+and not held. It writes the briefing into the PR description; the merge question carries
+the same text. When the write fails, say so in the merge question and ask anyway.
 
 The merge is the user's call, always: ask, and recommend it. No Hoopit repo requires an
 approval, so a `GREEN` waits on nobody's review; two things alone turn the recommendation
