@@ -1234,6 +1234,13 @@ def cmd_next(a):
     # own body is the only account of what it is about to touch. Nothing judges a claim —
     # the questions are asked about a candidate — so its regex-only tokens are held back
     # in `hint` and applied exactly when the candidates fall back to the regex too.
+    #
+    # So while the judgement is on, a claim holds only the paths its body resolves, and a
+    # claim about to write a migration holds no graph token until its PR carries the file.
+    # That gap is deliberate: a graph collision is best-effort here, and the conflict that
+    # gets through is a Django leaf node CI catches and a rebase settles. Spending a
+    # judgement per claim to close it would also point its false positives at the
+    # candidates rather than at the claim that earned them.
     claims, hint = {}, defaultdict(list)
     for i in flight:
         if any(i["pr_state"][u] == "OPEN" for u in i["prs"]):
