@@ -7,33 +7,28 @@ argument-hint: "<PR url or number> [--rounds <N>] [--subagent[=<model>]] [--unat
 # Monitor PR
 
 A **round** is one batch of work on a PR. It opens on the **first** feedback of any kind
-— a new review thread, a failing check, a merge conflict — and covers everything the PR
-has accumulated by the time it ends: before its single push the round takes a **last
-look** for feedback that landed while it worked, and folds that in too. Opening early and
-closing late is the trade: work starts the minute there is any, and the push still
-carries the whole review.
+— a new review thread, a failing check, a merge conflict — and before its single push
+takes a **last look** for feedback that landed while it worked, so work starts the minute
+there is any and the push still carries the whole review.
 
 ## When the watch stops
 
 The watch runs to the merge. Three things end it early, each in front of the user (Step 5):
 
-- **a closing round** — the round declined every item it held, on its merits or as not
-  worth a round, and committed nothing (*Closing the rounds* in [LEDGER.md](LEDGER.md)).
-  The rounds stop only this way, after the declines: nothing is left open to review, and no
-  push opens another round;
-- **a hard fork** — a question whose answer could invalidate work already done or
-  reviews already run;
+- **a closing round** — every item declined, nothing committed (*Closing the rounds* in
+  [LEDGER.md](LEDGER.md)), the one way the rounds stop on their own;
+- **a hard fork**, below;
 - **the `--rounds` cap**, when one is set.
 
 A `GREEN` line ends nothing: it puts the merge decision to the user and the watch keeps
 running, because a PR can go green and then move again.
 
 The hard fork is the whole test for whether a question stops the watch. A **hard fork**
-makes the current head not worth reviewing — the answer may throw the approach away — so
-spending rounds past it burns reviewer attention on work that may not survive. Every
-other question is a **soft fork**: it rides along, the round ships its settled work, the
-answer lands in the next round's push, and the watch never pauses for it. An open thread
-is a soft fork by default; grade it hard only when its answer reaches the work itself.
+is a question whose answer could invalidate work already done or reviews already run: the
+head is not worth reviewing, and rounds past it burn reviewer attention on work that may
+not survive. Every other question is a **soft fork**: the round ships its settled work,
+the answer lands in the next round's push, and the watch never pauses for it. An open
+thread is soft by default; grade it hard only when its answer reaches the work itself.
 
 Flags:
 
@@ -57,13 +52,11 @@ Set `OWNER_REPO` (from the URL, else `gh api 'repos/{owner}/{repo}' --jq .full_n
 external-reviewer script, resolved here because only this body has the token substituted:
 `${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh`.
 
-Rounds run in a worktree for the PR branch — the round creates one when none exists — and
-only on a PR whose head is not the default branch: a same-repo back-merge PR has the
-default branch *as* its head, and working it would push there. That one means the watch
-cannot arm: say so through `AskUserQuestion` (Step 5) rather than just printing it.
+Rounds run in a worktree for the PR branch, which the round creates when none exists. A
+**back-merge** PR — its head *is* the default branch, so working it would push there —
+cannot be watched: say so through `AskUserQuestion` (Step 5) rather than just printing it.
 
-One REST read answers all of it. Echoing the URL is what makes Claude Code render its
-footer PR badge for the rest of the session, and it shows the user which PR you resolved:
+One REST read answers all of it, and the echoed URL renders Claude Code's footer PR badge:
 
 ```bash
 read -r URL BRANCH DEFAULT_BRANCH < <(gh api repos/<OWNER_REPO>/pulls/<PR> \
@@ -72,16 +65,12 @@ echo "$URL"
 [[ "$BRANCH" == "$DEFAULT_BRANCH" ]] && echo "BACK_MERGE — do not arm"
 ```
 
-The worker checks this again each round; catching it here just saves arming a watch that
-would halt on its first round.
-
 ## Step 2 — Arm the watch
 
 Label the PR `monitored`, so a glance at GitHub shows which PRs have a watch running.
-The label exists in `hoopit/api`, `hoopit/web-admin` and `hoopit/flutter-app`; in any
-other repo create it first with `gh label create monitored --repo <OWNER_REPO> --color
-1D76DB --description "Claude's monitor-pr skill is watching this PR"`. A failure here is
-never fatal — note it and arm the watch anyway.
+Where the repo lacks the label, create it first with `gh label create monitored --repo
+<OWNER_REPO> --color 1D76DB --description "Claude's monitor-pr skill is watching this
+PR"`. A failure here is never fatal — note it and arm the watch anyway.
 
 ```bash
 bash <SKILL_DIR>/scripts/pr-labels.sh <OWNER_REPO> <PR> +monitored
@@ -157,9 +146,8 @@ row tagged `fixes R<k>` on a mechanism another row already fixes, with no step b
 recorded, is a patch to a patch — the next round's `GUIDANCE` demands the step back on
 it.
 
-Then grade the round's `QUESTIONS`. A section of **soft** forks is not an ending: the
-watch stays armed, the questions go to the user in Step 5, and the next `ROUND` is worked
-whether or not they have been answered. A **hard** fork ends the watch — `TaskStop` the
+Then grade the round's `QUESTIONS`. **Soft** forks go to the user in Step 5, and the next
+`ROUND` is worked whether or not they have been answered. A **hard** fork ends the watch — `TaskStop` the
 monitor, then ask — as does the same check "still failing" in two consecutive rounds,
 unless that check is a **verdict** (*Closing the rounds* in [LEDGER.md](LEDGER.md)), which
 the rounds carry themselves.
@@ -169,10 +157,8 @@ takes its path in Step 5. Otherwise idle until the next `ROUND` — after `APPEA
 the re-review answers as a `GREEN` or as the next `ROUND`.
 
 Whenever the watch ends — a closing round, the cap, a hard fork, an error stop, or
-`PR_CLOSED` — drop the label again, so it only ever marks PRs under an active watch — and
-`agent-working` with it, which comes off at every hand-back to the user, here and before
-a `GREEN`'s merge question (Step 5): a PR waiting on the user is not being worked, and
-the next round puts it back.
+`PR_CLOSED` — drop the label again, so it only ever marks PRs under an active watch, and
+`agent-working` with it: a PR waiting on the user is not being worked.
 
 **A PR is a draft exactly while an agent owns its review rounds.** So an ending that hands
 the PR to the user with the rounds over — a closing round, the cap, or any *Stop, I'll take
@@ -209,17 +195,13 @@ they alone can settle.
 
 Five paths reach the user. The first two leave the watch running.
 
-**A soft fork** — a decision the round turned up whose answer cannot invalidate the work.
-Collect every soft fork the round produced, let the round finish its push (settled work
-ships while the question waits), then ask them as one round of questions. The watch stays
-armed meanwhile and the answer ships in the next round's push. A question left unanswered
+**A soft fork.** Collect every soft fork the round produced, let the round finish its
+push, then ask them as one round of questions. A question left unanswered
 rejoins the next round's question set, so it stays in front of the user. An answer settles
 a ledger row: pass it into the next round so the row becomes `answered: <the choice>`,
 which is how the PR shows the decision to a reviewer who was never asked.
 
-**A hard fork** — the answer could invalidate work already done or reviews already run,
-so further rounds would review something that may not survive. Stop the watch, then ask
-it alongside the round's soft forks. An answer re-arms the watch (back to Step 2); the
+**A hard fork.** Stop the watch, then ask it alongside the round's soft forks. An answer re-arms the watch (back to Step 2); the
 next round carries all the answers.
 
 **Green** — a `GREEN` line. Read [GREEN.md](GREEN.md) and follow it: the merge-readiness
@@ -232,17 +214,13 @@ of them back; a cap's says what is still outstanding and whether the rounds were
 converging. A close reporting `verdict held` leads with the verdict: the appeal is spent,
 so what is left is taking a decline back or the bypass the repo documents, and bypassing
 a check is the user's call, `--unattended` included. *Keep watching* re-arms the watch (back to Step 2, label included), and a
-decline the user takes back rides into its next round as `ANSWERED`. The turn ends on the
-`AskUserQuestion`, never on prose: a watch that goes dark without one is a watch the user restarts by hand, with its answers
-lost.
+decline the user takes back rides into its next round as `ANSWERED`.
 
 **A stop** — the watch ended on something going wrong. Ask immediately, on its own, once
 the label is dropped. A stop covers: a back-merge head (Step 1), a PR branch the round
 could not put in a worktree, `WATCH_ERROR`, `PR_CLOSED state=CLOSED`, the same check failing two rounds running, the `Monitor` task
 exiting or being killed, and any round that errors out beyond working around (auth
-expired, worktree gone, push rejected, the worker dying twice). A watch always ends in
-front of the user: the question is the last thing the turn does, and it names the real
-reason.
+expired, worktree gone, push rejected, the worker dying twice). The question names the real reason.
 
 The chat round carries the substance; `AskUserQuestion` carries the attention. Fire it
 once per round of questions, headed `Monitoring`, its text naming the PR and how many
@@ -258,7 +236,9 @@ options, because they answer different things:
 | Stop | **Re-arm the watch** (a transient stop — go back to Step 2, label included) · **Stop, I'll take it** · **Keep going anyway** (re-arm past a check failing for reasons outside this PR) |
 
 Print the blocker's details — the open threads, the failing check's log excerpt — before
-asking, so the answer is an informed one, and act on it immediately.
+asking, so the answer is an informed one, and act on it immediately. An ending's turn
+ends on the `AskUserQuestion`, never on prose: a watch that goes dark without one is a
+watch the user restarts by hand, with its answers lost.
 
 Under `--subagent` the worker reports forks and the session asks them: a question from a
 background agent reaches nobody.

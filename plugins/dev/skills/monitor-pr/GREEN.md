@@ -26,7 +26,7 @@ Step 4's `CODEX DOWN`, and the merge question still goes — but it goes **recom
 hold**. The one read of the PR as a whole never happened, and
 recommending a merge would be claiming a check that did not run. Say that in the question
 and name what the challenge would have weighed: the ledger's judgement rows. *Merge it*
-stays on the table — the merge is the user's call, always — and restoring Codex, then
+stays on the table, and restoring Codex, then
 re-running the challenge on this head, is what turns the recommendation back.
 
 Drop `agent-working` before asking (Step 4): the PR is the user's until they answer.
@@ -37,9 +37,6 @@ When this head is ready on the agent's side — the challenge ran and held nothi
 bash <SKILL_DIR>/scripts/pr-labels.sh <OWNER_REPO> <PR> -agent-working
 gh pr ready <PR> --repo <OWNER_REPO>
 ```
-
-The ready mark vouches for this head alone: a round that pushes returns the PR to draft
-before it does (the worker briefing's step 5). A round that pushes nothing leaves it ready.
 
 **The merge briefing.** A `GREEN` asks someone to merge code they have not read, so the
 question carries the read that tells them how hard to look before they do. Seven lines,

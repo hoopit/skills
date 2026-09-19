@@ -16,8 +16,9 @@ a round; a choice between remedies is the step back's to probe, below.
 
 A round opens on the **first** feedback that lands — one new thread, one red check, one
 conflict — rather than on a finished review, so more is usually still arriving while you
-work. Step 5's **last look** is what catches it: you take everything the PR has
-accumulated by the time you push, in one push.
+work. Step 5's **last look** takes it, and the branch is pushed exactly once, there, so
+reviewers and CI see the round as a single new head. Each axis below ends in a local
+commit where it changed anything.
 
 Each message to you is one round; your last message of the turn *is* that round's
 report. Checks on the head you push belong to the next round. A later `ROUND: …`
@@ -82,15 +83,11 @@ PR is being worked — first action of the round:
 bash <PR_LABELS> <OWNER_REPO> <PR> +agent-working
 ```
 
-The label says someone is on it; draft says the head is about to change, and that waits
-for step 5's push. A round that only reads, replies and declines leaves a ready PR ready —
-a human's comment answered in words is no reason to take their PR out of review.
+Draft is a different fact — the head is about to change — and waits for step 5's push: a
+round that only reads, replies and declines leaves a ready PR ready.
 
 Remove the label (`bash <PR_LABELS> <OWNER_REPO> <PR> -agent-working`) at the end of step 6, after the ledger
 write and before returning the report — also when the round ends in HALT or an error.
-
-**One push per round.** Each axis below ends in a local commit where it changed anything; the branch is pushed
-exactly once, in step 5, so reviewers and CI see the round as a single new head.
 
 Snapshot the PR's state before you start on axis 1 — step 5 diffs against it:
 
@@ -206,8 +203,7 @@ questioned rather than patched.
 
    Then, if anything was committed, return the PR to draft and `git push` once — plain,
    never forced. Draft first, so the new head is never up for review before the agent has
-   seen what the reviewers make of it. Read the state over REST: from the second pushing
-   round on the PR is already a draft, and the toggle is two GraphQL requests to be told so.
+   seen what the reviewers make of it.
 
    ```bash
    [ "$(gh api repos/<OWNER_REPO>/pulls/<PR> --jq .draft)" = true ] || gh pr ready <PR> --repo <OWNER_REPO> --undo
