@@ -174,9 +174,8 @@ questioned rather than patched.
    `AGENTS.md` / `CLAUDE.md`, a rule, a skill, anything under `docs/` — re-read every heading
    this round touched against `mattpocock-skills:writing-for-agents`, **every round**. Where
    that skill is not installed, hold them to its core test: every line bears on what the
-   document does, and each meaning lives once, under the heading it belongs to. Rounds only add: each addition lands correct on its own, so the **sprawl** is invisible from inside
-   any single finding, and so is the drift beside it — one instruction scattered across three
-   paragraphs, material under a heading it has outgrown. Done when every touched heading has
+   document does, and each meaning lives once, under the heading it belongs to. Rounds
+   only add, so **sprawl** is invisible from inside any single finding. Done when every touched heading has
    been re-read and the round either carries a pruning commit, kept separate from the fixes, or
    the report says *no sprawl found*.
 5. **Last look, then push.** Feedback that landed while you worked is cheaper to take

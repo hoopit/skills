@@ -34,11 +34,9 @@ Flags:
 
 - `--rounds <N>` — a hard cap on rounds. Unset, there is none.
 - `--subagent[=<model>]` — run rounds in a `hoopit-dev:monitor-pr-worker` instead of yourself,
-  reused across rounds and rotated as [SUBAGENT.md](SUBAGENT.md) says. The model defaults to `opus`; `--subagent=fable` (or `sonnet`, `haiku`) overrides
-  it. `opus` is deliberate: the worker carries the thread labour and the probing, while
-  the design judgement (a round's design check, Step 3) is this session's, on whatever
-  model it runs. Reach for `fable` on a design-heavy PR when the ledger's convergence
-  counts say the rounds are patching their own patches.
+  reused across rounds and rotated as [SUBAGENT.md](SUBAGENT.md) says. The model defaults
+  to `opus`: the worker carries the labour and the probing, and the design judgement stays
+  with this session.
 - `--unattended` — nobody is watching the session, so it **acts, then asks** (Step 5).
 
 ## Step 1 — Resolve the target
@@ -139,9 +137,8 @@ A round that found nothing to do — the previous round's last look had taken it
 reported in one line and does not count as a round.
 
 Two things come before grading. A report or design check whose first line is `CODEX
-DOWN` is relayed the moment it lands: print the line, then `PushNotification` with it —
-the user wants to know the external engine is out as soon as it is, and the round runs
-on without it. Then read the ledger the round wrote and check convergence yourself: a
+DOWN` is relayed the moment it lands: print the line, then `PushNotification` with it;
+the round runs on without Codex. Then read the ledger the round wrote and check convergence yourself: a
 row tagged `fixes R<k>` on a mechanism another row already fixes, with no step back
 recorded, is a patch to a patch — the next round's `GUIDANCE` demands the step back on
 it.

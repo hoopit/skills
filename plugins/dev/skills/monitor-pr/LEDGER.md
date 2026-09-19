@@ -58,8 +58,7 @@ in a runbook, a security or data claim, an instruction an agent follows.
 - **Sweep the rule once.** The first finding on a writing rule fixes every instance of
   it in the diff, in the same commit.
 - **A fix explains itself in the commit message.** It adds two comment lines to the code
-  at most, and only what the next reader cannot get from the code — a gotcha. Every sentence a round
-  adds is a claim no test holds, and the next round's reviewers audit it.
+  at most, and only what the next reader cannot get from the code — a gotcha.
 - **A text-only round is the last round on text.** A round whose valid findings are all
   text findings fixes them in one commit and proceeds — the gate reports it clean, a PR
   round pushes it, and the tally records it as `text-only round R<k>`, which is how a
@@ -81,8 +80,7 @@ A decline is the row a fresh reviewer re-raises, so it carries more than a `why`
   it answers the finding, or take the finding; a third raise takes it.
 - **At Critical or High — a Codex P1 is one — the claim is challenged first.** The decline
   rests on a claim (*no caller reaches this*, *prod holds no such row*); put it to the
-  challenge before the decline stands, with `GATE_SCRIPT` as your caller gave it — this file is
-  opened with `Read`, so a `${CLAUDE_PLUGIN_ROOT}` written here would never be substituted:
+  challenge before the decline stands, with `GATE_SCRIPT` as your caller gave it:
 
   ```bash
   bash <GATE_SCRIPT> \
@@ -202,8 +200,5 @@ gh api repos/<OWNER_REPO>/pulls/<PR> --jq .body > body.md
 # replace the region between the markers, or append the block when they are absent
 gh api -X PATCH repos/<OWNER_REPO>/pulls/<PR> -F body=@body.md
 ```
-
-The markers keep the write idempotent and leave the rest of the description — the
-summary, the `closes #<id>` lines — untouched.
 
 A failed ledger write is never fatal: note it in the round report and carry on.
