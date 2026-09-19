@@ -3,8 +3,8 @@
 The `--subagent` branch of [SKILL.md](SKILL.md)'s Step 3. `<GATE_SCRIPT>` and
 `<SKILL_DIR>` are the paths its Step 1 resolved.
 
-`--subagent`: rounds go to a named worker that is reused while it stays under 100k
-tokens. First round (and first round after each rotation):
+`--subagent`: rounds go to a named worker that is reused while it is **warm** and under
+200k tokens. First round (and first round after each rotation):
 
 ```
 Agent(
@@ -28,8 +28,12 @@ demand for a step back on a mechanism the ledger shows patched before. A choice 
 two remedies a reviewer offered travels the other way: the worker's design check probes
 it and this session answers it, below.
 
-Each completion notification reports `subagent_tokens`; keep a running total per worker.
-Next round while the total is under 100k:
+Each completion notification reports `subagent_tokens` — the worker's whole context as
+that turn ended, so the latest figure is its size and the figures are never summed. Note
+the time beside it: the worker's prompt cache lives one hour from its last turn, and a
+worker idle past that is **cold** — every token it holds is paid for again at full price,
+where a fresh worker pays only for its opening reads. Next round while the worker is warm
+and its latest figure is under 200k:
 
 ```
 SendMessage(to: "pr-<PR>-worker", message: "ROUND: <the ROUND line verbatim>\nANSWERED: <each fork the user settled since the last round, and the choice>\nGUIDANCE: <this round's direction> | none")
@@ -55,5 +59,5 @@ than reading `push` out of a challenge that raised nothing.
 The worker's worktree is the worker's: verify its work by reading it — an edit of yours
 between its commits is a change it did not make and cannot explain.
 
-At 100k or above, rotate: spawn a fresh worker with the full prompt (use a new name,
-e.g. `pr-<PR>-worker-2`) and start its total at zero.
+Cold, or at 200k or above, rotate: spawn a fresh worker with the full prompt, under a new
+name — `pr-<PR>-worker-2`.

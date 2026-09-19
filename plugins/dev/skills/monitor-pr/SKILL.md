@@ -39,8 +39,7 @@ Flags:
 
 - `--rounds <N>` — a hard cap on rounds. Unset, there is none.
 - `--subagent[=<model>]` — run rounds in a `hoopit-dev:monitor-pr-worker` instead of yourself,
-  reusing it across rounds until it nears its context limit, then rotating to a fresh
-  one. The model defaults to `opus`; `--subagent=fable` (or `sonnet`, `haiku`) overrides
+  reused across rounds and rotated as [SUBAGENT.md](SUBAGENT.md) says. The model defaults to `opus`; `--subagent=fable` (or `sonnet`, `haiku`) overrides
   it. `opus` is deliberate: the worker carries the thread labour and the probing, while
   the design judgement (a round's design check, Step 3) is this session's, on whatever
   model it runs. Reach for `fable` on a design-heavy PR when the ledger's convergence
