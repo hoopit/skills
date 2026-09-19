@@ -364,6 +364,22 @@ Risk is not a recommendation. A low-risk PR with a reviewer still owed recommend
 holding; a very-high-risk PR that is green and challenged recommends merging.
 The recommendation answers *may this merge*; the risk answers *how long to look first*.
 
+Post the briefing on the PR before asking, so whoever merges from GitHub reads what the
+chat got. It lives in one comment — GitHub pins nothing on a PR, so the marker on its
+first line is what keeps it single: each `GREEN` edits that comment in place, and a PR
+without one gets it created. Write `briefing.md` as the marker, a
+`## 🤖 Merge briefing · <head sha, 7 chars>` heading, the seven lines, then the
+recommendation — merge or hold — with its reason:
+
+```bash
+gh api "repos/<OWNER_REPO>/issues/<PR>/comments?per_page=100" \
+  --jq '[.[] | select(.body | startswith("<!-- agent-merge-briefing -->"))][0].id // empty'
+gh api -X PATCH repos/<OWNER_REPO>/issues/comments/<id> -F body=@briefing.md  # an id came back
+gh api repos/<OWNER_REPO>/issues/<PR>/comments -F body=@briefing.md           # none did
+```
+
+A failed briefing write is never fatal: say so in the question and ask anyway.
+
 The merge is the user's call, always: ask, and recommend it. No Hoopit repo requires an
 approval, so a `GREEN` waits on nobody's review; two things alone turn the recommendation
 to holding. A `GREEN` carrying `pending_gates` went green with a reviewer that never
