@@ -194,6 +194,7 @@ print(f'in_flight={d["in_flight"]}/{d["target"]} deficit={d["deficit"]} '
       f'untriaged={len(d["untriaged"])} '
       f'held={len(d["held"])} scheduled={len(d["scheduled"])} '
       f'awaiting_deploy={len(d["awaiting_deploy"])} cooloff={len(d["excluded"])} '
+      f'unexamined={d["unexamined"]} blocked_by_issue={len(d["blocked_by_issue"])} '
       f'out_of_scope={len(d["out_of_scope"])} '
       f'judgement={d.get("judgement", "off")}')
 for g in d["awaiting_deploy"][:5]:
@@ -213,10 +214,11 @@ if d["no_checkout"]:
     print(f'  no checkout: {", ".join(d["no_checkout"])} — footprints there are empty')
 if d["deficit"] > 0 and not d["startable"]:
     print(f'  IDLE with {d["deficit"]} slot(s) free: {len(d["blocked"])} blocked, '
+          f'{len(d["blocked_by_issue"])} blocked by an open issue, '
           f'{len(d.get("needs_judgement", []))} needing judgement, '
           f'{len(d["untriaged"])} untriaged, {len(d["held"])} held, '
           f'{len(d["scheduled"])} not yet due, {len(d["awaiting_deploy"])} awaiting '
-          f'deploy, {len(d["excluded"])} in cooloff')
+          f'deploy, {len(d["excluded"])} in cooloff, {d["unexamined"]} unexamined')
 PY
   (( rc == 0 )) || return 0
 

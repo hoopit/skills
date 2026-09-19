@@ -175,6 +175,11 @@ MIGRATION_YES = 0.55
 # a dropped PR is a collision nobody is told about, so `next` says when the cap bites
 # instead of quietly judging a subset.
 JUDGE_MAX_PRS = 40
+# Per-tick budgets of `next`'s walk: bodies fetched, and candidates put to the judgement.
+# A body already in BODY_CACHE costs neither a request nor a place in the first budget.
+NEXT_MAX_BODIES = 60
+NEXT_MAX_JUDGED = 40
+BODY_CACHE = "~/.cache/hoopit-board/bodies.json"
 JUDGE_MAX_FILES = 30
 JUDGE_MAX_BODY = 12000
 # `create-gh-issue` asks a Needs decision issue to name its decision in the body, and
@@ -332,7 +337,8 @@ BOARD_QUERY = """query($login:String!,$number:Int!,$after:String){
       pageInfo{ hasNextPage endCursor }
       nodes{ id
         content{ __typename
-          ... on Issue{ id number title url updatedAt repository{nameWithOwner} BODY }
+          ... on Issue{ id number title url updatedAt repository{nameWithOwner} BODY
+            blockedBy(first:20){ nodes{ number state repository{ nameWithOwner } } } }
           ... on PullRequest{ number title url updatedAt repository{nameWithOwner} } }
         status: fieldValueByName(name:"Status"){ ... on ProjectV2ItemFieldSingleSelectValue{name} }
         priority: fieldValueByName(name:"Priority"){ ...axis }
@@ -391,6 +397,7 @@ def board(bodies=False):
                 "effort": axis(i.get("effort")),
                 "autonomy": axis(i.get("autonomy")),
                 "not_before": day(i.get("not_before")),
+                "blockers": open_blockers(c["repository"]["nameWithOwner"], c.get("blockedBy")),
                 "content_id": c.get("id"), "body": c.get("body") or "",
                 "prs": [p["url"] for p in prs],
                 "pr_state": {p["url"]: p["state"] for p in prs},
@@ -769,24 +776,31 @@ GATES_QUERY = """query($url:URI!){ resource(url:$url){ ... on Issue{
     value field{ ... on IssueFieldDate{ name } } } } } } } }"""
 
 
-def issue_gates(repo, number):
-    """(earliest-pick-up date, open blockers) of one issue. Read off the issue and not
-    off a board item, because `check` is also asked about issues that are not on it.
+def open_blockers(repo, blocked_by):
+    """The OPEN issues of a `blockedBy` connection, named relative to `repo`.
 
     Only an OPEN blocker blocks. GitHub keeps the link after the blocker closes, so a
     run that counts every node holds the issue for good — and the follow-up that waits
-    on a closed parent is the common shape, not the rare one."""
+    on a closed parent is the common shape, not the rare one. The link takes an issue on
+    both ends: `addBlockedBy` refuses a pull request's id, so work held by an open PR is
+    never found here — that is `blocked`, recomputed from the PR's files."""
+    out = []
+    for b in (blocked_by or {}).get("nodes") or []:
+        if b.get("state") == "OPEN":
+            other = (b.get("repository") or {}).get("nameWithOwner")
+            out.append(f'{other}#{b["number"]}' if other != repo else f'#{b["number"]}')
+    return out
+
+
+def issue_gates(repo, number):
+    """(earliest-pick-up date, open blockers) of one issue. Read off the issue and not
+    off a board item, because `check` is also asked about issues that are not on it."""
     res = gql(GATES_QUERY, url=f"https://github.com/{repo}/issues/{number}")["resource"] or {}
     not_before = ""
     for n in (res.get("issueFieldValues") or {}).get("nodes") or []:
         if (n.get("field") or {}).get("name") == DATE_FIELD:
             not_before = n.get("value") or ""
-    blockers = []
-    for b in (res.get("blockedBy") or {}).get("nodes") or []:
-        if b.get("state") == "OPEN":
-            other = (b.get("repository") or {}).get("nameWithOwner")
-            blockers.append(f'{other}#{b["number"]}' if other != repo else f'#{b["number"]}')
-    return not_before, blockers
+    return not_before, open_blockers(repo, res.get("blockedBy"))
 
 
 def cmd_check(a):
@@ -1173,7 +1187,9 @@ def cmd_next(a):
     `startable` is ranked and mutually non-colliding — take the first N for N free slots
     and they will not tread on each other. `blocked` says what each rejected candidate
     collided with, because a collision clears itself once the blocking PR merges and the
-    next tick retries it.
+    next tick retries it. `blocked_by_issue` is the other kind: an open issue GitHub's
+    own "blocked by" link names, held before any body is read. `unexamined` counts the
+    candidates the walk never reached.
 
     `--repo` scopes the whole tick: the target caps flight in those repos alone, so work
     elsewhere on the board holds no slot, and candidates elsewhere come back under
@@ -1198,6 +1214,8 @@ def cmd_next(a):
     ranked = [i for i in ranked if i["autonomy"] == "Unattended"]
     waiting = [i for i in ranked if scheduled(i)]
     ranked = [i for i in ranked if not scheduled(i)]
+    dependent = [i for i in ranked if i["blockers"]]
+    ranked = [i for i in ranked if not i["blockers"]]
     out_of_scope = [i for i in ranked if a.scope and i["repo"] not in a.scope]
     ranked = [i for i in ranked if not a.scope or i["repo"] in a.scope]
     excluded = [i for i in ranked if f'{i["repo"]}#{i["n"]}' in exclude]
@@ -1206,19 +1224,20 @@ def cmd_next(a):
     def brief(i, *keys):
         return {k: i[k] for k in ("repo", "n", "url", "title", *keys)}
 
-    # Deep enough to walk past a run of collisions, shallow enough that footprinting it
-    # costs a handful of REST calls. The full ranking is `slots`.
-    shortlist = candidates[:max(deficit, 0) + 8]
+    # The walk runs down the ranking until the deficit is filled or a budget runs out.
+    # What it never reached is `unexamined`.
+    shortlist = candidates
     out = {
         "target": a.target, "in_flight": len(flight), "deficit": max(deficit, 0),
         "untriaged": [brief(i) for i in untriaged],
         "held": [brief(i, "autonomy") for i in held],
         "scheduled": [brief(i, "not_before")
                       for i in sorted(waiting, key=lambda x: x["not_before"])],
+        "blocked_by_issue": [brief(i, "blockers") for i in dependent],
         "excluded": [brief(i) for i in excluded],
         "out_of_scope": [brief(i) for i in out_of_scope],
         "flight": [brief(i, "status", "prs") for i in sorted(flight, key=rank_key)],
-        "candidates_total": len(candidates),
+        "candidates_total": len(candidates), "unexamined": len(candidates),
         "startable": [], "blocked": [], "needs_judgement": [], "awaiting_deploy": [],
         "no_checkout": [],
     }
@@ -1270,8 +1289,25 @@ def cmd_next(a):
 
     if not judge:
         fall_back_to_the_regex()
+    bodies, fetched, asked = body_cache_load(), 0, 0
+    live = {f'{i["repo"]}#{i["n"]}' for i in items}
     for i in shortlist:
-        body = gh("api", f'repos/{i["repo"]}/issues/{i["n"]}', "--jq", ".body", parse=False)
+        if len(out["startable"]) >= deficit or asked >= NEXT_MAX_JUDGED:
+            break
+        # An edit moves `updatedAt`, so a hit is the body as it stands. A blocked candidate
+        # is re-decided against this tick's open PRs from it, at no request.
+        key, hit = f'{i["repo"]}#{i["n"]}', None
+        if (c := bodies.get(key)) and c["updated"] == i["updated"]:
+            hit = c["body"]
+        elif fetched >= NEXT_MAX_BODIES:
+            break
+        out["unexamined"] -= 1
+        if hit is None:
+            hit = gh("api", f'repos/{i["repo"]}/issues/{i["n"]}', "--jq", ".body",
+                     parse=False) or ""
+            bodies[key] = {"updated": i["updated"], "body": hit}
+            fetched += 1
+        body = hit
         gate = deploy_gate(i["repo"], body)
         if gate:
             out["awaiting_deploy"].append(brief(i, "priority", "effort") | {"gate": gate})
@@ -1310,6 +1346,7 @@ def cmd_next(a):
                 out["judgement"] = (f"on (only {JUDGE_MAX_PRS} of {len(prs)} open PRs in "
                                     f'{i["repo"]} are judged)')
                 prs = dict(list(prs.items())[:JUDGE_MAX_PRS])
+            asked += 1
             judged, migration, why = judge_candidate(
                 body or i["title"], prs, mine, migration_apps(i["repo"]))
             if why:
@@ -1352,8 +1389,30 @@ def cmd_next(a):
         for path in fp:
             taken.setdefault((i["repo"], path), []).append(f'#{i["n"]} (picked this tick)')
 
+    body_cache_save({k: v for k, v in bodies.items() if k in live})
     print(json.dumps(out, indent=2))
     return 0 if out["startable"] else 1
+
+
+def body_cache_load():
+    try:
+        with open(os.path.expanduser(BODY_CACHE)) as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def body_cache_save(cache):
+    """Best effort: an unwritable cache costs the next tick its reads, nothing else."""
+    try:
+        path = os.path.expanduser(BODY_CACHE)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path + ".tmp", "w") as fh:
+            json.dump(cache, fh)
+        os.replace(path + ".tmp", path)
+    except Exception:
+        pass
 
 
 def body_blocks(body):
