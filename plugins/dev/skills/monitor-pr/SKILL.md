@@ -54,7 +54,9 @@ prints `This session is <name>`, and a name like `pr16619` carries the number. A
 when neither yields one.
 
 Set `OWNER_REPO` (from the URL, else `gh api 'repos/{owner}/{repo}' --jq .full_name`) and `PR`; set `REPO_ROOT=$(git rev-parse --show-toplevel)` and
-`SKILL_DIR` to this skill's base directory.
+`SKILL_DIR` to this skill's base directory. `GATE_SCRIPT` is review-gate's
+external-reviewer script, resolved here because only this body has the token substituted:
+`${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh`.
 
 Rounds run in a worktree for the PR branch — the round creates one when none exists — and
 only on a PR whose head is not the default branch: a same-repo back-merge PR has the
@@ -124,66 +126,13 @@ cap when one is set.
 The round briefing is the `hoopit-dev:monitor-pr-worker` agent definition, which ships
 in this plugin at `<SKILL_DIR>/../../agents/monitor-pr-worker.md`.
 
-Default: read it and follow its body yourself, with the inputs below, ending with its
-report. Resolve its paths as the prompt below spells them — `GATE_SCRIPT` in particular,
-since the ledger's challenge is written against it and a round cannot decline a
-Critical/High without one.
-
-`--subagent`: rounds go to a named worker that is reused while it stays under 100k
-tokens. First round (and first round after each rotation):
-
-```
-Agent(
-  subagent_type: "hoopit-dev:monitor-pr-worker",
-  model: "<--subagent's model, else opus>",
-  name: "pr-<PR>-worker",
-  description: "round PR #<PR>",
-  prompt: "PR_URL=<PR_URL> OWNER_REPO=<OWNER_REPO> PR=<PR> REPO_ROOT=<REPO_ROOT> LEDGER=<SKILL_DIR>/LEDGER.md PR_STATE=<SKILL_DIR>/scripts/pr-state.sh PR_LABELS=<SKILL_DIR>/scripts/pr-labels.sh GH_PR_API=<SKILL_DIR>/scripts/gh-pr-api.sh GATE_SCRIPT=${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh\nROUND: <the ROUND line verbatim>\nANSWERED: <every fork the user has settled, and the choice>\nGUIDANCE: <this session's scope and facts for the round> | none",
-)
-```
-
-`ANSWERED` goes on **both** prompts. A fresh worker knows nothing the last one was told,
-so a re-arm after a hard fork, or a rotation, would otherwise drop the very answer that
-unblocked the watch. Carry every answer the PR has collected, not only the newest. A
-re-arm from a fresh session recovers them from the ledger's `answered:` rows.
-
-`GUIDANCE` is this session's own direction for the round, kept apart from `ANSWERED` so
-the worker can tell a user's decision from a session's opinion. It carries scope — apply
-minimally, no migration, file rather than fold — facts the worker cannot see, and a
-demand for a step back on a mechanism the ledger shows patched before. A choice between
-two remedies a reviewer offered travels the other way: the worker's design check probes
-it and this session answers it, below.
-
-Each completion notification reports `subagent_tokens`; keep a running total per worker.
-Next round while the total is under 100k:
-
-```
-SendMessage(to: "pr-<PR>-worker", message: "ROUND: <the ROUND line verbatim>\nANSWERED: <each fork the user settled since the last round, and the choice>\nGUIDANCE: <this round's direction> | none")
-```
-
-The worker already holds the earlier answers, so this one carries only what is new.
-
-**A design check.** A worker turn ending in `DESIGN CHECK` is a round paused before its
-push, not a report: a fix tripped the worker briefing's step back, and the worker has
-probed the shapes and put them to Codex's adversarial review. Answer it yourself, at
-once, with the brief and the ledger in hand — the decision is this session's, not the
-user's, and nothing waits on it:
-
-```
-SendMessage(to: "pr-<PR>-worker", message: "DESIGN: push | reshape to <n> — <why>")
-```
-
-Choose among the shapes the worker probed; a shape nobody probed is one more probe to ask
-for, not an answer. A `Challenge: unavailable` line means the pick was never argued with,
-only probed — weigh it as the thinner evidence it is, and reshape on your own read rather
-than reading `push` out of a challenge that raised nothing. Inline, the step back is yours
+Default: read it and follow its body yourself, ending with its report, with the paths
+Step 1 resolved — `GATE_SCRIPT` in particular, since the ledger's challenge is written
+against it and a round cannot decline a Critical/High without one. The step back is yours
 to run, and the answer is the one you record.
 
-The worker's worktree is the worker's: verify its work by reading it — an edit of yours
-between its commits is a change it did not make and cannot explain.
-
-At 100k or above, rotate: spawn a fresh worker with the full prompt (use a new name,
-e.g. `pr-<PR>-worker-2`) and start its total at zero.
+`--subagent`: read [SUBAGENT.md](SUBAGENT.md) before the first round and follow it — the
+worker's prompt, its reuse and rotation, and answering its `DESIGN CHECK`.
 
 One round at a time: a `ROUND` that lands mid-round is worked after the current one — and
 often finds nothing, because the running round's last look already absorbed it. Its report
@@ -239,38 +188,9 @@ gh pr ready <PR> --repo <OWNER_REPO>   # closing round, cap, or "Stop, I'll take
 
 ## Step 4a — Land the merge
 
-The PR is merged — a `PR_CLOSED state=MERGED` line, or a merge the Green path in Step 5
-just performed with no monitor left to report it. Three things follow, in order.
-
-**Tally.** Rounds, threads resolved, checks fixed, conflicts merged, and the ledger's
-convergence counts. The ledger stays on the merged PR as the record of what was judged
-along the way. One thing outlives the PR and is carried into the tally: commits the worktree holds and the remote does not — push
-them, saying plainly that this opens a follow-up PR against the default branch.
-
-**Report what is left open.** The merge closes the PR, not the thinking, so sweep three
-places and list what survives:
-
-- the ledger's `open` and `fork` rows — a finding nobody settled, a question nobody
-  answered;
-- questions this session asked and the user never came back to;
-- TODOs and follow-ups written into the PR description outside the ledger block.
-
-Offer to file them where this repo's `CLAUDE.md` says work items live — one line per
-proposed item, title and a sentence — and file only what the user picks. Under
-`--unattended`, file them all and list each with its number; one whose worth is a
-judgement is filed marked as needing the user's decision, that decision named in its
-body. An empty sweep is worth saying out loud: *nothing left open.*
-
-**Clean up, last.** The branch is spent, so invoke `clean-up-worktree` for it; its own
-merge gate and safety checks stand, and its confirmation is the one place this is
-approved. Skip it — saying why — when the tally just pushed commits past the merge: that
-branch is live work again, not spent.
-
-This goes last because it is the one irreversible move, and because the worktree it
-removes may be the directory this session is running in — `ship` arms the watch from
-inside it. Once it is gone, the shell has no working directory and nothing further runs.
-Finish the tally and the sweep first, then hand the user the `cd` to the main worktree
-that `clean-up-worktree` reports.
+On `PR_CLOSED state=MERGED`, or a merge the Green path just performed with no monitor left
+to report it, read [LANDING.md](LANDING.md) and follow it: the tally, what is left open,
+then the clean-up, last.
 
 ## Step 5 — Ask in rounds
 
@@ -303,103 +223,8 @@ so further rounds would review something that may not survive. Stop the watch, t
 it alongside the round's soft forks. An answer re-arms the watch (back to Step 2); the
 next round carries all the answers.
 
-**Green** — a `GREEN` line. Before the merge question, once per head that carries pushes
-since the last one, challenge the whole PR — the read no per-push reviewer gives it. From
-the PR's worktree, with the ledger's judgement rows — the declines, the step-back picks —
-and the issues the PR closes as the focus. The **issues** are the ones its description
-links (`closes #<n>`, the tracker section); a PR linking none is weighed against its
-description, and the briefing says so:
-
-```bash
-git fetch origin <DEFAULT_BRANCH>
-bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh" \
-  origin/<DEFAULT_BRANCH> --challenge-only --challenge "Merge readiness. Is the whole diff warranted by these issues: <each issue, one line>? Judgements to break: <the ledger's judgement rows, one line each>"
-```
-
-Read the file its `codex_challenge=` line names. A finding that **holds** — the ledger
-says when — opens a round rather than a question, the same work a reviewer thread would
-open: under `--subagent` as `ROUND: CHALLENGE head=<sha> findings=<n>` with the findings
-and your reachability read in `GUIDANCE`, inline by working them yourself as the worker
-briefing says. Its push brings the next `GREEN`, and that one carries the merge question.
-The rest go into the tally as weighed and not held. A `codex_challenge_reason` line is
-Step 4's `CODEX DOWN`, and the merge question still goes — but it goes **recommending
-hold**. The one read of the PR as a whole never happened, and
-recommending a merge would be claiming a check that did not run. Say that in the question
-and name what the challenge would have weighed: the ledger's judgement rows. *Merge it*
-stays on the table — the merge is the user's call, always — and restoring Codex, then
-re-running the challenge on this head, is what turns the recommendation back.
-
-Drop `agent-working` before asking (Step 4): the PR is the user's until they answer.
-When this head is ready on the agent's side — the challenge ran and held nothing, and the
-`GREEN` carries no `pending_gates` — mark the PR ready for review, the hand-off:
-
-```bash
-bash <SKILL_DIR>/scripts/pr-labels.sh <OWNER_REPO> <PR> -agent-working
-gh pr ready <PR> --repo <OWNER_REPO>
-```
-
-The ready mark vouches for this head alone: a round that pushes returns the PR to draft
-before it does (the worker briefing's step 5). A round that pushes nothing leaves it ready.
-
-**The merge briefing.** A `GREEN` asks someone to merge code they have not read, so the
-question carries the read that tells them how hard to look before they do. Seven lines,
-not a second PR description:
-
-- what was wrong, and who felt it;
-- what this changes, in a line;
-- **Warranted: yes · larger than the issues · beyond the issues**, with the reason — the
-  diff's size and reach weighed against the issues it closes, the rounds' additions
-  included, since a watch is where scope grows;
-- the decisions that could have gone the other way — the ledger's judgement rows, read
-  off it rather than re-derived;
-- **Merge risk: low · moderate · high · very high**, with the reason;
-- what to look at first, if they read one thing;
-- anything else that moves the depth of that read — a check that passed on retry, an
-  approval given on an earlier head, a challenge finding weighed and not held.
-
-Rate the risk on blast radius and reversibility, the two things a revert cannot fix:
-
-| Risk | What puts it there |
-| --- | --- |
-| **Low** | Isolated or additive, a test went red on it, and a revert is a full undo. |
-| **Moderate** | Changes behaviour on a path in use, or edits code others share — still fully revertible. |
-| **High** | A revert alone no longer restores it: a data migration, a permissions or money path, a job whose runs land while it is live. |
-| **Very high** | Effects land before anyone can react — a destructive migration, a send to users, a deletion sweep, a credential rotation. |
-
-Risk is not a recommendation. A low-risk PR with a reviewer still owed recommends
-holding; a very-high-risk PR that is green and challenged recommends merging.
-The recommendation answers *may this merge*; the risk answers *how long to look first*.
-
-Write the briefing into the PR description before asking, so whoever merges from GitHub
-reads what the chat got. It is a block of its own at the top of the body: a
-`## 🤖 Merge briefing · <head sha, 7 chars>` heading, the seven lines, then the
-recommendation — merge or hold — with its reason, between
-`<!-- agent-merge-briefing:start -->` and `<!-- agent-merge-briefing:end -->`. Write it
-the way [`LEDGER.md`](LEDGER.md) writes its block — the body read fresh, the region
-between the markers replaced — and prepend it when the markers are absent. Done when the
-body holds one briefing block, its heading names this head, and the rest of the
-description reads as it did.
-
-When the write fails, say so in the merge question and ask anyway.
-
-The merge is the user's call, always: ask, and recommend it. No Hoopit repo requires an
-approval, so a `GREEN` waits on nobody's review; two things alone turn the recommendation
-to holding. A `GREEN` carrying `pending_gates` went green with a reviewer that never
-reported on the head: name it and recommend holding until it has. A merge-readiness
-challenge that did not run holds it the same way, for the same reason — a reviewer that
-never reported.
-On *Merge it*, merge with a method the repo allows. Mark the PR ready first: a question
-that went out recommending hold left it a draft, GitHub refuses to merge one, and `gh pr
-merge` has no guard of its own for it. On a PR already ready the call warns and exits 0.
-
-```bash
-gh api repos/<OWNER_REPO> --jq '{squash: .allow_squash_merge, merge: .allow_merge_commit, rebase: .allow_rebase_merge}'
-gh pr ready <PR> --repo <OWNER_REPO>
-gh pr merge <PR> --repo <OWNER_REPO> --<squash|merge|rebase>
-```
-
-Leave the monitor running either way: on a merge it sees `PR_CLOSED state=MERGED` next
-poll and Step 4a lands it, and on *keep watching* a PR that moves again still has a watch.
+**Green** — a `GREEN` line. Read [GREEN.md](GREEN.md) and follow it: the merge-readiness
+challenge, the merge briefing written into the PR description, then the merge question.
 
 **Closed or capped** — a closing round, or the `--rounds` cap reached. Stop, then ask
 whether to keep watching. A closing round's question lists its declines — each thread, and
@@ -439,31 +264,10 @@ asking, so the answer is an informed one, and act on it immediately.
 Under `--subagent` the worker reports forks and the session asks them: a question from a
 background agent reaches nobody.
 
-### Unattended: act, then ask
+### Unattended
 
-Under `--unattended` a question waits for someone who may never come, so every
-**reversible** choice takes your own recommendation. Two kinds stay questions, asked as
-above:
-
-- **an irreversible move** — deleting work that exists nowhere else, and the merge, which
-  a `GREEN` recommending it puts without the ping (below);
-- **a decision you doubt** — a hard fork, a stop, the cap, and any recommendation you
-  hold without the evidence to defend it to a reviewer.
-
-A soft fork is reversible: its ledger row reads `decided unattended: <the choice>`, and
-the round's push carries it.
-
-A `GREEN` that recommends merging ends on the merge briefing, in chat and in the PR
-description, with no `AskUserQuestion`: the ready PR is the question, and merging from
-GitHub is its answer. The monitor stays up, so Step 4a lands the merge. A `GREEN` that
-recommends holding is a decision you doubt, and asks.
-
-Every other ending fires its `AskUserQuestion` — it is the only thing that reaches a user
-who does come back. Either ending opens with **what was done**: each decision taken with its ledger
-row, each issue filed with its number, each clean-up run, so the user can reverse any of
-them. Done when closing the session would lose nothing: every decision is on the
-ledger, every finding is on the tracker, and what is left in the question is only what
-the user alone can settle.
+Under `--unattended`, read [UNATTENDED.md](UNATTENDED.md) before the first question: it
+decides which of the paths above still ask.
 
 ### Write down what an answer settles
 
