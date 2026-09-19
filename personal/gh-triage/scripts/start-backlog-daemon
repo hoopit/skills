@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Keep the LKs agent project board (github.com/orgs/hoopit/projects/2) at <target>
-# items in flight, dispatching a herdr agent per free slot as slots free.
+# Keep the LKs agent project board (github.com/orgs/hoopit/projects/2) filled to its
+# caps, dispatching a herdr agent per free slot as slots free.
 #
 # There is no model in this loop: `hoopit-board next` picks, and its docstring is the
 # account of how. This script claims what it returns and starts an agent on it, and the
@@ -15,14 +15,17 @@
 # finish — Autonomy `Needs decision` or `Out of reach` — are never started here at all;
 # `hoopit-board decisions` is the queue for clearing those by hand.
 #
-# Two caps, and the tighter one sets how many start. <target> caps everything in flight,
-# `Human review` included: a slot frees when a PR merges, an assessment closes its issue,
-# or an agent hands it back, so the review queue never outgrows <target>. --max-active
-# caps what an agent is still working — `In progress` and `AI review` — and frees a slot
-# when a PR goes ready, so agents start in waves as the earlier ones settle rather than
-# all at once. One tick fills every slot both caps leave free.
+# --max-active caps what an agent is still working — `In progress` and `AI review` — and
+# frees a slot when a PR goes ready, an assessment closes its issue, or an agent hands it
+# back, so agents start in waves as the earlier ones settle rather than all at once.
+# --max-review holds every start while `Human review` is that full, so the daemon idles
+# until something merges; work active when it closes still lands, and the queue can reach
+# --max-review + --max-active - 1. <target> caps all of flight, `Human review` included,
+# for a review queue that must never pass a number. One tick fills every slot the caps
+# leave free.
 #
-#   start-backlog-daemon <target> [--max-active N] [--interval SEC] [--once] [--dry-run]
+#   start-backlog-daemon [<target>] [--max-active N] [--max-review M]
+#                        [--interval SEC] [--once] [--dry-run]
 #
 # Installed as ~/.config/systemd/user/start-backlog.service;
 # journalctl --user -u start-backlog -f has the whole run.
@@ -30,8 +33,9 @@
 set -uo pipefail
 
 TARGET=""
-# Empty is no active cap: <target> alone decides.
+# An empty cap is one not applied.
 MAX_ACTIVE=${START_BACKLOG_MAX_ACTIVE:-}
+MAX_REVIEW=${START_BACKLOG_MAX_REVIEW:-}
 INTERVAL=600
 ONCE=0
 DRY=0
@@ -43,7 +47,7 @@ COOLOFF_HOURS=${START_BACKLOG_COOLOFF_HOURS:-6}
 # holding a slot nothing will ever free.
 STALE_HOURS=${START_BACKLOG_STALE_HOURS:-6}
 REPOS_DIR=${START_BACKLOG_REPOS_DIR:-$HOME/Dev/Hoopit}
-# The repos this daemon fills: <target> counts flight in these alone, and work starts
+# The repos this daemon fills: the caps count flight in these alone, and work starts
 # nowhere else. The board also tracks tooling repos, and an unattended agent there
 # rewrites the skills every other agent is running on.
 REPOS=${START_BACKLOG_REPOS:-hoopit/api hoopit/web-admin hoopit/flutter-app}
@@ -54,15 +58,17 @@ while [[ $# -gt 0 ]]; do
     # `hoopit-board next` does unconditionally now.
     --unattended) echo "note: --unattended is the only behaviour; the flag is redundant"; shift ;;
     --max-active) MAX_ACTIVE="$2"; shift 2 ;;
+    --max-review) MAX_REVIEW="$2"; shift 2 ;;
     --interval) INTERVAL="$2"; shift 2 ;;
     --once) ONCE=1; shift ;;
     --dry-run) DRY=1; shift ;;
-    -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
     -*) echo "unknown flag: $1" >&2; exit 2 ;;
     *) TARGET="$1"; shift ;;
   esac
 done
-[[ -n "$TARGET" ]] || { echo "usage: start-backlog-daemon <target> [--max-active N] [--interval SEC] [--once] [--dry-run]" >&2; exit 2; }
+# --max-review holds starts and bounds none, so one of the other two must be there.
+[[ -n "$TARGET$MAX_ACTIVE" ]] || { echo "usage: start-backlog-daemon [<target>] [--max-active N] [--max-review M] [--interval SEC] [--once] [--dry-run] — give <target> or --max-active" >&2; exit 2; }
 
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/start-backlog"
 RUN_DIR="${XDG_RUNTIME_DIR:-/tmp}/start-backlog"
@@ -188,16 +194,18 @@ tick() {
   mapfile -t excludes < <(cooloff_excludes)
   local scope=() r
   for r in $REPOS; do scope+=(--repo "$r"); done
-  hoopit-board next "$TARGET" ${MAX_ACTIVE:+--max-active "$MAX_ACTIVE"} \
+  hoopit-board next $TARGET ${MAX_ACTIVE:+--max-active "$MAX_ACTIVE"} \
+    ${MAX_REVIEW:+--max-review "$MAX_REVIEW"} \
     "${scope[@]}" "${excludes[@]}" > "$run"
   rc=$?
 
   python3 - "$run" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
-cap = d.get("max_active")
-print(f'in_flight={d["in_flight"]}/{d["target"]} '
-      f'active={d["active"]}{"" if cap is None else f"/{cap}"} deficit={d["deficit"]} '
+def of(n, cap):
+    return f"{n}" if cap is None else f"{n}/{cap}"
+print(f'in_flight={of(d["in_flight"], d["target"])} active={of(d["active"], d["max_active"])} '
+      f'review={of(d["review"], d["max_review"])} deficit={d["deficit"]} '
       f'candidates={d["candidates_total"]} startable={len(d["startable"])} '
       f'blocked={len(d["blocked"])} needs_judgement={len(d.get("needs_judgement", []))} '
       f'untriaged={len(d["untriaged"])} '
@@ -221,6 +229,9 @@ for j in d.get("needs_judgement", [])[:5]:
           + "; ".join(f'{k} at {v}' for k, v in j.get("judged", {}).items()))
 if d["no_checkout"]:
     print(f'  no checkout: {", ".join(d["no_checkout"])} — footprints there are empty')
+if d["max_review"] is not None and d["review"] >= d["max_review"]:
+    print(f'  HOLDING: Human review is at {d["review"]}/{d["max_review"]} — nothing starts '
+          f'until something there merges or closes')
 if d["deficit"] > 0 and not d["startable"]:
     print(f'  IDLE with {d["deficit"]} slot(s) free: {len(d["blocked"])} blocked, '
           f'{len(d["blocked_by_issue"])} blocked by an open issue, '
@@ -247,7 +258,7 @@ PY
   log "filled $count slot(s)"
 }
 
-log "start-backlog daemon: target=$TARGET max_active=${MAX_ACTIVE:-none} interval=${INTERVAL}s dry=$DRY repos=$REPOS"
+log "start-backlog daemon: target=${TARGET:-none} max_active=${MAX_ACTIVE:-none} max_review=${MAX_REVIEW:-none} interval=${INTERVAL}s dry=$DRY repos=$REPOS"
 while :; do
   if ! herdr_up; then
     log "herdr server unreachable — holding"

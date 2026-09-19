@@ -64,7 +64,7 @@ proxy date where it is not. A rollout is the second kind — nothing on GitHub r
 a release, and the issue that ships the code closes at merge, days before promotion.
 
   slots [X] [--unattended]       what to start, to reach X in flight (default 15)
-  next [X] [--max-active N] [--repo R]... [--exclude REPO#N]... [--no-judge]
+  next [X] [--max-active N] [--max-review M] [--repo R]... [--exclude REPO#N]... [--no-judge]
                                  one tick, as JSON; exit 1 = nothing to do
   decisions [N] [--unnamed] [--out-of-reach] [--no-judge]   the top N decisions to answer (default 5)
   stale [--older-than H]         flight that may have lost its agent: no-pr | pr-quiet\n  dispatches [--since D] [--repo R]... [--no-judge]  merged PRs by the rung that wrote them
@@ -108,7 +108,7 @@ DISPATCH_MODEL = {
 # GitHub's built-in date field, read as "not before": see the module docstring.
 DATE_FIELD = "Start date"
 # The two review statuses are the vocabulary `board-status.yml` writes: a draft PR is
-# the agent's rounds, a ready one is a human's. Both still hold a slot.
+# the agent's rounds, a ready one is a human's. Both are flight.
 IN_FLIGHT = ("In progress", "AI review", "Human review")
 # The part of flight an agent is still working, and so still spending quota on. A ready
 # PR waits on a human: it holds a slot and costs nothing.
@@ -1195,15 +1195,20 @@ def cmd_next(a):
     own "blocked by" link names, held before any body is read. `unexamined` counts the
     candidates the walk never reached.
 
-    Two caps set the deficit, and the tighter one wins. The target caps all of flight, so
-    every item started has a place in `Human review` reserved before it starts and the
-    review queue can never outgrow the target. `--max-active` caps the part an agent is
-    still working — `In progress` and `AI review` — so a slot frees when a PR goes ready,
-    and the agents started at once are bounded however empty the board is. It gates
-    starts and nothing else: a PR a reviewer sends back to draft counts as active again,
-    and may carry the count past the cap until it settles.
+    Three caps, each optional, and the tightest sets the deficit. The target caps all of
+    flight. `--max-active` caps the part an agent is still working — `In progress` and
+    `AI review` — so a slot frees when a PR goes ready, and the agents started at once
+    are bounded however empty the board is. `--max-review` is a gate and not a count of
+    slots: nothing starts while `Human review` holds that many, and below it the other
+    caps decide alone. So work already active when the gate closes still lands, and the
+    review queue can reach `--max-review` + `--max-active` - 1. It bounds no starts by
+    itself, so it needs one of the other two beside it. With no cap given the target
+    is 15.
 
-    `--repo` scopes the whole tick: both caps count flight in those repos alone, so work
+    Every cap gates starts and nothing else: a PR a reviewer sends back to draft counts
+    as active again, and may carry the count past `--max-active` until it settles.
+
+    `--repo` scopes the whole tick: every cap counts flight in those repos alone, so work
     elsewhere on the board holds no slot, and candidates elsewhere come back under
     `out_of_scope`.
 
@@ -1216,9 +1221,16 @@ def cmd_next(a):
     flight = [i for i in items if i["status"] in IN_FLIGHT
               and (not a.scope or i["repo"] in a.scope)]
     active = [i for i in flight if i["status"] in ACTIVE]
-    deficit = a.target - len(flight)
-    if a.max_active is not None:
-        deficit = min(deficit, a.max_active - len(active))
+    review = [i for i in flight if i["status"] == "Human review"]
+    if a.target is None and a.max_active is None:
+        if a.max_review is not None:
+            sys.exit("--max-review gates starts and bounds none: give a target or --max-active")
+        a.target = 15
+    deficit = min(cap - len(held_by) for cap, held_by in ((a.target, flight),
+                                                          (a.max_active, active))
+                  if cap is not None)
+    if a.max_review is not None and len(review) >= a.max_review:
+        deficit = 0
     backlog = sorted([i for i in items if i["status"] == "Backlog"], key=rank_key)
     untriaged = [i for i in backlog if i["type"] == "Issue" and not triaged(i)]
     ranked = [i for i in backlog if triaged(i) and i["type"] == "Issue"]
@@ -1245,6 +1257,7 @@ def cmd_next(a):
     out = {
         "target": a.target, "in_flight": len(flight), "deficit": max(deficit, 0),
         "max_active": a.max_active, "active": len(active),
+        "max_review": a.max_review, "review": len(review),
         "untriaged": [brief(i) for i in untriaged],
         "held": [brief(i, "autonomy") for i in held],
         "scheduled": [brief(i, "not_before")
@@ -2218,10 +2231,12 @@ def main():
     s = sub.add_parser("release"); s.add_argument("repo"); s.add_argument("number", type=int)
     s.add_argument("--reason", required=True); s.set_defaults(fn=cmd_release)
     s = sub.add_parser("footprint"); s.add_argument("repos", nargs="+"); s.set_defaults(fn=cmd_footprint)
-    s = sub.add_parser("next"); s.add_argument("target", nargs="?", type=int, default=15)
+    s = sub.add_parser("next"); s.add_argument("target", nargs="?", type=int, default=None)
     s.add_argument("--exclude", action="append", default=[], metavar="REPO#N")
     s.add_argument("--max-active", type=int, default=None, metavar="N",
-                   help="also cap In progress + AI review at N; the tighter cap sets the deficit")
+                   help="cap In progress + AI review at N")
+    s.add_argument("--max-review", type=int, default=None, metavar="M",
+                   help="start nothing while Human review holds M or more")
     s.add_argument("--repo", action="append", dest="scope", default=[], metavar="OWNER/NAME",
                    help="count flight and start work only in these repos; every repo when omitted")
     s.add_argument("--no-judge", action="store_true",
