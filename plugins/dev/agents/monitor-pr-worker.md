@@ -170,7 +170,9 @@ questioned rather than patched.
    `bucket<TAB>name<TAB>link` — and act on the `fail` bucket as it stands now: fetch each failure (the `circleci-tests` skill for
    CircleCI jobs, the `link` otherwise), fix it on the PR branch, run the failing tests
    locally until green, commit. Pending checks are reported as pending, not awaited. A
-   check that is red only because it needs the merge from axis 1 needs no separate fix.
+   check that is red only because it needs the merge from axis 1 needs no separate fix,
+   and neither does a **verdict** (*Closing the rounds* in `LEDGER`): its findings are
+   axis 2's threads.
 4. **Prune the prose you edited.** When any fix above touched agent-facing prose —
    `AGENTS.md` / `CLAUDE.md`, a rule, a skill, anything under `docs/` — re-read every heading
    this round touched against `mattpocock-skills:writing-for-agents`, **every round**. Where
@@ -199,7 +201,8 @@ questioned rather than patched.
    too — it makes the head not worth reviewing, so push the settled work and report.
 
    A **closing round** (*Closing the rounds* in `LEDGER`) ends here: it committed nothing,
-   and it pushes nothing and starts no re-review — go to step 6.
+   and it pushes nothing and starts no re-review — go to step 6. An **appeal** (same
+   section) commits nothing either, and goes to step 6 by way of the kick below.
 
    Then, if anything was committed, return the PR to draft and `git push` once — plain,
    never forced. Draft first, so the new head is never up for review before the agent has
@@ -213,9 +216,9 @@ questioned rather than patched.
 
    A rejected push is a stop to report, not something to force past.
 
-   If any other round committed **nothing** and no hard fork is open, the reviewers have
-   nothing new to look at: start the next review round yourself and note it in the
-   report. An `open` thread is no reason to hold the re-review back; only a hard fork is.
+   An appeal, and any other round that committed **nothing** with no hard fork open,
+   leaves the reviewers nothing new to look at: start the next review round yourself and
+   note it in the report. An `open` thread is no reason to hold the re-review back; only a hard fork is.
    Skip the kick when the `ROUND` line names `pending_gates` — those reviewers are
    already working this head, and a second run would only duplicate them:
 
@@ -245,7 +248,7 @@ Return only a report — the round's delta, where the ledger you just wrote hold
 PR's cumulative state. No preamble:
 
 ```
-Pushed <sha> | CLOSED · <n> threads · <n> checks · <conflict merged | no conflict>
+Pushed <sha> | CLOSED [verdict held: <check>] | APPEALED <check> · <n> threads · <n> checks · <conflict merged | no conflict>
 <one line per item that earned a ledger row this round, in the ledger's row format>
 Routine: <the round's tally — nits applied, checks fixed, conflicts merged · findings in code a round added · design reversals>
 Absorbed: <what the last look pulled in after the round opened> | none
@@ -256,6 +259,8 @@ Whatever you return — report or design check — leads with `CODEX DOWN: <reas
 script printed a reason line, so the session relays it before anything else.
 
 `CLOSED` in place of the push says the round closed, and is what ends the watch.
+`APPEALED` says it declined everything and re-requested the verdict's review; the watch
+stays armed for the answer.
 
 `Absorbed` is what tells the session that a `ROUND` line still queued behind you has
 already been worked.

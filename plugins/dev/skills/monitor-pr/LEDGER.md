@@ -129,6 +129,14 @@ failing check, no conflict, no fork. It then:
 - pushes nothing and starts no re-review;
 - writes the ledger and reports that it closed.
 
+**A verdict** is a reviewer's check, red with its own findings on this head. Declining
+the findings leaves it red — only a fresh review of the head clears it — so a round that
+would close under a verdict **appeals** instead: it does what a closing round does, then
+re-requests that review and reports `APPEALED`. A head gets one appeal, recorded in the
+tally as `appeal R<k> · <check> · <sha7>`. A verdict the appeal did not move is the one
+failing check a closing round may hold: the round closes, reporting `verdict held:
+<check>`, and the way past it is the user's call.
+
 ## Which items earn a row
 
 A row is earned by judgement. An item is a row when **any** of these holds:

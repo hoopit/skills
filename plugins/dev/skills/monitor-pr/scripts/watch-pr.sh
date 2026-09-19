@@ -20,9 +20,9 @@
 #
 # A round fires on the *first* feedback of any kind — the actionable set holding something not in
 # the previously fired round: a thread key (id:commentCount, so a reply in an old thread counts), a
-# failing check (reset per head), or a conflict (reset per head). Reviewers still pending on the
-# head are named in `pending_gates` rather than held for: the round starts on what has landed, and
-# takes a last look for the rest before it pushes.
+# failing check (reset per head, and when it leaves the fail bucket), or a conflict (reset per
+# head). Reviewers still pending on the head are named in `pending_gates` rather than held for:
+# the round starts on what has landed, and takes a last look for the rest before it pushes.
 #
 # A head goes GREEN once it has nothing left at all — no unresolved thread, no failing check, none
 # still pending, no conflict — and every gate check has reported on it (or GATE_TIMEOUT elapsed
@@ -89,6 +89,9 @@ while true; do
   fetch_fails=0
 
   new_threads=$(comm -13 <(printf '%s\n' "$fired_threads") <(printf '%s\n' "$threads") | grep -c .)
+  # A fired check that left the fail bucket is forgotten, so a re-run or re-review that comes
+  # back red on the same head fires again instead of reading as already seen.
+  fired_fail=$(comm -12 <(printf '%s\n' "$fired_fail") <(printf '%s\n' "$failing") | grep .)
   new_fail=$(comm -13 <(printf '%s\n' "$fired_fail") <(printf '%s\n' "$failing") | grep . | paste -sd, -)
   new_conflict=0; [ "$conflicting" = 1 ] && [ "$fired_conflict" = 0 ] && new_conflict=1
   actionable=0; { [ "$new_threads" -gt 0 ] || [ -n "$new_fail" ] || [ "$new_conflict" = 1 ]; } && actionable=1

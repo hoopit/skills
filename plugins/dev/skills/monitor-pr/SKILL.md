@@ -212,10 +212,13 @@ it.
 Then grade the round's `QUESTIONS`. A section of **soft** forks is not an ending: the
 watch stays armed, the questions go to the user in Step 5, and the next `ROUND` is worked
 whether or not they have been answered. A **hard** fork ends the watch — `TaskStop` the
-monitor, then ask — as does the same check "still failing" in two consecutive rounds.
+monitor, then ask — as does the same check "still failing" in two consecutive rounds,
+unless that check is a **verdict** (*Closing the rounds* in [LEDGER.md](LEDGER.md)), which
+the rounds carry themselves.
 
 A report reading `CLOSED`, or the `--rounds` cap reached, `TaskStop`s the monitor and
-takes its path in Step 5. Otherwise idle until the next `ROUND`.
+takes its path in Step 5. Otherwise idle until the next `ROUND` — after `APPEALED` too:
+the re-review answers as a `GREEN` or as the next `ROUND`.
 
 Whenever the watch ends — a closing round, the cap, a hard fork, an error stop, or
 `PR_CLOSED` — drop the label again, so it only ever marks PRs under an active watch — and
@@ -402,7 +405,9 @@ poll and Step 4a lands it, and on *keep watching* a PR that moves again still ha
 whether to keep watching. A closing round's question lists its declines — each thread, and
 `not worth a round` with its evidence where that was the reason — so the user can take any
 of them back; a cap's says what is still outstanding and whether the rounds were
-converging. *Keep watching* re-arms the watch (back to Step 2, label included), and a
+converging. A close reporting `verdict held` leads with the verdict: the appeal is spent,
+so what is left is taking a decline back or the bypass the repo documents, and bypassing
+a check is the user's call, `--unattended` included. *Keep watching* re-arms the watch (back to Step 2, label included), and a
 decline the user takes back rides into its next round as `ANSWERED`. The turn ends on the
 `AskUserQuestion`, never on prose: a watch that goes dark without one is a watch the user restarts by hand, with its answers
 lost.
