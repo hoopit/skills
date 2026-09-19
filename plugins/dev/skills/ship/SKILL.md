@@ -22,10 +22,11 @@ Flags:
 
 - `--rounds <N>` — the cap on review-gate rounds (Step 6). Unset, Step 6 sizes it from the
   work item.
-- `--unattended` — nobody is there to answer. Wherever this skill would ask the user, it
-  **hands back** instead: the run stops and returns the same substance — the findings,
-  your reasoning, what you would do about each — to the caller as its result. Every other
-  step runs as written.
+- `--unattended` — nobody is watching. Wherever this skill would ask the user, it
+  **hands back** first: the run stops and returns the same substance — the findings,
+  your reasoning, what you would do about each — to the caller as its result, which
+  survives nobody answering. Then it fires the question anyway, for a user who does come
+  back. Every other step runs as written.
 
 ## Inputs
 
@@ -172,8 +173,7 @@ blocking or surviving findings, your reasoning, what you would do about each —
 An answer settles the findings it covers and rounds resume;
 *Open the PR anyway* carries the standing findings into the PR body (Step 7).
 
-Under `--unattended`, hand the verdict back instead of firing the question — a question
-asked with nobody there stops the work and reaches no one.
+Under `--unattended`, hand the verdict back before firing the question.
 
 ## Step 7 — Push and open the PR
 
@@ -203,7 +203,7 @@ Someone has to work the PR's review rounds to the merge. Start the **`monitor-pr
 on the new PR with `--subagent`, so its rounds run in workers rather than this session. It
 works rounds until the PR merges, a round declines everything left and closes, or a
 decision only the user can settle turns up — and on the merge it cleans up the worktree
-itself. `--unattended` leaves this step unchanged.
+itself. Pass `--unattended` on when you hold it.
 
 This skill's work ends here. Report the PR url and the watch back to the caller, which
 owns the final result block.

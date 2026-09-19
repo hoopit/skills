@@ -1,7 +1,7 @@
 ---
 name: monitor-pr
 description: Monitor a single pull request. Use only when explicitly asked to monitor a PR.
-argument-hint: "<PR url or number> [--rounds <N>] [--subagent[=<model>]]"
+argument-hint: "<PR url or number> [--rounds <N>] [--subagent[=<model>]] [--unattended]"
 ---
 
 # Monitor PR
@@ -45,6 +45,7 @@ Flags:
   the design judgement (a round's design check, Step 3) is this session's, on whatever
   model it runs. Reach for `fable` on a design-heavy PR when the ledger's convergence
   counts say the rounds are patching their own patches.
+- `--unattended` — nobody is watching the session, so it **acts, then asks** (Step 5).
 
 ## Step 1 — Resolve the target
 
@@ -252,8 +253,10 @@ places and list what survives:
 - TODOs and follow-ups written into the PR description outside the ledger block.
 
 Offer to file them where this repo's `CLAUDE.md` says work items live — one line per
-proposed item, title and a sentence — and file only what the user picks. An empty sweep
-is worth saying out loud: *nothing left open.*
+proposed item, title and a sentence — and file only what the user picks. Under
+`--unattended`, file them all and list each with its number; one whose worth is a
+judgement is filed marked as needing the user's decision, that decision named in its
+body. An empty sweep is worth saying out loud: *nothing left open.*
 
 **Clean up, last.** The branch is spent, so invoke `clean-up-worktree` for it; its own
 merge gate and safety checks stand, and its confirmation is the one place this is
@@ -430,6 +433,27 @@ asking, so the answer is an informed one, and act on it immediately.
 
 Under `--subagent` the worker reports forks and the session asks them: a question from a
 background agent reaches nobody.
+
+### Unattended: act, then ask
+
+Under `--unattended` a question waits for someone who may never come, so the run takes
+its own recommendation wherever it can be taken back, and the user finds finished work
+rather than a list of offers. Two kinds of choice stay questions, asked as above:
+
+- **a move a revert cannot undo** — the merge, deleting work that exists nowhere else;
+- **a decision you doubt** — a hard fork, a stop, the cap, and any recommendation you
+  hold without the evidence to defend it to a reviewer.
+
+Everything else you decide and do. A soft fork takes your recommendation: its ledger row
+reads `decided unattended: <the choice>`, and the round's push carries it. The sweep in
+Step 4a files what it finds.
+
+Every ending still fires its `AskUserQuestion` — it is the only thing that reaches a user
+who does come back. It opens with **what was done**: each decision taken with its ledger
+row, each issue filed with its number, each clean-up run, so any of them is one step from
+reversed. Done when closing the session would lose nothing: every decision is on the
+ledger, every finding is on the tracker, and what is left in the question is only what
+the user alone can settle.
 
 ### Write down what an answer settles
 

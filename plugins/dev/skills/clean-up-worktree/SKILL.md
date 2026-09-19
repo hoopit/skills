@@ -83,6 +83,10 @@ One short confirmation naming the branch, the PR with the state actually observe
 (`#2619 MERGED`, or `#2619 CLOSED (unmerged)` when the user is overriding that gate), and
 the worktree path to be removed. Nothing runs until the user says yes.
 
+A caller running `--unattended` holds that yes already when the PR is `MERGED` and
+section 3 stopped on nothing: report the same three facts as done instead. Any stop in
+section 3 stays a question.
+
 Then re-run `inspect.sh` immediately before deleting: if PR state, `TIP_MATCHES_PR`,
 unpushed count or dirty count moved since the confirmation, abort and re-confirm. Approval
 covers the state the user was shown, not whatever the target looks like later.
