@@ -364,12 +364,12 @@ Risk is not a recommendation. A low-risk PR with a reviewer still owed recommend
 holding; a very-high-risk PR that is green and challenged recommends merging.
 The recommendation answers *may this merge*; the risk answers *how long to look first*.
 
-Post the briefing on the PR before asking, so whoever merges from GitHub reads what the
-chat got. It lives in one comment — GitHub pins nothing on a PR, so the marker on its
-first line is what keeps it single: each `GREEN` edits that comment in place, and a PR
-without one gets it created. Write `briefing.md` as the marker, a
-`## 🤖 Merge briefing · <head sha, 7 chars>` heading, the seven lines, then the
-recommendation — merge or hold — with its reason:
+Post the briefing as the PR's **sticky comment** before asking, so whoever merges from
+GitHub reads what the chat got. Sticky means one comment per PR, found by the marker on
+its first line, and every `GREEN` rewrites it for its head. Write `briefing.md` as the
+marker, a `## 🤖 Merge briefing · <head sha, 7 chars>` heading, the seven lines, then the
+recommendation — merge or hold — with its reason. Done when the PR holds exactly one
+marked comment and its heading names this head:
 
 ```bash
 gh api "repos/<OWNER_REPO>/issues/<PR>/comments?per_page=100" \
@@ -378,7 +378,7 @@ gh api -X PATCH repos/<OWNER_REPO>/issues/comments/<id> -F body=@briefing.md  # 
 gh api repos/<OWNER_REPO>/issues/<PR>/comments -F body=@briefing.md           # none did
 ```
 
-A failed briefing write is never fatal: say so in the question and ask anyway.
+When the write fails, say so in the merge question and ask anyway.
 
 The merge is the user's call, always: ask, and recommend it. No Hoopit repo requires an
 approval, so a `GREEN` waits on nobody's review; two things alone turn the recommendation
