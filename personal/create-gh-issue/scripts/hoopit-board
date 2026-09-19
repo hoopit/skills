@@ -64,7 +64,9 @@ proxy date where it is not. A rollout is the second kind — nothing on GitHub r
 a release, and the issue that ships the code closes at merge, days before promotion.
 
   slots [X] [--unattended]       what to start, to reach X in flight (default 15)
-  next [X] [--max-active N] [--max-review M] [--repo R]... [--exclude REPO#N]... [--no-judge]
+  next [X] [--max-active N] [--max-review M] [--live-agents A,B] [--idle-agents C,D]
+       [--repo R]...
+       [--exclude REPO#N]... [--no-judge]
                                  one tick, as JSON; exit 1 = nothing to do
   decisions [N] [--unnamed] [--out-of-reach] [--no-judge]   the top N decisions to answer (default 5)
   stale [--older-than H]         flight that may have lost its agent: no-pr | pr-quiet\n  dispatches [--since D] [--repo R]... [--no-judge]  merged PRs by the rung that wrote them
@@ -1205,6 +1207,21 @@ def cmd_next(a):
     itself, so it needs one of the other two beside it. With no cap given the target
     is 15.
 
+    `--live-agents` names the agents the caller knows to be at work, and with it an
+    active item whose claim names any other agent comes back under `quiet` and holds no
+    place under `--max-active`: its agent is gone, or stopped on a question nobody has
+    answered, and either way it spends nothing. It stays in flight — never offered again,
+    counted toward the target, active again the tick its agent moves. Its open PR holds
+    its files like any other: quiet is also what a watch waiting on CI looks like, and a
+    second agent on a PR still being pushed to is two conflicting PRs. A quiet item with
+    no PR holds none — all it has is a guess from its body, about work that stopped
+    before there was any.
+
+    Work started by hand names no agent in its claim. It is judged by the agent named
+    `gh<n>` when `--idle-agents` or `--live-agents` lists one, which is the tab a
+    dispatched item is restarted in; with no such agent it always counts, because
+    nothing can tell whether the session is working.
+
     Every cap gates starts and nothing else: a PR a reviewer sends back to draft counts
     as active again, and may carry the count past `--max-active` until it settles.
 
@@ -1222,6 +1239,16 @@ def cmd_next(a):
               and (not a.scope or i["repo"] in a.scope)]
     active = [i for i in flight if i["status"] in ACTIVE]
     review = [i for i in flight if i["status"] == "Human review"]
+    quiet = []
+    if a.live_agents is not None:
+        live_agents = {n for n in a.live_agents.split(",") if n}
+        known = live_agents | {n for n in (a.idle_agents or "").split(",") if n}
+        for i in active:
+            i["agent"] = claim_of(i)[0]
+            if i["agent"] == "-" and f'gh{i["n"]}' in known:
+                i["agent"] = f'gh{i["n"]}'
+        quiet = [i for i in active if i["agent"] != "-" and i["agent"] not in live_agents]
+        active = [i for i in active if i not in quiet]
     if a.target is None and a.max_active is None:
         if a.max_review is not None:
             sys.exit("--max-review gates starts and bounds none: give a target or --max-active")
@@ -1258,6 +1285,7 @@ def cmd_next(a):
         "target": a.target, "in_flight": len(flight), "deficit": max(deficit, 0),
         "max_active": a.max_active, "active": len(active),
         "max_review": a.max_review, "review": len(review),
+        "quiet": [brief(i, "status", "prs", "agent") for i in quiet],
         "untriaged": [brief(i) for i in untriaged],
         "held": [brief(i, "autonomy") for i in held],
         "scheduled": [brief(i, "not_before")
@@ -1291,7 +1319,7 @@ def cmd_next(a):
     # candidates rather than at the claim that earned them.
     claims, hint = {}, defaultdict(list)
     for i in flight:
-        if any(i["pr_state"][u] == "OPEN" for u in i["prs"]):
+        if i in quiet or any(i["pr_state"][u] == "OPEN" for u in i["prs"]):
             continue
         body = gh("api", f'repos/{i["repo"]}/issues/{i["n"]}', "--jq", ".body", parse=False)
         claims[f'{i["repo"]}#{i["n"]}'] = {"repo": i["repo"], "title": i["title"],
@@ -1997,16 +2025,32 @@ def cmd_dispatches(a):
     }, indent=2))
     return 0 if attributed else 1
 
+def claim_of(i):
+    """(agent, claimed-at) from an item's newest standing claim comment, `("-", None)`
+    when there is none or a release came after it. Only the daemon's claim names an
+    agent, so hand-started work reads `-` however recently it was claimed."""
+    for c in reversed(rest(f'repos/{i["repo"]}/issues/{i["n"]}/comments', 100)):
+        if RELEASE_RE.search(c["body"]):
+            break
+        if CLAIM_RE.search(c["body"]):
+            m = re.search(r"agent `([^`]+)`", c["body"])
+            return (m.group(1) if m else "-"), c["created_at"]
+    return "-", None
+
+
 def cmd_stale(a):
     """Work in flight that may have lost its agent, in two shapes the reason column tells
     apart:
 
     `no-pr`     In progress, claimed over `--older-than` hours ago, with no open PR to
                 show for it. Nothing is stranded by releasing one.
-    `pr-quiet`  an open PR whose newest update is older than the same threshold, at any
-                status. Never auto-release one: the branch is real work, and bouncing the
+    `pr-quiet`  an open PR whose newest update is older than the same threshold. Never
+                auto-release one: the branch is real work, and bouncing the
                 item to Backlog invites a second agent onto it. Report it and let a human
                 or an agent pick the PR back up.
+
+    `Human review` is never stale: a ready PR waits on a human, and quiet is what that
+    looks like.
 
     Says nothing about whether the agent is alive — that is the caller's half, and the
     only half that can tell abandoned from slow. An item whose claim marker is missing
@@ -2018,16 +2062,8 @@ def cmd_stale(a):
     is the right way round for something whose output frees a slot.
     """
     now = datetime.now(timezone.utc)
-    for i in sorted([i for i in board() if i["status"] in IN_FLIGHT],
-                    key=rank_key):
-        agent, since = "-", None
-        for c in reversed(rest(f'repos/{i["repo"]}/issues/{i["n"]}/comments', 100)):
-            if RELEASE_RE.search(c["body"]):
-                break
-            if CLAIM_RE.search(c["body"]):
-                m = re.search(r"agent `([^`]+)`", c["body"])
-                agent, since = (m.group(1) if m else "-"), c["created_at"]
-                break
+    for i in sorted([i for i in board() if i["status"] in ACTIVE], key=rank_key):
+        agent, since = claim_of(i)
         open_prs = [u for u in i["prs"] if i["pr_state"][u] == "OPEN"]
         if open_prs:
             # The freshest open PR governs: one moving PR means the work is not quiet.
@@ -2035,7 +2071,7 @@ def cmd_stale(a):
             if quiet >= a.older_than:
                 print(f'{i["repo"]}#{i["n"]}\t{agent}\t{quiet:.1f}h\tpr-quiet\t{i["url"]}')
             continue
-        # A review status with no open PR is a merged PR the board has not caught up with, not
+        # `AI review` with no open PR is a merged PR the board has not caught up with, not
         # an abandoned run. Without a claim marker, a human moved it rather than a run.
         if i["status"] != "In progress" or not since:
             continue
@@ -2237,6 +2273,12 @@ def main():
                    help="cap In progress + AI review at N")
     s.add_argument("--max-review", type=int, default=None, metavar="M",
                    help="start nothing while Human review holds M or more")
+    s.add_argument("--live-agents", default=None, metavar="A,B",
+                   help="agents known to be at work; an active item claimed by any other "
+                        "holds no place under --max-active. May be empty")
+    s.add_argument("--idle-agents", default=None, metavar="C,D",
+                   help="agents that exist and are not at work; with --live-agents, lets a "
+                        "hand-started item be judged by the agent named gh<n>")
     s.add_argument("--repo", action="append", dest="scope", default=[], metavar="OWNER/NAME",
                    help="count flight and start work only in these repos; every repo when omitted")
     s.add_argument("--no-judge", action="store_true",

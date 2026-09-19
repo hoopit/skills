@@ -24,6 +24,13 @@
 # for a review queue that must never pass a number. One tick fills every slot the caps
 # leave free.
 #
+# Owning work and working it are separate facts. The board status is the ownership: an
+# item in flight is never offered again, and its open PR holds its files. Its place
+# under --max-active it keeps only while its agent is at work. One whose agent is gone,
+# or has sat silent past the quiet window — stopped on a question nobody is there to
+# answer — is logged as `quiet` and its place goes to the next candidate. Nothing is
+# released or closed for it, and it counts again the tick its agent moves.
+#
 #   start-backlog-daemon [<target>] [--max-active N] [--max-review M]
 #                        [--interval SEC] [--once] [--dry-run]
 #
@@ -45,7 +52,10 @@ DRY=0
 COOLOFF_HOURS=${START_BACKLOG_COOLOFF_HOURS:-6}
 # In progress this long with no open PR, and its herdr agent gone, means a dead agent
 # holding a slot nothing will ever free.
-STALE_HOURS=${START_BACKLOG_STALE_HOURS:-6}
+STALE_HOURS=${START_BACKLOG_STALE_HOURS:-1}
+# An agent herdr does not report `working`, whose session transcript has not moved for
+# this long, is not at work.
+QUIET_MINUTES=${START_BACKLOG_QUIET_MINUTES:-60}
 REPOS_DIR=${START_BACKLOG_REPOS_DIR:-$HOME/Dev/Hoopit}
 # The repos this daemon fills: the caps count flight in these alone, and work starts
 # nowhere else. The board also tracks tooling repos, and an unattended agent there
@@ -62,7 +72,7 @@ while [[ $# -gt 0 ]]; do
     --interval) INTERVAL="$2"; shift 2 ;;
     --once) ONCE=1; shift ;;
     --dry-run) DRY=1; shift ;;
-    -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,35p' "$0"; exit 0 ;;
     -*) echo "unknown flag: $1" >&2; exit 2 ;;
     *) TARGET="$1"; shift ;;
   esac
@@ -123,6 +133,26 @@ reap() {
     hoopit-board release "${item%%#*}" "${item##*#}" \
       --reason "agent \`$agent\` is no longer running and left no open PR after $age." || true
   done < <(hoopit-board stale --older-than "$STALE_HOURS" 2>/dev/null)
+}
+
+# One line per named herdr agent: <name>\t<status>\t<minutes since its transcript moved,
+# or `-` when it has none>\t<live|quiet>. `working` is live however old the transcript —
+# a long tool call writes nothing while it runs — and an agent with no transcript to read
+# is live too, because nothing says otherwise.
+agents() {
+  herdr agent list 2>/dev/null | python3 -c '
+import glob, json, os, sys, time
+quiet_after = float(sys.argv[1])
+for a in json.load(sys.stdin)["result"]["agents"]:
+    if not a.get("name"):
+        continue
+    sid = (a.get("agent_session") or {}).get("value")
+    logs = glob.glob(os.path.expanduser(f"~/.claude/projects/*/{sid}.jsonl")) if sid else []
+    age = (time.time() - max(map(os.path.getmtime, logs))) / 60 if logs else None
+    live = a.get("agent_status") == "working" or age is None or age < quiet_after
+    print(a["name"], a.get("agent_status") or "-", "-" if age is None else f"{age:.0f}",
+          "live" if live else "quiet", sep="\t")
+' "$QUIET_MINUTES"
 }
 
 # The workspace for a repo, created if there is none. Workspaces mirror repos.
@@ -190,22 +220,30 @@ make, write the question onto the issue and release the slot with
 }
 
 tick() {
-  local run="$RUN_DIR/next.json" rc
+  local run="$RUN_DIR/next.json" seen="$RUN_DIR/agents.tsv" rc
+  # A listing that failed says nothing about who is at work, so nothing is called quiet.
+  local live=()
+  if agents > "$seen"; then
+    live=(--live-agents "$(awk -F'\t' '$4 == "live" { printf "%s%s", sep, $1; sep = "," }' "$seen")"
+          --idle-agents "$(awk -F'\t' '$4 == "quiet" { printf "%s%s", sep, $1; sep = "," }' "$seen")")
+  fi
   mapfile -t excludes < <(cooloff_excludes)
   local scope=() r
   for r in $REPOS; do scope+=(--repo "$r"); done
   hoopit-board next $TARGET ${MAX_ACTIVE:+--max-active "$MAX_ACTIVE"} \
-    ${MAX_REVIEW:+--max-review "$MAX_REVIEW"} \
+    ${MAX_REVIEW:+--max-review "$MAX_REVIEW"} "${live[@]}" \
     "${scope[@]}" "${excludes[@]}" > "$run"
   rc=$?
 
-  python3 - "$run" <<'PY'
+  python3 - "$run" "$seen" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
+seen = {r[0]: r for r in (l.rstrip("\n").split("\t") for l in open(sys.argv[2])) if len(r) == 4}
 def of(n, cap):
     return f"{n}" if cap is None else f"{n}/{cap}"
 print(f'in_flight={of(d["in_flight"], d["target"])} active={of(d["active"], d["max_active"])} '
-      f'review={of(d["review"], d["max_review"])} deficit={d["deficit"]} '
+      f'quiet={len(d["quiet"])} review={of(d["review"], d["max_review"])} '
+      f'deficit={d["deficit"]} '
       f'candidates={d["candidates_total"]} startable={len(d["startable"])} '
       f'blocked={len(d["blocked"])} needs_judgement={len(d.get("needs_judgement", []))} '
       f'untriaged={len(d["untriaged"])} '
@@ -229,6 +267,12 @@ for j in d.get("needs_judgement", [])[:5]:
           + "; ".join(f'{k} at {v}' for k, v in j.get("judged", {}).items()))
 if d["no_checkout"]:
     print(f'  no checkout: {", ".join(d["no_checkout"])} — footprints there are empty')
+for q in d["quiet"]:
+    _, status, age, _ = seen.get(q["agent"], (None, None, None, None))
+    how = (f'agent {q["agent"]} is gone' if status is None
+           else f'agent {q["agent"]} is {status}, silent for {age}m')
+    print(f'  quiet {q["repo"]}#{q["n"]} ({q["status"]}): {how} — holds no active slot: '
+          + (", ".join(q["prs"]) or q["url"]))
 if d["max_review"] is not None and d["review"] >= d["max_review"]:
     print(f'  HOLDING: Human review is at {d["review"]}/{d["max_review"]} — nothing starts '
           f'until something there merges or closes')
@@ -258,7 +302,7 @@ PY
   log "filled $count slot(s)"
 }
 
-log "start-backlog daemon: target=${TARGET:-none} max_active=${MAX_ACTIVE:-none} max_review=${MAX_REVIEW:-none} interval=${INTERVAL}s dry=$DRY repos=$REPOS"
+log "start-backlog daemon: target=${TARGET:-none} max_active=${MAX_ACTIVE:-none} max_review=${MAX_REVIEW:-none} quiet_after=${QUIET_MINUTES}m interval=${INTERVAL}s dry=$DRY repos=$REPOS"
 while :; do
   if ! herdr_up; then
     log "herdr server unreachable — holding"
