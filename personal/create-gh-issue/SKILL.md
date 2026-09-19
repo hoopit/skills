@@ -19,6 +19,25 @@ Priority, Effort, Autonomy and `Start date` are org-wide **issue** fields on
 so it survives being taken off a board and is there to read from any other one. A pull
 request cannot carry them.
 
+## File it, or ask first
+
+Filing to this board is cheap, so the gate is low — a gate for this board and no
+other tracker. File what you are **sure** of, and ask about the rest.
+
+- **Sure**: the work follows from something you established — the item the task itself
+  needs, a confirmed bug, a wrong premise measured against prod, a finding that would
+  otherwise be lost. "This is broken and nobody has recorded it" files itself.
+- **Unsure**: its worth is the judgement rather than its subject — a refactor, a
+  cleanup, a nice-to-have, a decision dressed as a task, anything whose scope could be
+  a line or a month. "I think this would be good" asks, and torn asks.
+
+Asking is its own question — title and one line per proposed issue, never a bullet
+inside a larger summary being confirmed. With nobody there to ask, file it anyway with
+Autonomy `Needs decision` and the decision named in the body: dropping it loses the
+finding, deciding it invents a requirement.
+
+Report what you filed with its number, so a wrong call is one click from closed.
+
 ## 1. Resolve the repo
 
 ```bash
@@ -32,7 +51,7 @@ ask whether it belongs in `hoopit/api`, `hoopit/web-admin` or
 ## 2. Search the board first
 
 An open issue may already cover this, or the finding may belong on a related
-issue as a comment.
+issue — as a comment, or folded into its scope.
 
 ```bash
 hoopit-board open
