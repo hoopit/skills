@@ -17,8 +17,14 @@ the round's push carries it.
 
 A `GREEN` that recommends merging ends on the merge briefing, in chat and in the PR
 description, with no `AskUserQuestion`: the ready PR is the question, and merging from
-GitHub is its answer. The monitor stays up, so Step 4a lands the merge. A `GREEN` that
-recommends holding is a decision you doubt, and asks.
+GitHub is its answer. A `GREEN` that recommends holding is a decision you doubt, and asks.
+
+That turn may be the session's last, so end the watch before it closes — `TaskStop` the
+monitor and drop the labels, as Step 4 does — and run Step 4a's left-open sweep now,
+filing as it says. Then close the turn on a **debrief**, after the briefing: everything
+relevant the briefing leaves out, each recommendation still outstanding, and what
+Step 4a would still do on a merge — commits to push, the clean-up. The user reads it to
+choose between waking the session on merge and closing it; woken, run Step 4a.
 
 Every other ending fires its `AskUserQuestion` — it is the only thing that reaches a user
 who does come back. Either ending opens with **what was done**: each decision taken with its ledger

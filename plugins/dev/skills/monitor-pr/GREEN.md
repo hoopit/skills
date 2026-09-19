@@ -62,3 +62,5 @@ gh pr merge <PR> --repo <OWNER_REPO> --<squash|merge|rebase>
 
 Leave the monitor running either way: on a merge it sees `PR_CLOSED state=MERGED` next
 poll and Step 4a lands it, and on *keep watching* a PR that moves again still has a watch.
+An unattended `GREEN` that went out without the question stops it instead
+([UNATTENDED.md](UNATTENDED.md)).
