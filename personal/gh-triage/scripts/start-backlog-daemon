@@ -15,11 +15,14 @@
 # finish — Autonomy `Needs decision` or `Out of reach` — are never started here at all;
 # `hoopit-board decisions` is the queue for clearing those by hand.
 #
-# <target> is the only cap, and it is a real one: a slot frees when a PR merges, an
-# assessment closes its issue, or an agent hands it back, so the board drains no faster
-# than that work completes. One tick fills every free slot it can.
+# Two caps, and the tighter one sets how many start. <target> caps everything in flight,
+# `Human review` included: a slot frees when a PR merges, an assessment closes its issue,
+# or an agent hands it back, so the review queue never outgrows <target>. --max-active
+# caps what an agent is still working — `In progress` and `AI review` — and frees a slot
+# when a PR goes ready, so agents start in waves as the earlier ones settle rather than
+# all at once. One tick fills every slot both caps leave free.
 #
-#   start-backlog-daemon <target> [--interval SEC] [--once] [--dry-run]
+#   start-backlog-daemon <target> [--max-active N] [--interval SEC] [--once] [--dry-run]
 #
 # Installed as ~/.config/systemd/user/start-backlog.service;
 # journalctl --user -u start-backlog -f has the whole run.
@@ -27,6 +30,8 @@
 set -uo pipefail
 
 TARGET=""
+# Empty is no active cap: <target> alone decides.
+MAX_ACTIVE=${START_BACKLOG_MAX_ACTIVE:-}
 INTERVAL=600
 ONCE=0
 DRY=0
@@ -48,15 +53,16 @@ while [[ $# -gt 0 ]]; do
     # Kept so an older invocation or env file still starts. Unattended-only is what
     # `hoopit-board next` does unconditionally now.
     --unattended) echo "note: --unattended is the only behaviour; the flag is redundant"; shift ;;
+    --max-active) MAX_ACTIVE="$2"; shift 2 ;;
     --interval) INTERVAL="$2"; shift 2 ;;
     --once) ONCE=1; shift ;;
     --dry-run) DRY=1; shift ;;
-    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
     -*) echo "unknown flag: $1" >&2; exit 2 ;;
     *) TARGET="$1"; shift ;;
   esac
 done
-[[ -n "$TARGET" ]] || { echo "usage: start-backlog-daemon <target> [--interval SEC] [--once] [--dry-run]" >&2; exit 2; }
+[[ -n "$TARGET" ]] || { echo "usage: start-backlog-daemon <target> [--max-active N] [--interval SEC] [--once] [--dry-run]" >&2; exit 2; }
 
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/start-backlog"
 RUN_DIR="${XDG_RUNTIME_DIR:-/tmp}/start-backlog"
@@ -182,13 +188,16 @@ tick() {
   mapfile -t excludes < <(cooloff_excludes)
   local scope=() r
   for r in $REPOS; do scope+=(--repo "$r"); done
-  hoopit-board next "$TARGET" "${scope[@]}" "${excludes[@]}" > "$run"
+  hoopit-board next "$TARGET" ${MAX_ACTIVE:+--max-active "$MAX_ACTIVE"} \
+    "${scope[@]}" "${excludes[@]}" > "$run"
   rc=$?
 
   python3 - "$run" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
-print(f'in_flight={d["in_flight"]}/{d["target"]} deficit={d["deficit"]} '
+cap = d.get("max_active")
+print(f'in_flight={d["in_flight"]}/{d["target"]} '
+      f'active={d["active"]}{"" if cap is None else f"/{cap}"} deficit={d["deficit"]} '
       f'candidates={d["candidates_total"]} startable={len(d["startable"])} '
       f'blocked={len(d["blocked"])} needs_judgement={len(d.get("needs_judgement", []))} '
       f'untriaged={len(d["untriaged"])} '
@@ -238,7 +247,7 @@ PY
   log "filled $count slot(s)"
 }
 
-log "start-backlog daemon: target=$TARGET interval=${INTERVAL}s dry=$DRY repos=$REPOS"
+log "start-backlog daemon: target=$TARGET max_active=${MAX_ACTIVE:-none} interval=${INTERVAL}s dry=$DRY repos=$REPOS"
 while :; do
   if ! herdr_up; then
     log "herdr server unreachable — holding"
