@@ -217,11 +217,21 @@ after the fact. Then invoke the **`hoopit-dev:ship`** skill with:
   issue claimed: the true premise from step 2, and any figure from step 4 that
   bounds the fix (a migration's row count, the clubs affected). Where the filed
   premise turned out wrong, the brief says so and the PR body says so.
-- any `--rounds` this run was given.
+- any `--rounds` this run was given;
+- `--unattended` under `--started`.
 
 The PR description carries `closes #<n>`, one line per issue. `ship` owns
 everything from the branch to the monitored PR — do not duplicate its steps
 here.
+
+Under `--started`, a `ship` that hands back decides the slot by whether a PR is open:
+
+- **No PR** — a `BLOCK`, the gate's cap, a brief Step 1 could not confirm. The issue is
+  unworked again: write the question onto it, then release (*Handing the slot back*).
+- **A PR is open** — a hard fork, a stop or the cap in the watch. Keep the slot. A
+  released item returns to Backlog, where the next dispatch puts a second agent on a live
+  branch. The question goes on the PR's ledger and the issue, and the slot frees at the
+  merge.
 
 ## 7. Report
 
