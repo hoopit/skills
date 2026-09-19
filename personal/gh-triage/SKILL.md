@@ -46,14 +46,8 @@ hoopit-board triage <repo> <n> --priority P2 --effort M --autonomy Unattended
 Set them from the issue in front of you — the rubric is written down, so this pass asks
 the user nothing. State each value and a one-clause reason, then move on.
 
-**Effort is also the model.** `DISPATCH_MODEL` in `hoopit-board` maps Effort to the model
-and reasoning effort an unattended start gets, and its own comment names the gap: *Effort
-prices the fix, not the hunt.* Unattended there is nothing else to price it with, so price
-the hunt here, in the one pass that reads the issue closely enough to see it. A cause
-nobody has found, an approach still to decide, or a change across modules, migrations,
-concurrency or money is `L` even where the eventual diff is small — the rubric's
-"cross-cutting enough that the approach needs deciding first" already covers it. Say when
-you are pricing the hunt, so a cheap-looking `L` reads as deliberate.
+**Effort is also the model**, so the rubric prices the hunt along with the fix. This is
+the one pass that reads the issue closely enough to see the hunt — price it here.
 
 Autonomy is the axis with no default, and the two non-`Unattended` values owe the body a
 section:

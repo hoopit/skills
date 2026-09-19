@@ -1343,7 +1343,7 @@ def cmd_next(a):
             continue
 
         entry = brief(i, "priority", "effort", "autonomy")
-        # Effort prices the fix, not the hunt — but unattended, it is the only price there is.
+        # Effort prices the hunt along with the fix: unattended, it is the only price there is.
         # `effort` here is the board axis (XS..XL); `reasoning_effort` is the model's.
         entry["model"], entry["reasoning_effort"] = DISPATCH_MODEL[i["effort"]]
         entry["footprint"] = fp

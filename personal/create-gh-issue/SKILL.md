@@ -128,7 +128,11 @@ floors at `P1`.
 | `L` | Multi-day, or cross-cutting enough that the approach needs deciding first. |
 | `XL` | Too big for one PR — say so, and offer to split it. |
 
-Cost the fix, not the investigation.
+Price the hunt along with the fix: `DISPATCH_MODEL` in `hoopit-board` maps Effort to the
+model and reasoning effort an unattended start gets, so Effort is all that prices the
+hunt. A cause nobody has found, an approach still to decide, or a change across
+modules, migrations, concurrency or money is `L` even where the eventual diff is small.
+Say when you are pricing the hunt, so a cheap-looking `L` reads as deliberate.
 
 **Autonomy** — can an agent take this to a PR ready for review without asking
 its author anything? You are the author, and you are answering now, while the
