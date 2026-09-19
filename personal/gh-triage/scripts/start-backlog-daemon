@@ -8,7 +8,8 @@
 # here understands the work — only that two agents must not share a file or a migration
 # graph, which `next` establishes from resolved paths and, where an issue names none, from
 # a System One judgement over its prose. A candidate that judgement leaves uncertain comes
-# back under `needs_judgement` and is never dispatched from here.
+# back under `needs_judgement`, is never dispatched from here, and is settled by
+# `gh-triage` step 2.
 #
 # Judgement that needs a human is the `gh-triage` skill, and the items no agent can
 # finish — Autonomy `Needs decision` or `Out of reach` — are never started here at all;
@@ -205,7 +206,7 @@ for b in d["blocked"][:5]:
     print(f'  blocked {b["repo"]}#{b["n"]} {b["priority"]}/{b["effort"]}: {why}')
 for j in d.get("needs_judgement", [])[:5]:
     # Neither startable nor rejected: the judgement landed between the thresholds, and
-    # nothing unattended may settle that. `gh-triage` is where these get read.
+    # nothing unattended may settle that. `gh-triage` step 2 reads these and settles each.
     print(f'  needs judgement {j["repo"]}#{j["n"]} {j["priority"]}/{j["effort"]}: '
           + "; ".join(f'{k} at {v}' for k, v in j.get("judged", {}).items()))
 if d["no_checkout"]:

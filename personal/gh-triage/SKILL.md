@@ -73,6 +73,21 @@ Two more things the body owes whoever starts it, both visible only from here:
 - **A lead** — a file, a symbol, a log line worth starting from. A lead points; the agent
   draws the conclusion.
 
+`needs_judgement` comes next: candidates whose collision judgement landed between
+`COLLIDE_LOW` and `COLLIDE_HIGH`. `next` neither dispatches nor rejects them, so they
+recur every tick until settled here. Each entry's `judged` map names what it may collide
+with — an open PR, or another claimed issue — and the probability. Read the issue against
+that PR or issue and settle it one of two ways:
+
+- **It does not touch the same files.** Name the footprint in the body — backticked paths
+  that resolve in the checkout — so the path test decides it from then on.
+- **It does.** Hold it behind the PR with `Gate: deployed <repo>#<pr>` in the body, so the
+  board hands it back once that PR ships. Where the collision is with another in-flight
+  issue rather than a PR, name the footprint instead: the paths then collide exactly and
+  `next` blocks it until that claim frees.
+
+Say which, and why, in one clause per item.
+
 Three defects strand an item silently. Fix them while you are in here:
 
 - A rollout follow-up in `held` or `blocked` with no `Gate: deployed #<pr>` line. Add it,
@@ -84,8 +99,9 @@ Three defects strand an item silently. Fix them while you are in here:
 `scheduled` and `awaiting_deploy` clear themselves. A `Start date` genuinely ahead is a
 gate that still binds; `--not-before none` is for one that has stopped binding.
 
-**Done when** every item that was in `untriaged` carries all three fields, and each
-`Needs decision` names its decision and each `Out of reach` names what it needs.
+**Done when** every item that was in `untriaged` carries all three fields, each
+`Needs decision` names its decision and each `Out of reach` names what it needs, and every
+`needs_judgement` entry has a footprint or a gate in its body.
 
 ## 3. Collapse
 
