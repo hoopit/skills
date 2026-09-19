@@ -436,22 +436,21 @@ background agent reaches nobody.
 
 ### Unattended: act, then ask
 
-Under `--unattended` a question waits for someone who may never come, so the run takes
-its own recommendation wherever it can be taken back, and the user finds finished work
-rather than a list of offers. Two kinds of choice stay questions, asked as above:
+Under `--unattended` a question waits for someone who may never come, so every
+**reversible** choice takes your own recommendation. Two kinds stay questions, asked as
+above:
 
-- **a move a revert cannot undo** — the merge, deleting work that exists nowhere else;
+- **an irreversible move** — the merge, deleting work that exists nowhere else;
 - **a decision you doubt** — a hard fork, a stop, the cap, and any recommendation you
   hold without the evidence to defend it to a reviewer.
 
-Everything else you decide and do. A soft fork takes your recommendation: its ledger row
-reads `decided unattended: <the choice>`, and the round's push carries it. The sweep in
-Step 4a files what it finds.
+A soft fork is reversible: its ledger row reads `decided unattended: <the choice>`, and
+the round's push carries it.
 
 Every ending still fires its `AskUserQuestion` — it is the only thing that reaches a user
 who does come back. It opens with **what was done**: each decision taken with its ledger
-row, each issue filed with its number, each clean-up run, so any of them is one step from
-reversed. Done when closing the session would lose nothing: every decision is on the
+row, each issue filed with its number, each clean-up run, so the user can reverse any of
+them. Done when closing the session would lose nothing: every decision is on the
 ledger, every finding is on the tracker, and what is left in the question is only what
 the user alone can settle.
 

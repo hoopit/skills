@@ -173,8 +173,6 @@ blocking or surviving findings, your reasoning, what you would do about each —
 An answer settles the findings it covers and rounds resume;
 *Open the PR anyway* carries the standing findings into the PR body (Step 7).
 
-Under `--unattended`, hand the verdict back before firing the question.
-
 ## Step 7 — Push and open the PR
 
 The head you push is one the gate has passed. A commit made after the last round's
