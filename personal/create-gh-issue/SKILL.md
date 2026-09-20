@@ -84,6 +84,13 @@ with none found.
     does not depend on traffic at all (`convalidated = true`, a count over existing
     rows). Otherwise whoever runs it can satisfy the line in ten minutes and learn
     nothing, and the issue closes on an empty window.
+  - An acceptance line whose last step happens **after merge** — a script run against
+    production, logs read once it ships, a promotion confirmed — makes this two issues,
+    not one longer one. The two phases have different gates and different actors, and
+    the board cannot represent "merged but not yet done": the PR closes what it
+    delivers, so an item held open past its merge freezes at `In progress` with nobody
+    on it. File the operational half separately, as a `Follow-up` carrying `Gate:
+    deployed` (step 5), and let the first close at its merge.
 - **The decision**, where the issue turns on a question only the author can answer —
   product behaviour, naming, UX, scope. Give it a `## The decision` heading of its own
   and state the question and the shapes it could take, so clearing it costs a sentence
