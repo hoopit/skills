@@ -15,8 +15,19 @@ below applies to repos wired to Jira via the **GitHub-for-Jira** integration.
 Every PR **must** link the work item it delivers, near the top of the body, so a
 reviewer can jump to its source of truth:
 
-- **GitHub issue** — `closes #<id>` in the body, one line per issue it resolves,
-  so merging closes the issue automatically.
+- **GitHub issue** — `closes #<id>` in the body, one line per issue it resolves.
+  A closing keyword is the only thing GitHub puts in the PR's
+  `closingIssuesReferences`, and that list is the sole input to the board automation
+  (`board-status.yml`), which never reads the body. So the keyword buys more than the
+  close at merge: it is what moves the item to `AI review` when the PR opens and to
+  `Human review` when it is marked ready. `refs #<id>`, `part of #<id>` or a bare link
+  leave the item frozen wherever it stands with no event left to move it, and the
+  workflow records that as a notice on a green run — nothing anywhere turns red.
+
+  **Merging will not finish the issue?** That is two phases in one item, not a reason
+  to weaken the link. `closes` the phase this PR delivers and file the remainder as its
+  own issue, gated on the deploy where that is what it waits for. Never reach for `refs`
+  to mean "not done yet."
 - **Jira** — `https://<org>.atlassian.net/browse/<JIRA_KEY>` (the raw key also
   makes GitHub-for-Jira attach the PR — exactly what you want here).
 - **Sentry** — the issue URL, e.g. `https://<org>.sentry.io/issues/<id>/`.
@@ -121,6 +132,20 @@ gh pr create \
 - <tests added, or why none was feasible>" \
   --base "$DEFAULT_BRANCH"
 ```
+
+**Confirm the link registered**, while the body is still one edit away — from inside
+the worktree, on the branch you just opened:
+
+```bash
+gh pr view --json closingIssuesReferences --jq '.closingIssuesReferences[].number'
+```
+
+Empty, on a PR that delivers a GitHub issue, means no closing keyword reached the list:
+the body says `refs`, or names the issue in prose, or carries the wrong number. Fix the
+body now. Nothing downstream reports it — the board automation reads an empty list as
+nothing to move and goes green, so the first sign is a human noticing the board is
+wrong days later. (`closingIssuesReferences` is GraphQL-only; REST exposes no such
+field.)
 
 A calling workflow adds its own body sections (e.g. an `## ITSM` / `## Sentry`
 reference, a code-review notes block) — keep those, and apply the link-hygiene
