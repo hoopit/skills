@@ -30,11 +30,18 @@ Curation runs in that order: **measure**, then a **verdict per memory**, then ex
 | **8–14 days** | Evidence the work is genuinely still live: an open PR, an open issue, an unmerged branch, a running investigation. Named, not assumed. |
 | **> 14 days** | Graduate or expire. There is no third option. |
 
-Two rules cut across the ages:
+Three rules cut across the ages:
 
 - **Landing ends a memory's life.** When the PR merges, the ticket closes, the
-  incident resolves — the tracker memory expires that day, at any age. What survives
-  is whatever graduated out of it.
+  incident resolves — the tracker memory expires that day, at any age. **Mine it
+  first**: the trap the work uncovered, the ruling that closed it, is usually written
+  in the tracker that followed it, so a landed memory meets the three bars before it
+  goes, and what clears them graduates. **Landed** is measured on the memory's own
+  work: a follow-up that is filed holds nothing open, because its issue is its
+  record. Only a follow-up that exists nowhere else earns a keep, and `when` names it.
+- **A second copy expires at any age.** A memory whose content already lives where
+  the reader meets it — an `AGENTS.md`, a skill's own steps, a docstring, the
+  tracker — is a reminder of that copy.
 - **Idle since creation is counter-evidence.** A memory nothing has read since the
   session that wrote it was never load-bearing; hold it to the age table strictly.
 
@@ -79,9 +86,6 @@ committing" and "stage explicit paths" pass no news; breaking them was a lapse.
 people who could not have seen it is three times the evidence; a rule broken three
 times by someone who knew it is still a reminder.
 
-A rule the reader already meets elsewhere — an `AGENTS.md`, a skill's own steps — is
-a reminder too.
-
 - ✅ `Never filter a plan pre-lock on is_active — a stale read reorders the lock and deadlocks.`
 - ❌ `Run git status before committing; three commits landed on the wrong branch.`
 
@@ -106,8 +110,9 @@ It prints, per memory: days idle, days old, how many sessions touched it, type,
 created and last-touched dates. **Idle days are a floor** — only this project's
 transcripts are scanned.
 
-The index one-liners plus the ledger triage most memories. Read full files only for
-the ones you will graduate (to write good prose) or whose status you must verify.
+The index one-liners plus the ledger triage most memories. Read full files for
+the ones you will graduate (to write good prose), the ones whose status you must
+verify, and every landed memory you are about to mine.
 
 ### 2. Discover the destinations
 Read [`destinations.md`](destinations.md) — the homes knowledge can take, the
@@ -135,12 +140,17 @@ on a fact you checked this session — that is what turns "8–14 days" into a v
 Before touching anything, output **one row per memory** — the whole set, not just the
 ones you plan to act on:
 
-| memory | type | age | idle | now | later | when |
-|---|---|---|---|---|---|---|
-| payments-lock-order-class | project | 12d | 3d | graduate → `payments/AGENTS.md` | — | now |
-| bac-7655-event-fanout-lock | project | 11d | 10d | keep | expire | PR #16781 merges (~2026-09-15) |
-| prod-rest-api-morning-floor-16539 | project | 15d | 15d | expire | — | now |
+| memory | type | age | idle | mined | now | later | when |
+|---|---|---|---|---|---|---|---|
+| payments-lock-order-class | project | 12d | 3d | "lock Payment → plans → UserPayment" — clears all three | graduate → `payments/AGENTS.md` | — | now |
+| bac-7655-event-fanout-lock | project | 11d | 10d | — | keep | expire | PR #16781 merges (~2026-09-15) |
+| prod-rest-api-morning-floor-16539 | project | 15d | 15d | "floor the morning pool at 4" — second copy, it is in the Terraform comment | expire | — | now |
+| gh-16612-csv-export-encoding | project | 5d | 5d | nothing: a status log of one PR's review rounds | expire | — | now |
 
+- **mined** — for every memory that is not a `keep`: the strongest rule it holds,
+  quoted in a few words, and the bar it cleared or the one that stopped it — or
+  `nothing: <what the memory was>`. Each cell is written from that memory's full
+  text, so no two read alike; a second copy names where the first one lives.
 - **now** — `expire`, `graduate → <destination>`, or `keep`.
 - **later** and **when** — filled only for `keep`. `when` names **the event that ends
   the work**, with a date estimate in parentheses; a bare date is a guess dressed up.
