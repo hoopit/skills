@@ -18,9 +18,9 @@ Curation runs in that order: **measure**, then a **verdict per memory**, then ex
 - `MEMORY.md` is the index — one line per memory, loaded into context every session.
   It stays in lockstep with the files: every file has exactly one index line, and
   every index line has a file.
-- **The memory directory is usually NOT git-tracked**, so a curation expires a memory
-  by renaming it to `<name>.md.bak`, and the backup lives until the PR merges (steps
-  6 and 9).
+- **The memory directory is usually NOT git-tracked**, so expiring a memory deletes it
+  outright and nothing can bring it back. That is what makes step 6's order load-bearing:
+  graduate first, while you can still read the source text.
 
 ## Lifetime — a memory earns about a week
 
@@ -111,8 +111,8 @@ in step 4 and the write-up in step 6.
   one (`find . -name 'AGENTS.md' -o -name 'CLAUDE.md'`), `.claude/rules/`,
   `.claude/skills/`, `docs/`, `docs/adr/`. Note the modules with none — those are
   homes you can still create.
-- Check whether the memory dir is git-tracked, and clear out any `.md.bak` left by an
-  earlier round whose PR has merged (step 9).
+- Check whether the memory dir is git-tracked. If it is, git holds the history of
+  anything you expire; if it is not, the expiry is final.
 
 ### 3. Verify every verdict against ground truth
 A memory is a claim; git, the tracker and the code are the record. Each verdict rests
@@ -142,22 +142,17 @@ ones you plan to act on:
 ### 5. Confirm the plan
 The table *is* the plan — present it and get a green light on (a) which memories
 graduate and where, and (b) expiry scope. Graduation is outward-facing (it ships as a
-PR in step 8); expiry is undoable only for as long as the `.bak` backups survive; and
-an edit to the global `CLAUDE.md` reaches no reviewer, so quote its exact lines in
-the plan. `AskUserQuestion` with a question per axis works well. Pure "this shipped,
+PR in step 8); expiry is permanent; and an edit to the global `CLAUDE.md` reaches no
+reviewer, so quote its exact lines in the plan. `AskUserQuestion` with a question per axis works well. Pure "this shipped,
 remove it" is within a "prune my memory" request; borderline calls should be
 surfaced, not assumed.
 
-### 6. Execute — back up, graduate, expire
-- **Back up first.** `cp MEMORY.md MEMORY.md.bak`, and expire a memory by
-  `mv <name>.md <name>.md.bak` — never `rm`. `.bak` sits outside the `*.md` glob, so
-  backups stay clear of the index, of recall and of step 7's checks, and every
-  expired memory is recoverable verbatim until step 9.
+### 6. Execute — graduate, then expire
 - **Graduate before expiring**, so you always write from the source text. Condense
   into the destination's voice — generic per the bars above, in the format
-  `destinations.md` gives it.
-- Writing to the global `CLAUDE.md`? Back it up the same way first (`cp CLAUDE.md
-  CLAUDE.md.bak`).
+  `destinations.md` gives it. An expired memory is gone, so anything a reviewer might
+  send back in step 8 must already be written down before you delete its source.
+- **Then expire**: `rm <name>.md`.
 - Keep `MEMORY.md` in sync: remove the expired lines. Maintain a **top pointer note**
   recording where graduated knowledge went, so it isn't re-added to memory later
   (e.g. "billing gotchas → `billing/AGENTS.md`; test gotchas → the `testing` rule").
@@ -169,7 +164,6 @@ ls *.md | grep -vx MEMORY.md | wc -l           # files
 grep -c '^- \[' MEMORY.md                       # index entries
 grep -oP '\]\(\K[^)]+\.md' MEMORY.md | while read f; do [ -f "$f" ] || echo "MISSING $f"; done
 for f in $(ls *.md|grep -vx MEMORY.md); do grep -q "($f)" MEMORY.md || echo "ORPHAN $f"; done
-ls *.md.bak                                     # one per expired memory, plus MEMORY.md.bak
 ```
 
 ### 8. Open a PR with the graduated knowledge
@@ -191,9 +185,3 @@ opening the PR.
   destination: what graduated where, and (for reviewer context) what expired, what
   stayed in memory, and what went to the global `CLAUDE.md` outside this repo.
   Report the PR URL when done.
-
-### 9. After the PR merges — drop the backups
-`rm <memory-dir>/*.md.bak`, and the global `CLAUDE.md.bak` if you wrote one. Until
-then the backups stay: they are the only copy of every expired memory, and a
-graduation that review sends back needs its source text. If the session ends before
-the merge, leave them — step 2 of the next curation clears them.
