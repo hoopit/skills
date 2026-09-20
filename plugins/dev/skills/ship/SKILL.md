@@ -126,23 +126,23 @@ is for.
 
 **Scope each round.** The two-axis independent review is what the gate spends; aim it at
 code no reviewer has seen. Before each round record `REVIEWED_AT` — the commit `HEAD`
-stands at as that round's reviewers start. Carry `CHALLENGE_AT` too: the sha the gate
-reports the challenge last ran at, which is a *separate* fixed point from `REVIEWED_AT`
-and moves only on a round whose challenge ran.
+stands at as that round's reviewers start. Carry `CHALLENGE_AT` too — the sha the gate
+reports the challenge last ran at. It is a second fixed point, and it moves only on a
+round that challenged.
 
 - **Round 1 runs `full`**: the whole branch against `origin/$DEFAULT_BRANCH`, both axes,
-  and — with no `CHALLENGE_AT` yet — the challenge. Hand it the shape you took and the
-  ones you set aside as `CHALLENGE`, so the focus is yours rather than derived, and the
-  approach is questioned while changing it is still cheap.
+  and the challenge, since nothing has challenged the shape yet. Hand it the shape you
+  took and the ones you set aside as `CHALLENGE`, so the focus is yours rather than
+  derived, and the shape is questioned while changing it is still cheap.
 - A later round runs **`full`** when the commits since `REVIEWED_AT` are substantial —
   they touch a file no reviewer has seen, they exceed ~50 changed lines, or one of them
   fixed a Critical/High finding. `git diff --stat "$REVIEWED_AT"..HEAD` settles the first
-  two; the third you already know from the round that made them. These are defect-risk
-  signals, and they buy the axes and the whole-branch fixed point, not a re-challenge:
-  pass `CHALLENGE_AT` and the gate decides on its own rule whether the approach moved.
-  Pass a `CHALLENGE` alongside it — the shape again plus every finding earlier rounds
-  skipped on judgement, each with its reason — so that when one does run it argues with
-  the decisions rather than re-raising them.
+  two; the third you already know from the round that made them. Each is a defect-risk
+  signal, and it buys the axes and the whole-branch fixed point, not a re-challenge — pass
+  `CHALLENGE_AT` and the gate rules on the shape itself. Pass a `CHALLENGE` alongside it —
+  the shape again plus every finding earlier rounds skipped on judgement, each with its
+  reason — so a challenge that does run argues with the decisions rather than re-raising
+  them.
 - Every other round runs **`light`** — pass `SCOPE=light` and `REVIEWED_AT`, and the gate
   reviews those commits alone, on the Standards axis.
 

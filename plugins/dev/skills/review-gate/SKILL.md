@@ -49,23 +49,15 @@ Set by the caller; unset, the pass is a full review of the whole branch.
   alternatives set aside, or the mechanism being stepped back from. Findings earlier
   passes skipped on judgement go into the focus as settled ground, each with its reason.
   A `light` pass runs the challenge only when `CHALLENGE` is set; a `full` pass runs it
-  on the rule below.
+  on `CHALLENGE_AT`.
 - `CHALLENGE_AT` *(optional)* — the commit `HEAD` stood at when the **challenge** last
-  ran. It is what keys the challenge, because the challenge argues with the approach and
-  not with the code: unset, no challenge has seen this branch and a `full` pass runs one.
-  Set, a `full` pass runs the challenge only when the diff `CHALLENGE_AT..HEAD` **moves
-  the approach** — it introduces a mechanism or a file the earlier challenge never saw,
-  it changes the design rather than patching it, or it has accumulated past ~50 changed
-  lines. Otherwise the challenge does not run and the notes say *approach unchanged since
-  `<CHALLENGE_AT>`*.
-
-  **The fixed point is what guards the drift.** The test is the diff since the last
-  challenge, never since the last round, so a shape that arrives in ten small commits is
-  challenged once they add up even though no one of them would have. Note that the
-  triggers that escalate a pass to `full` are defect-risk signals — unseen code, size, a
-  Critical/High just patched — and a defect risk is not an approach change: a `full` pass
-  earned by a High's fix re-reviews that fix on both axes without re-asking a question
-  round 1 already settled.
+  ran, and the fixed point that keys it. Unset, nothing has challenged this branch and a
+  `full` pass runs one. Set, a `full` pass runs the challenge only when the diff
+  `CHALLENGE_AT..HEAD` **moves the shape** — it introduces a mechanism or a file the last
+  challenge never saw, it redesigns rather than patches, or it has reached ~50 changed
+  lines. Otherwise the challenge does not run and the notes say *shape unchanged since
+  `<CHALLENGE_AT>`*. Keying on the last **challenge** rather than the last round is what
+  catches a shape that arrives in ten commits none of which moves it alone.
 - `CODEX_MODEL` *(optional)* — the Codex model for Codex's **standard review**, overriding what the
   scope would pick (step 2). The challenge is not steerable at all: questioning an approach is
   what a strong model buys, so it always runs on the model `~/.codex/config.toml` names.
@@ -100,9 +92,8 @@ that policy.
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh" "$REVIEW_BASE" --challenge "$CHALLENGE" --model "$MODEL" $SKIP_DOCS_ONLY
    ```
-   Pass `--challenge` whenever the Inputs say the challenge runs this pass — a `full` pass
-   whose approach moved (or that has no `CHALLENGE_AT`), and a `light` pass that was given
-   a `CHALLENGE`; leave it off otherwise. It prints `codex=<ran|cached|skipped|error|unavailable>[:file]` and, with a challenge,
+   Pass `--challenge` on a pass whose challenge runs (Inputs); leave it off otherwise. It
+   prints `codex=<ran|cached|skipped|error|unavailable>[:file]` and, with a challenge,
    `codex_challenge=…` on its own line — read each `:file` for that reviewer's findings — and
    for either that did not run a `<name>_reason=<what went wrong>` line. `codex=error` or
    `codex=unavailable` **ends the pass**: the moment the script returns, print
@@ -240,10 +231,9 @@ that policy.
    - `PASS` + the scope and its fixed point + whether this pass made fix commits + a notes block
      for the PR: which reviewers ran (and which were skipped/unavailable), the challenge focus
      when one ran, findings fixed, findings skipped (with reasons), findings challenged and how
-     they hold. Say whether the **challenge** ran: it did, and this pass's `REVIEWED_AT` is the
-     `CHALLENGE_AT` the caller carries forward; it did not, and the caller carries the one it
-     gave. Either verdict carries the sha, because a caller that loses it re-challenges a
-     settled approach.
+     they hold. Carry `CHALLENGE_AT` in the verdict — this pass's `REVIEWED_AT` when the
+     challenge ran, the sha the caller gave when it did not — because a caller that loses it
+     re-challenges a settled shape.
    - `BLOCK: <one-line reason>` + the blocking findings and your reasoning.
 
 ## Fix commit convention
