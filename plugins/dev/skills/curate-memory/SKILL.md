@@ -40,6 +40,13 @@ Two rules cut across the ages:
 
 ## Three bars before anything graduates
 
+**Expire is the default; graduation wins its case.** Value is not the case — every
+memory had value to the session that wrote it. The case is that the value beats the
+**price**: a line every future session carries. A memory clears all three bars
+plainly, or it expires, and **a tie expires**. The two errors are unequal: a wrong
+expiry sits in a `.bak` one `mv` from undone; a wrong graduation is sediment nobody
+removes.
+
 ### Generic
 
 Checked-in context is read by every developer on every future task, so what graduates
@@ -112,7 +119,7 @@ in step 4 and the write-up in step 6.
   `.claude/skills/`, `docs/`, `docs/adr/`. Note the modules with none — those are
   homes you can still create.
 - Check whether the memory dir is git-tracked, and clear out any `.md.bak` left by an
-  earlier round whose PR has merged (step 9).
+  earlier round whose PR has merged, or that opened none (step 9).
 
 ### 3. Verify every verdict against ground truth
 A memory is a claim; git, the tracker and the code are the record. Each verdict rests
@@ -139,14 +146,15 @@ ones you plan to act on:
   the work**, with a date estimate in parentheses; a bare date is a guess dressed up.
   A keep with no nameable ending event is not a keep — re-read the age table.
 
-### 5. Confirm the plan
-The table *is* the plan — present it and get a green light on (a) which memories
-graduate and where, and (b) expiry scope. Graduation is outward-facing (it ships as a
-PR in step 8); expiry is undoable only for as long as the `.bak` backups survive; and
+### 5. Confirm the graduations
+The table *is* the plan — present it whole, and get a green light on **which memories
+graduate and where**. Graduation is outward-facing (it ships as a PR in step 8), and
 an edit to the global `CLAUDE.md` reaches no reviewer, so quote its exact lines in
-the plan. `AskUserQuestion` with a question per axis works well. Pure "this shipped,
-remove it" is within a "prune my memory" request; borderline calls should be
-surfaced, not assumed.
+the plan.
+
+**Expiry proceeds unasked.** It is within any curation request, the `.bak` holds
+every expired memory verbatim until step 9, and the table already shows each one. A
+memory you are torn on expires: a question keeps it alive, and a tie expires.
 
 ### 6. Execute — back up, graduate, expire
 - **Back up first.** `cp MEMORY.md MEMORY.md.bak`, and expire a memory by
@@ -196,4 +204,5 @@ opening the PR.
 `rm <memory-dir>/*.md.bak`, and the global `CLAUDE.md.bak` if you wrote one. Until
 then the backups stay: they are the only copy of every expired memory, and a
 graduation that review sends back needs its source text. If the session ends before
-the merge, leave them — step 2 of the next curation clears them.
+the merge, or nothing graduated and no PR opened, leave them — step 2 of the next
+curation clears them.
