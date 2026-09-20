@@ -63,19 +63,20 @@ verdict, and the verdict is expire.
 
 ### Not already known
 
-The first two bars test the rule; this one tests the reader. **A rule any competent
-agent follows unprompted expires, however many times it was broken.** "Check your
-branch before committing" and "stage explicit paths" are baseline practice: breaking
-them was a lapse, and a lapse is not missing knowledge. Recurrence proves the mistake
-was made, never that the rule was unknown — so an incident count carries no weight
-here. Checked-in context holds what a reader could not have known; a reminder of what
-they already know costs every session a line and prevents nothing.
+Checked-in context holds **news**: what a competent agent could not know without being
+told. The rest is a **reminder**, and a reminder expires. The test is the default —
+would an agent arriving cold do this unprompted? "Check your branch before
+committing" and "stage explicit paths" pass no news; breaking them was a lapse.
 
-The same holds for a rule already written where the reader will meet it — an
-`AGENTS.md`, a skill's own steps. The memory is a second copy, and it expires.
+**An incident count measures the lapse, not the news.** A trap that caught three
+people who could not have seen it is three times the evidence; a rule broken three
+times by someone who knew it is still a reminder.
 
-- ✅ `Never filter a plan pre-lock on is_active — a stale read reorders the lock and deadlocks.` Nobody knows this without being told.
-- ❌ `Run git status before committing; three commits landed on the wrong branch.` Everybody knows this; the three incidents change nothing.
+A rule the reader already meets elsewhere — an `AGENTS.md`, a skill's own steps — is
+a reminder too.
+
+- ✅ `Never filter a plan pre-lock on is_active — a stale read reorders the lock and deadlocks.`
+- ❌ `Run git status before committing; three commits landed on the wrong branch.`
 
 **What is gone, goes.** If the integration was removed, the dependency dropped, the
 service retired — verify it (step 3), then the memory expires whole, its name with
