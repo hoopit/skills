@@ -44,11 +44,28 @@ Set by the caller; unset, the pass is a full review of the whole branch.
   axis (step 3).
 - `CHALLENGE` *(optional)* — focus text for the **challenge**: Codex's adversarial review,
   which questions the approach and its assumptions rather than hunting defects, run
-  beside its standard review. Every `full` pass runs it, on a focus derived from `SPEC`
-  plus one line naming the shape the diff takes, unless the caller sets a sharper one —
-  the shape taken and the alternatives set aside, or the mechanism being stepped back
-  from. Findings earlier passes skipped on judgement go into the focus as settled ground,
-  each with its reason. A `light` pass runs it only when `CHALLENGE` is set.
+  beside its standard review. Its focus is derived from `SPEC` plus one line naming the
+  shape the diff takes, unless the caller sets a sharper one — the shape taken and the
+  alternatives set aside, or the mechanism being stepped back from. Findings earlier
+  passes skipped on judgement go into the focus as settled ground, each with its reason.
+  A `light` pass runs the challenge only when `CHALLENGE` is set; a `full` pass runs it
+  on the rule below.
+- `CHALLENGE_AT` *(optional)* — the commit `HEAD` stood at when the **challenge** last
+  ran. It is what keys the challenge, because the challenge argues with the approach and
+  not with the code: unset, no challenge has seen this branch and a `full` pass runs one.
+  Set, a `full` pass runs the challenge only when the diff `CHALLENGE_AT..HEAD` **moves
+  the approach** — it introduces a mechanism or a file the earlier challenge never saw,
+  it changes the design rather than patching it, or it has accumulated past ~50 changed
+  lines. Otherwise the challenge does not run and the notes say *approach unchanged since
+  `<CHALLENGE_AT>`*.
+
+  **The fixed point is what guards the drift.** The test is the diff since the last
+  challenge, never since the last round, so a shape that arrives in ten small commits is
+  challenged once they add up even though no one of them would have. Note that the
+  triggers that escalate a pass to `full` are defect-risk signals — unseen code, size, a
+  Critical/High just patched — and a defect risk is not an approach change: a `full` pass
+  earned by a High's fix re-reviews that fix on both axes without re-asking a question
+  round 1 already settled.
 - `CODEX_MODEL` *(optional)* — the Codex model for Codex's **standard review**, overriding what the
   scope would pick (step 2). The challenge is not steerable at all: questioning an approach is
   what a strong model buys, so it always runs on the model `~/.codex/config.toml` names.
@@ -83,8 +100,9 @@ that policy.
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh" "$REVIEW_BASE" --challenge "$CHALLENGE" --model "$MODEL" $SKIP_DOCS_ONLY
    ```
-   Pass `--challenge` on every `full` pass and on a `light` pass that was given one; leave it
-   off otherwise. It prints `codex=<ran|cached|skipped|error|unavailable>[:file]` and, with a challenge,
+   Pass `--challenge` whenever the Inputs say the challenge runs this pass — a `full` pass
+   whose approach moved (or that has no `CHALLENGE_AT`), and a `light` pass that was given
+   a `CHALLENGE`; leave it off otherwise. It prints `codex=<ran|cached|skipped|error|unavailable>[:file]` and, with a challenge,
    `codex_challenge=…` on its own line — read each `:file` for that reviewer's findings — and
    for either that did not run a `<name>_reason=<what went wrong>` line. `codex=error` or
    `codex=unavailable` **ends the pass**: the moment the script returns, print
@@ -222,7 +240,10 @@ that policy.
    - `PASS` + the scope and its fixed point + whether this pass made fix commits + a notes block
      for the PR: which reviewers ran (and which were skipped/unavailable), the challenge focus
      when one ran, findings fixed, findings skipped (with reasons), findings challenged and how
-     they hold.
+     they hold. Say whether the **challenge** ran: it did, and this pass's `REVIEWED_AT` is the
+     `CHALLENGE_AT` the caller carries forward; it did not, and the caller carries the one it
+     gave. Either verdict carries the sha, because a caller that loses it re-challenges a
+     settled approach.
    - `BLOCK: <one-line reason>` + the blocking findings and your reasoning.
 
 ## Fix commit convention
