@@ -38,7 +38,7 @@ Two rules cut across the ages:
 - **Idle since creation is counter-evidence.** A memory nothing has read since the
   session that wrote it was never load-bearing; hold it to the age table strictly.
 
-## Two bars before anything graduates
+## Three bars before anything graduates
 
 ### Generic
 
@@ -60,6 +60,22 @@ someone already fell into and someone else would fall into again**: a constraint
 code doesn't show, an ordering that deadlocks, an invariant whose violation surfaces
 somewhere far away. Ask what the next person loses without it — "not much" is a
 verdict, and the verdict is expire.
+
+### Not already known
+
+The first two bars test the rule; this one tests the reader. **A rule any competent
+agent follows unprompted expires, however many times it was broken.** "Check your
+branch before committing" and "stage explicit paths" are baseline practice: breaking
+them was a lapse, and a lapse is not missing knowledge. Recurrence proves the mistake
+was made, never that the rule was unknown — so an incident count carries no weight
+here. Checked-in context holds what a reader could not have known; a reminder of what
+they already know costs every session a line and prevents nothing.
+
+The same holds for a rule already written where the reader will meet it — an
+`AGENTS.md`, a skill's own steps. The memory is a second copy, and it expires.
+
+- ✅ `Never filter a plan pre-lock on is_active — a stale read reorders the lock and deadlocks.` Nobody knows this without being told.
+- ❌ `Run git status before committing; three commits landed on the wrong branch.` Everybody knows this; the three incidents change nothing.
 
 **What is gone, goes.** If the integration was removed, the dependency dropped, the
 service retired — verify it (step 3), then the memory expires whole, its name with
