@@ -211,7 +211,7 @@ fi
 
 PENDING="$(mktemp)"
 cp "$SETTINGS" "$PENDING"
-trap 'rm -f "$PENDING"' EXIT
+trap 'rm -f "$PENDING" "${INV:-}"' EXIT
 
 plan_note() { PLANNED+=("$1"); }
 
@@ -298,6 +298,129 @@ skill_desc_of() {
     | sed 's/^description:[[:space:]]*//' | tr -d '"' | cut -c1-44 || true
 }
 
+# SCRIPT_DIR is where the sibling enumerator lives.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INV="$(mktemp)"
+
+# load_inventory fills $INV with the live enumeration. Returns 1 if it failed,
+# and the stages fall back to what they can read off disk themselves.
+load_inventory() {
+  local args=()
+  command -v claude >/dev/null 2>&1 || args=(--no-probe)
+  CLAUDE_SETTINGS="$SETTINGS" bash "$SCRIPT_DIR/inventory.sh" ${args[@]+"${args[@]}"} > "$INV" 2>/dev/null \
+    && jq -e . "$INV" >/dev/null 2>&1
+}
+
+inv() { jq -r "$1" "$INV" 2>/dev/null || true; }
+
+# bundled_hint NAME gives the one-line "what it's for" a bare name doesn't carry.
+bundled_hint() {
+  case "$1" in
+    code-review)              printf 'review a diff or PR for bugs' ;;
+    simplify)                 printf 'clean up the changed code' ;;
+    security-review)          printf 'security pass over a branch' ;;
+    verify)                   printf 'check work against what was asked' ;;
+    debug)                    printf 'diagnose a failure' ;;
+    run)                      printf 'launch the app to see a change work' ;;
+    init)                     printf 'write a CLAUDE.md for a repo' ;;
+    commit|pr|commit-push-pr) printf 'git / pull-request helper' ;;
+    loop)                     printf 'run a prompt on a recurring interval' ;;
+    schedule)                 printf 'cron-scheduled cloud agents' ;;
+    batch)                    printf 'run one prompt over many inputs' ;;
+    workflow-authoring)       printf 'write multi-agent workflow scripts' ;;
+    update-config)            printf 'edit settings.json, hooks, permissions' ;;
+    keybindings-help)         printf 'customise keyboard shortcuts' ;;
+    fewer-permission-prompts) printf 'build a Bash allowlist from transcripts' ;;
+    doctor)                   printf 'check the install' ;;
+    claude-in-chrome)         printf 'drive Chrome, screenshots, console logs' ;;
+    deep-research)            printf 'long multi-source research runs' ;;
+    design|design-sync)       printf 'design-system sync' ;;
+    artifact-*)               printf 'building published claude.ai pages' ;;
+    dataviz)                  printf 'charts and dashboards in artifacts' ;;
+    whiteboard)               printf 'free-form visual canvas' ;;
+    workshop)                 printf 'workshop-style documents' ;;
+    prototype)                printf 'throwaway UI prototypes' ;;
+    claude-api)               printf 'Anthropic API and SDK reference' ;;
+    cowork-plugin)            printf 'cowork plugin management' ;;
+    run-skill-generator)      printf 'generate a skill' ;;
+    *)                        printf '' ;;
+  esac
+}
+
+# apply_plan FILE [--yes] applies a plan JSON without asking anything else:
+#   {"skillOverrides": {...}, "settings": {...}, "plugins": {"k@m": false},
+#    "mcpDisable": ["server"], "agentsAside": ["/path/to/agent.md"]}
+# This is the door the skill uses once the human has agreed to a proposal in
+# chat. Without --yes it prints the diff and writes nothing.
+apply_plan() {
+  local plan="$1" yes="${2:-}" key mode k v name tmp names_json
+  jq -e . "$plan" >/dev/null || { printf 'plan is not valid JSON: %s\n' "$plan" >&2; return 1; }
+
+  while IFS=$'\t' read -r key mode; do
+    [[ -n "$key" ]] && skill_mode "$key" "$mode"
+  done < <(jq -r '(.skillOverrides // {}) | to_entries[] | .key + "\t" + .value' "$plan")
+
+  while IFS=$'\t' read -r k v; do
+    [[ -n "$k" ]] && flag "$k" "$v"
+  done < <(jq -rc '(.settings // {}) | to_entries[] | .key + "\t" + (.value | tostring)' "$plan")
+
+  while IFS= read -r key; do
+    [[ -n "$key" ]] || continue
+    jq_pending --arg k "$key" '.enabledPlugins = ((.enabledPlugins // {}) + {($k): false})'
+    plan_note "plugin $key → disabled"
+  done < <(jq -r '(.plugins // {}) | to_entries[] | select(.value == false) | .key' "$plan")
+
+  while IFS= read -r name; do
+    [[ -n "$name" ]] && { MCP_DISABLE+=("$name"); plan_note "MCP server $name → disabled in $PWD"; }
+  done < <(jq -r '(.mcpDisable // [])[]' "$plan")
+
+  while IFS= read -r name; do
+    [[ -n "$name" ]] && { AGENT_MOVE+=("$name"); plan_note "agent $(basename "$name") → moved to disabled/"; }
+  done < <(jq -r '(.agentsAside // [])[]' "$plan")
+
+  printf 'Planned:\n'
+  for name in ${PLANNED[@]+"${PLANNED[@]}"}; do printf '  - %s\n' "$name"; done
+  printf '\nDiff:\n'
+  diff -u <(jq -S . "$SETTINGS") <(jq -S . "$PENDING") | tail -n +3 || true
+
+  if [[ "$yes" != "--yes" ]]; then
+    printf '\nDry run: nothing written. Re-run with --yes to apply.\n'
+    return 0
+  fi
+
+  cp "$SETTINGS" "$SETTINGS.bak-$STAMP"
+  cp "$PENDING" "$SETTINGS"
+  WROTE=1
+  printf '\nWrote %s (backup: %s)\n' "$SETTINGS" "$SETTINGS.bak-$STAMP"
+
+  if (( ${#MCP_DISABLE[@]} )) && [[ -f "$CLAUDE_JSON" ]]; then
+    cp "$CLAUDE_JSON" "$CLAUDE_JSON.bak-$STAMP"
+    tmp=$(mktemp)
+    names_json=$(printf '%s\n' "${MCP_DISABLE[@]}" | jq -R . | jq -s .)
+    if jq --arg p "$PWD" --argjson names "$names_json" \
+        '.projects //= {} | .projects[$p] //= {} | .projects[$p].disabledMcpServers = (((.projects[$p].disabledMcpServers // []) + $names) | unique)' \
+        "$CLAUDE_JSON" > "$tmp" && jq -e . "$tmp" >/dev/null; then
+      mv "$tmp" "$CLAUDE_JSON"
+      printf 'Disabled %s MCP server(s) in %s\n' "${#MCP_DISABLE[@]}" "$PWD"
+    else
+      rm -f "$tmp"
+      printf 'Could not edit %s; disable those servers with /mcp instead\n' "$CLAUDE_JSON" >&2
+    fi
+  fi
+
+  for name in ${AGENT_MOVE[@]+"${AGENT_MOVE[@]}"}; do
+    mkdir -p "$(dirname "$name")/disabled"
+    mv "$name" "$(dirname "$name")/disabled/"
+    printf 'Moved %s aside\n' "$(basename "$name")"
+  done
+}
+
+if [[ "${1:-}" == "--apply" ]]; then
+  [[ -n "${2:-}" ]] || { printf 'usage: %s --apply <plan.json> [--yes]\n' "$0" >&2; exit 2; }
+  apply_plan "$2" "${3:-}"
+  exit 0
+fi
+
 # ── Stages ────────────────────────────────────────────────────────────────
 
 # banner in the library assumes a browser-driven setup; this wizard drives local
@@ -326,40 +449,41 @@ step "/skills shows the live skill list for your build, and toggles them interac
 printf '\n'
 note "settings file: $SETTINGS"
 note "two dials per skill: off (gone entirely) and user-invocable-only (slash-only)"
+printf '\n'
+say "First, reading what this machine actually loads. That runs claude twice in"
+say "headless mode (two throwaway calls, ~15s) to get the real skill list."
+INVENTORY_OK=0
+if load_inventory; then
+  INVENTORY_OK=1
+  printf '  %s✓%s claude %s · %s built-in · %s synced · %s plugin skill(s) · %s MCP server(s)\n' \
+    "$GREEN" "$RESET" "$(inv '.version // "?"')" "$(inv '.bundled | length')" \
+    "$(inv '.synced | length')" "$(inv '.pluginSkills | length')" "$(inv '.mcpServers | length')"
+else
+  warn "couldn't enumerate; falling back to the names this wizard ships with"
+fi
 pause "Ready?"
 
 stage "Built-in skills that ship with Claude Code"
-say "These live inside the claude binary. Names are from the 2.1.x line — an override"
-say "for a name your build doesn't have is a harmless no-op, so over-selecting is safe."
+say "These live inside the claude binary — read back from a headless probe where"
+say "that worked, plus a few names a probe under-reports. An override for a name"
+say "your build doesn't have is a harmless no-op, so over-selecting is safe."
 printf '\n'
-ITEMS=(
-  $'code-review\treview a diff or PR for bugs'
-  $'simplify\tclean up the changed code'
-  $'security-review\tsecurity pass over a branch'
-  $'verify\tcheck work against what was asked'
-  $'run\tlaunch the app to see a change work'
-  $'init\twrite a CLAUDE.md for a repo'
-  $'commit\tgit commit helper'
-  $'pr\topen a pull request'
-  $'commit-push-pr\tcommit, push and open a PR in one'
-  $'loop\trun a prompt on a recurring interval'
-  $'schedule\tcron-scheduled cloud agents'
-  $'workflow-authoring\twrite multi-agent workflow scripts'
-  $'update-config\tedit settings.json, hooks, permissions'
-  $'keybindings-help\tcustomise keyboard shortcuts'
-  $'fewer-permission-prompts\tbuild a Bash allowlist from transcripts'
-  $'claude-in-chrome\tdrive Chrome, screenshots, console logs'
-  $'artifact-design\tdesign published claude.ai pages'
-  $'artifact-diagramming\tdiagrams inside artifacts'
-  $'artifact-capabilities\truntime powers for artifact pages'
-  $'artifact-pr-review\tPR review as an artifact page'
-  $'dataviz\tcharts and dashboards in artifacts'
-  $'whiteboard\tfree-form visual canvas'
-  $'workshop\tworkshop-style documents'
-  $'prototype\tthrowaway UI prototypes'
-  $'claude-api\tAnthropic API and SDK reference'
-  $'cowork-plugin\tcowork plugin management'
-)
+ITEMS=()
+if (( INVENTORY_OK )); then
+  while IFS= read -r bname; do
+    [[ -n "$bname" ]] || continue
+    ITEMS+=("$bname"$'\t'"$(bundled_hint "$bname")")
+  done < <(inv '.bundled[].name')
+fi
+if (( ${#ITEMS[@]} == 0 )); then
+  for bname in code-review simplify security-review verify debug run init commit pr \
+               commit-push-pr loop schedule batch workflow-authoring update-config \
+               keybindings-help fewer-permission-prompts claude-in-chrome artifact-design \
+               artifact-diagramming artifact-capabilities artifact-pr-review dataviz \
+               whiteboard workshop prototype claude-api cowork-plugin; do
+    ITEMS+=("$bname"$'\t'"$(bundled_hint "$bname")")
+  done
+fi
 triage
 
 stage "Skills synced to your Claude account"
@@ -482,22 +606,19 @@ say "MCP tool schemas are usually the heaviest thing in a context window: every 
 say "from every connected server is described on every turn."
 printf '\n'
 MCP_NAMES=""
-if command -v claude >/dev/null 2>&1; then
-  note "asking claude mcp list (health checks can take a few seconds)…"
-  MCP_LIST_CMD=(claude mcp list)
-  if command -v timeout >/dev/null 2>&1; then MCP_LIST_CMD=(timeout 60 claude mcp list); fi
-  MCP_NAMES=$( ("${MCP_LIST_CMD[@]}" 2>/dev/null || true) | grep -E '^[^[:space:]].*: ' | sed 's/: .*//' || true)
+if (( INVENTORY_OK )); then
+  MCP_NAMES=$(inv '.mcpServers[]? | .name + "\t" + (.status // "")')
 fi
 if [[ -z "$MCP_NAMES" ]]; then
   say "No MCP servers reported for this directory."
   pause
 else
   ITEMS=()
-  while IFS= read -r n; do [[ -n "$n" ]] && ITEMS+=("$n"$'\t'"MCP server"); done <<< "$MCP_NAMES"
+  while IFS= read -r n; do [[ -n "$n" ]] && ITEMS+=("$n"); done <<< "$MCP_NAMES"
   i=0
   for row in ${ITEMS[@]+"${ITEMS[@]}"}; do
     i=$((i + 1))
-    printf '  %s%2d%s %s%s%s\n' "$BLUE" "$i" "$RESET" "$BOLD" "${row%%$'\t'*}" "$RESET"
+    printf '  %s%2d%s %s%-30s%s %s%s%s\n' "$BLUE" "$i" "$RESET" "$BOLD" "${row%%$'\t'*}" "$RESET" "$DIM" "${row#*$'\t'}" "$RESET"
   done
   printf '\n'
   warn "This disables them for THIS project only ($PWD), the same as /mcp disable."

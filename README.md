@@ -85,7 +85,7 @@ Odds and ends: status line.
 
 | Skill | Invoke | Description |
 |-------|--------|-------------|
-| `reduce-context` | Manual | Walk through turning off the skills, plugins, tools and MCP servers you never use. |
+| `reduce-context` | Manual | Propose and apply a set of skills, plugins, tools and MCP servers to turn off. |
 | `setup-statusline` | Auto | Install the team's custom Claude Code status line (directory, git status, model, effort, exact context usage, session token totals). |
 
 #### `hoopit-product`
