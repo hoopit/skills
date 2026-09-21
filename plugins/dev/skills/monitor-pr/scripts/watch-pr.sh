@@ -2,8 +2,11 @@
 # Print one ROUND line the moment the PR has work the previous round did not see, and one GREEN
 # line the first time a head has nothing left to do; exit when the PR leaves OPEN.
 # Usage: watch-pr.sh <owner/repo> <pr_number> [interval_seconds=60]
-# Env:   GATE_CHECKS     — comma-separated reviewer check names (default "CodeRabbit,codex-review").
-#                          A head goes GREEN only once all of them have reported on it.
+# Env:   GATE_CHECKS     — comma-separated reviewer check names (default "codex-review").
+#                          A head goes GREEN only once all of them have reported on it. A
+#                          reviewer outside the list (CodeRabbit) holds a head the way any check
+#                          does — while its status is pending, or a thread of its is unresolved —
+#                          and its silence holds nothing.
 #        GATE_TIMEOUT    — seconds an otherwise-clean head waits for a gate check that never
 #                          reported before going GREEN anyway (default 900 = 15m). A gate check can
 #                          go missing entirely on a head (skipped, rate-limited) rather than just
@@ -31,7 +34,7 @@
 # firing mid-round, while the session is still working threads it has seen.
 set -u
 REPO=$1; PR=$2; INTERVAL=${3:-60}
-GATE_CHECKS=${GATE_CHECKS:-CodeRabbit,codex-review}
+GATE_CHECKS=${GATE_CHECKS:-codex-review}
 GATE_TIMEOUT=${GATE_TIMEOUT:-900}
 MAX_FETCH_FAILS=${MAX_FETCH_FAILS:-5}
 REVIEW_MAX_AGE=${REVIEW_MAX_AGE:-600}
