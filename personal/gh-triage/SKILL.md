@@ -194,7 +194,10 @@ with each verdict stated, and every survivor names its decision.
 - Whether anything is draining the queue: `systemctl --user is-active
   start-backlog.service` plus a `start-backlog-daemon` process check. A queue of
   `Unattended` items with nothing consuming it is the one way a clean triage run still
-  leaves the backlog stopped. Report the fact; enabling it is the user's call.
+  leaves the backlog stopped. Report the fact; enabling it is the user's call. An active
+  daemon can still be dispatching nothing — `journalctl --user -u start-backlog -n 20`
+  names the hold, and `aws login session is dead` clears with `aws login --profile
+  login-raw`.
 
 Flight counts move while the report is being read, so leave them to the daemon.
 
