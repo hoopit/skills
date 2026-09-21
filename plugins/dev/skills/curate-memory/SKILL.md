@@ -49,8 +49,12 @@ Three rules cut across the ages:
 
 **Expire is the default; graduation wins its case.** Value is not the case — every
 memory had value to the session that wrote it. The case is that the value beats the
-**price**: a line every future session carries. A memory clears all three bars
-plainly, or it expires, and **a tie expires**. The two errors are unequal: a wrong
+**price**, and the price is the home's: a comment costs only the reader already
+standing at that code, a root `AGENTS.md` line costs every session
+([`destinations.md`](destinations.md) ranks them). A rule clears all three bars
+plainly *for the home it asks for*, or it steps down to a cheaper home that fits,
+or it expires — and at the bottom of the ladder **a tie expires**. The two errors
+are unequal: a wrong
 expiry sits in a `.bak` one `mv` from undone; a wrong graduation is sediment nobody
 removes.
 
@@ -74,6 +78,19 @@ someone already fell into and someone else would fall into again**: a constraint
 code doesn't show, an ordering that deadlocks, an invariant whose violation surfaces
 somewhere far away. Ask what the next person loses without it — "not much" is a
 verdict, and the verdict is expire.
+
+**Silent** is what makes a trap bite. Picture the next agent walking into it cold:
+
+- **Loud and solvable** — it stops them (an exception, a red test, a refused deploy)
+  and what is in front of them leads to the fix. They lose minutes. The failure is
+  its own documentation, and the memory expires.
+- **Loud and unsolvable** — it stops them, and nothing at hand says what to do: a
+  vendor's error code whose remedy is a data fix no code performs. The
+  symptom-to-remedy line graduates.
+- **Silent** — it passes. Wrong numbers, a guard reading the wrong rows, a hole a
+  green suite never exercises. Nobody goes looking for what never failed, so nothing
+  but the written rule will ever catch it: a silent trap is the strongest case for
+  graduation there is.
 
 ### Not already known
 
@@ -154,7 +171,8 @@ ones you plan to act on:
 
 - **mined** — for every memory that is not a `keep`: each rule it holds, strongest
   first, quoted in a few words, then each bar's result in turn — `generic`, `bites`, `news` —
-  with the evidence beside every ✓. The weakest bar decides: a ✓ you cannot put
+  with the evidence beside every ✓, and `bites` says **silent** or **loud**. The
+  weakest bar decides: a ✓ you cannot put
   evidence beside is a tie, and a tie expires. A memory graduates the rules that
   clear, which is rarely all of them. A memory holding no rule reads
   `nothing: <what the memory was>`. Each cell is written from that memory's full

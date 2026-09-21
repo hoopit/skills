@@ -23,15 +23,60 @@ boundaries between them, and the format each one wants. Reached from step 2 of
 ## Best fit wins
 
 Take the home the knowledge actually belongs in. Only when two homes fit it equally
-well does **proximity** break the tie, nearest first:
+well does **price** break the tie, cheapest first — the ladder below. The closer a
+fact lives to the code it governs, the more certainly the reader who needs it sees
+it, and the fewer unrelated sessions pay to carry it.
 
-> local comment/doc → module `AGENTS.md` / local ADR / local doc → path-scoped rule →
-> skill → root `AGENTS.md` / root docs / root ADR
+## The price ladder — a dearer home sets a higher bar
 
-The closer a fact lives to the code it governs, the more certainly the reader who
-needs it sees it, and the fewer unrelated sessions pay to carry it.
+A line's **price** is who loads it times how often it is no use to them. The three
+bars are the same in every home; what rises with the price is how plainly a rule has
+to clear them. Cheapest first:
 
-Three boundaries proximity doesn't settle:
+| Home | Who pays | What it takes | How a stale line gets caught |
+|---|---|---|---|
+| A **test, hook or assertion** that fails without it | Nobody | Any trap that can be pinned. Prefer it to prose in every home below | It goes red. The one home that cannot rot |
+| A **comment or docstring** at the point of use | Only a reader already standing at that code, who always needs it | True, news, and not said by the code itself. One incident is enough, and loud-but-unsolvable is enough | Only by a diff that touches its lines — nobody re-reads it otherwise |
+| A **doc** behind a pointer | Whoever follows the pointer | The same, at a length the point of use could not hold | Almost never: no diff touches it and few read it |
+| An **ADR** | Whoever follows the pointer | A decision worth its alternatives | It cannot go stale — it is dated by genre, and superseded rather than edited |
+| A **skill's body** | Every run of that one task | It would bite most runs of the task | By the agent that follows it and finds it wrong |
+| A **module `AGENTS.md`** | Every session working in that subtree | **Silent**, and binding more than one place in the module — bound to one place, it is a comment | Read constantly, one file, fixed in a line |
+| A **path-scoped rule** | Every edit to a file of that type, in every module | **Silent**, and met or plainly reachable in more than one module | As above |
+| **Root `AGENTS.md`** | Every session in the repo | **Silent**, costly when missed, and no module or glob holds it | As above |
+| The **global `CLAUDE.md`** | Every session in every repo | A standing instruction the user gave, or a fact about their machine that bites most weeks | As above |
+
+**A cheap home asks less of the rule and more of its form.** The rungs nobody
+re-reads are the rungs where a stale line lives for years, so a line placed there
+has to **die with its code**:
+
+- It has an **anchor**: lines beside it that exist because of the fact, so whoever
+  changes them meets the comment in the same diff. The fact may be local (the
+  invariant these lines hold) or remote (the vendor behaviour they work around) —
+  when a remote fact changes, its anchor has to change with it.
+- It carries nothing that drifts on its own: no counts, versions, ids, dates, no
+  name of a function that lives elsewhere.
+
+A fact with **no anchor** — true and useful, with no code resting on it — has nothing
+to bring it back into anyone's view: a cloud API's 90-day lookup window, a library
+version's quirk. Pin it with a test (`event_scrubber is not None` outlives "sdk 2.68
+drops the scrubber"), or place it in a home that is read, at that home's bar. A doc
+takes only what stays true while the code moves: a subsystem's shape, an
+integration's contract — never its state.
+
+A read home rots less often and costs more when it does: a stale comment misleads
+one reader, a stale `AGENTS.md` line misleads every session, and is believed. The
+drift rule binds every rung.
+
+**Step down before expiring.** A rule that misses the bar of the home it asked for is
+tried one rung cheaper, as long as that rung still fits what the rule is and the
+rule can take that rung's form: the
+migration trap too rare for the rule file is a comment on the one migration that
+shows it. A rule that misses at the comment rung expires.
+
+**Step up only on evidence.** A rule climbs to an always-loaded home because it was
+met in a second place, never because it felt important.
+
+Three boundaries price doesn't settle:
 
 - **Repo or you?** Scope decides, before anything else. What a teammate would need
   goes in the repo, even when you are the only one who has hit it; what binds your
