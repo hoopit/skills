@@ -135,6 +135,11 @@ on a fact you checked this session — that is what turns "8–14 days" into a v
 - "We fixed/retired/deleted X" → confirm X is gone. If it is, nothing about it
   graduates.
 - A memory citing `file:line`, a flag, or a construct → confirm it still exists.
+- A rule about to graduate → search for it where it bites: the docstring of the
+  function it governs, the test that pins it, the rule file it would join. The PR
+  that landed the work usually wrote its lesson down at the point of use, and then
+  the memory is the second copy. Search `origin/<default branch>`, because a working
+  checkout that is behind hides exactly the commit that wrote it.
 
 ### 4. Emit the verdict table
 Before touching anything, output **one row per memory** — the whole set, not just the
@@ -142,13 +147,16 @@ ones you plan to act on:
 
 | memory | type | age | idle | mined | now | later | when |
 |---|---|---|---|---|---|---|---|
-| payments-lock-order-class | project | 12d | 3d | "lock Payment → plans → UserPayment" — clears all three | graduate → `payments/AGENTS.md` | — | now |
+| payments-lock-order-class | project | 12d | 3d | "lock Payment → plans → UserPayment" — generic ✓ bites ✓ (deadlocked twice, silently) news ✓ (no code shows the order) | graduate → `payments/AGENTS.md` | — | now |
 | bac-7655-event-fanout-lock | project | 11d | 10d | — | keep | expire | PR #16781 merges (~2026-09-15) |
-| prod-rest-api-morning-floor-16539 | project | 15d | 15d | "floor the morning pool at 4" — second copy, it is in the Terraform comment | expire | — | now |
+| prod-rest-api-morning-floor-16539 | project | 15d | 15d | "floor the morning pool at 4" — generic ✓ bites ✓ news ✗ second copy, it is in the Terraform comment | expire | — | now |
 | gh-16612-csv-export-encoding | project | 5d | 5d | nothing: a status log of one PR's review rounds | expire | — | now |
 
-- **mined** — for every memory that is not a `keep`: the strongest rule it holds,
-  quoted in a few words, and the bar it cleared or the one that stopped it — or
+- **mined** — for every memory that is not a `keep`: each rule it holds, strongest
+  first, quoted in a few words, then each bar's result in turn — `generic`, `bites`, `news` —
+  with the evidence beside every ✓. The weakest bar decides: a ✓ you cannot put
+  evidence beside is a tie, and a tie expires. A memory graduates the rules that
+  clear, which is rarely all of them. A memory holding no rule reads
   `nothing: <what the memory was>`. Each cell is written from that memory's full
   text, so no two read alike; a second copy names where the first one lives.
 - **now** — `expire`, `graduate → <destination>`, or `keep`.
