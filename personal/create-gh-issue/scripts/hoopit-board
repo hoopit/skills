@@ -275,13 +275,27 @@ GATE_BROKE_YES = 0.5
 GATE_DISPUTED_MARGIN = 0.15
 
 
+# GitHub drops a stray 502/503/504 or a dead connection on requests that are otherwise
+# fine, and the board read walks several pages: one of them failing kills a whole tick for
+# a caller with nobody watching. Anything else — a 4xx, a rejected query, an exhausted
+# rate limit — is the request itself being wrong, and a retry only spends it again.
+GH_RETRY_PAUSES = (2, 8)
+GH_TRANSIENT = re.compile(r"HTTP 50[0234]\b|respond to your request in time"
+                          r"|connection reset|connection refused|timeout|unexpected EOF",
+                          re.I)
+
+
 def gh(*args, parse=True):
-    """gh with mise's stdout banner suppressed — it corrupts captured JSON."""
+    """gh with mise's stdout banner suppressed — it corrupts captured JSON. A transient
+    server failure is retried; anything else exits with the error gh printed."""
     env = {**os.environ, "MISE_QUIET": "1"}
-    r = subprocess.run(["gh", *args], capture_output=True, text=True, env=env)
-    if r.returncode != 0:
-        sys.exit(f"gh {' '.join(args)}\n{r.stderr.strip()}")
-    return json.loads(r.stdout) if parse else r.stdout
+    for pause in (*GH_RETRY_PAUSES, None):
+        r = subprocess.run(["gh", *args], capture_output=True, text=True, env=env)
+        if r.returncode == 0:
+            return json.loads(r.stdout) if parse else r.stdout
+        if pause is None or not GH_TRANSIENT.search(r.stderr):
+            sys.exit(f"gh {' '.join(args)}\n{r.stderr.strip()}")
+        time.sleep(pause)
 
 
 def rest(path, limit, **params):

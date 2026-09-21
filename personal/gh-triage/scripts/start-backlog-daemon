@@ -300,6 +300,15 @@ tick() {
     "${scope[@]}" "${excludes[@]}" > "$run"
   rc=$?
 
+  # `next` exits 1 with a full report when there is nothing to start, and 1 with nothing
+  # on stdout when GitHub answered a page with a 502/504 or the query itself was rejected.
+  # Only the file tells the two apart, so an unreadable one holds the tick rather than
+  # crashing the loop — the next tick asks again.
+  if ! python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$run" 2>/dev/null; then
+    log "board read produced no report — holding this tick"
+    return 0
+  fi
+
   python3 - "$run" "$seen" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
