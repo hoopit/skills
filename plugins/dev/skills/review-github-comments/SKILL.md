@@ -63,14 +63,15 @@ git worktree list
 
 ### 2. Fetch review comments and thread resolution status
 
-Fetch the raw comments:
-```bash
-gh api repos/<owner>/<repo>/pulls/<pr_number>/comments --paginate
-```
+Ask which threads are unresolved **first**, then fetch only their comments. A PR in its
+third round carries every thread the first two settled, and reading them all costs tens of
+thousands of tokens to rediscover that they are closed.
 
-Then check which threads are actually unresolved. This one has no REST equivalent — a review thread's resolved flag appears in no REST response — so it is worth spending the GraphQL call on. `reviewThreads` is paginated, so walk every page: a fixed `first: 50` silently drops unresolved threads on a busy PR:
+Thread resolution has no REST equivalent — a review thread's resolved flag appears in no
+REST response — so it is worth spending the GraphQL call on. `reviewThreads` is paginated,
+so walk every page: a fixed `first: 50` silently drops unresolved threads on a busy PR:
 ```bash
-gh api graphql --paginate \
+THREADS=$(gh api graphql --paginate \
   -f query='
 query($owner: String!, $repo: String!, $pr: Int!, $endCursor: String) {
   repository(owner: $owner, name: $repo) {
@@ -89,16 +90,39 @@ query($owner: String!, $repo: String!, $pr: Int!, $endCursor: String) {
       }
     }
   }
-}' -F owner=<owner> -F repo=<repo> -F pr=<pr_number>
-```
-> `--paginate` requires both the `$endCursor` variable and the `pageInfo` block to follow the cursor. It prints one JSON document **per page**, so merge the `nodes` arrays across pages instead of reading only the first document.
+}' -F owner=<owner> -F repo=<repo> -F pr=<pr_number>)
 
-Cross-reference `databaseId` with the REST comment IDs to build a map of `comment_id → isResolved`. Process only threads where `isResolved: false`.
+OPEN=$(jq -s '[.[].data.repository.pullRequest.reviewThreads.nodes[]
+  | select(.isResolved | not)
+  | {thread: .id, root: .comments.nodes[0].databaseId}]' <<<"$THREADS")
+```
+> `--paginate` requires both the `$endCursor` variable and the `pageInfo` block to follow
+> the cursor. It prints one JSON document **per page**, which is why `jq -s` slurps them
+> before reading the node arrays — reading only the first document drops later pages.
+
+Then the comments, projected to the six fields this skill uses and filtered to the open
+threads. A raw comment object is ~5 KB — `diff_hunk`, the full `user` object, `_links`,
+`reactions` and six URL variants — against ~600 bytes of substance, and nothing below
+reads any of it:
+```bash
+gh api "repos/<owner>/<repo>/pulls/<pr_number>/comments?per_page=100" --paginate \
+  --jq '.[] | {id, in_reply_to_id, user: .user.login, path, line: (.line // .original_line), body}' \
+  | jq -s --argjson open "$OPEN" '[ .[] as $c
+      | ($open[] | select(.root == ($c.in_reply_to_id // $c.id))) as $t
+      | $c + {thread: $t.thread} ]'
+```
+A reply carries its thread root in `in_reply_to_id`, so the join reaches whole threads, not
+just their first comment, and drops every comment belonging to a resolved one. Each surviving
+comment arrives with the `thread` id step 4 resolves it by — no second cross-reference.
+
+`diff_hunk` is deliberately absent: it is the code *as the reviewer saw it*, and step 1 left
+the worktree at PR head, so read `path` and `line` in the checkout instead. An empty result
+means there is nothing unresolved to process — go to step 5.
 
 ### 3. For each unresolved comment thread
 
 1. **Read the comment** — understand the reviewer's finding, suggestion, or question.
-2. **Locate the relevant code** — use the `path` and `line`/`original_line` fields to find the file and line(s) in the local codebase.
+2. **Locate the relevant code** — use the `path` and `line` fields to find the file and line(s) in the local checkout.
 3. **Decide**, and reply in the same move. The three decisions are the ledger's — see
    "Classifying an item" in [`../monitor-pr/LEDGER.md`](../monitor-pr/LEDGER.md) — whose
    challenge command reads `GATE_SCRIPT`, which a caller-owned round is given and a
@@ -128,7 +152,7 @@ gh api repos/<owner>/<repo>/pulls/<pr_number>/comments \
 ```
 > Note: `in_reply_to` must be an integer. Do **not** use `-f` (string flag) — use `--field` so it is sent as a number.
 
-**Resolving a thread** is the other call with no REST equivalent — there is no resolve endpoint. Use the `id` field from the GraphQL thread query above:
+**Resolving a thread** is the other call with no REST equivalent — there is no resolve endpoint. Use the `thread` field step 2 attached to the comment:
 ```bash
 gh api graphql -f query='
 mutation {
