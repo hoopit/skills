@@ -17,7 +17,9 @@ the round's push carries it.
 
 A `GREEN` that recommends merging ends on the merge briefing, in chat and in the PR
 description, with no `AskUserQuestion`: the ready PR is the question, and merging from
-GitHub is its answer. A `GREEN` that recommends holding is a decision you doubt, and asks.
+GitHub is its answer. The lane judge ([LANE.md](LANE.md)) runs first all the same: an
+`auto` verdict merges the PR and Step 4a lands it, and a `human` verdict's vetoes go into
+the briefing's chat copy and the debrief. A `GREEN` that recommends holding is a decision you doubt, and asks.
 
 That turn may be the session's last, so leave nothing running when it closes: end the
 watch as Step 4 does — `TaskStop` the monitor, drop the labels — and `TaskStop` everything
