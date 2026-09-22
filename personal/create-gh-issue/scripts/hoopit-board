@@ -908,8 +908,8 @@ def cmd_release(a):
 
 
 def make_ready(repo, number, project_id, fields, item_id, added):
-    """Move an item into the dispatch pool: owed work at filing, or a proposal the user
-    promotes. The callers pass that decision on as `--ready`.
+    """Move an item into the dispatch pool: work already decided on at filing, or a
+    proposal the user promotes. The callers pass that decision on as `--ready`.
 
     The add-workflow sets Backlog on an item the moment it joins the board, and it runs
     after the add returns — so a Ready written straight after the add is the one the
