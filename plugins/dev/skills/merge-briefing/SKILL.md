@@ -6,7 +6,7 @@ description: Brief a PR for whoever merges it. Use when asked how risky a PR is 
 # Merge briefing
 
 A merge asks someone to ship code they have not read, so the briefing is the read that
-tells them how hard to look before they do. Seven lines, not a second PR description:
+tells them how hard to look before they do. Eight lines, not a second PR description:
 
 - what was wrong, and who felt it;
 - what this changes, in a line;
@@ -17,6 +17,8 @@ tells them how hard to look before they do. Seven lines, not a second PR descrip
   `agent-ledger` block when the description carries one, read off it rather than
   re-derived;
 - **Merge risk: low · moderate · high · very high**, with the reason;
+- **Lane: auto · human**, with every reason — whether this head could have merged with
+  no human read (below);
 - what to look at first, if they read one thing;
 - anything else that moves the depth of that read — a check that passed on retry, an
   approval given on an earlier head, a challenge finding weighed and not held.
@@ -54,13 +56,32 @@ With no recommendation handed to you, recommend merging when every check is gree
 review thread is unresolved and no reviewer is still owed on this head; otherwise hold,
 naming what is owed.
 
+## The lane
+
+A verdict on record, never an action: nobody merges on it, and the merge question goes
+out the same whichever it says. It is what a later decision to merge unattended will be
+measured against, so every briefing carries it.
+
+Read the repo's *Workflow skills config* (`AGENTS.md` or `CLAUDE.md`) for **Guarded
+paths** — the regexes naming what always takes a human there: migrations, payment
+code, permission classes — and run the gate with them:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/skills/merge-briefing/scripts/lane-gate.sh" <OWNER_REPO> <PR> '<guarded paths, comma-separated>'
+```
+
+**auto** needs all four: `gate=pass`, **Warranted: yes**, **Merge risk: low**, and a
+recommendation to merge. Anything else is **human**, and the line names every reason —
+the gate's, then the briefing's own. A config with no **Guarded paths** line reads
+`human — no guarded paths configured`: a repo opts in by naming them.
+
 ## Write it into the PR description
 
 So whoever merges from GitHub reads what the chat got. A caller that owns the PR's rounds
 has settled this; asked directly, print the briefing and offer the write.
 
 It is a block of its own at the top of the body: a
-`## 🤖 Merge briefing · <head sha, 7 chars>` heading, the seven lines, then the
+`## 🤖 Merge briefing · <head sha, 7 chars>` heading, the eight lines, then the
 recommendation, between `<!-- agent-merge-briefing:start -->` and
 `<!-- agent-merge-briefing:end -->`. Read the body fresh at write time, so an edit made
 meanwhile survives:

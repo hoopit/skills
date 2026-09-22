@@ -44,12 +44,9 @@ challenge weighed, the recommendation with its reason, and the challenge finding
 and not held. It writes the briefing into the PR description; the merge question carries
 the same text. When the write fails, say so in the merge question and ask anyway.
 
-**The lane.** When the recommendation is to merge, read [LANE.md](LANE.md) and follow
-it before the merge question: a lane judge outside this session may clear the head and
-merge it, and then there is no question to put.
-
-Otherwise the merge is the user's call: ask, and recommend it. This session never merges
-on its own verdict. No Hoopit repo requires an
+The merge is the user's call, always: ask, and recommend it. The briefing's **Lane**
+line rides along in the question as a verdict on record; the session merges on the
+user's answer alone. No Hoopit repo requires an
 approval, so a `GREEN` waits on nobody's review; two things alone turn the recommendation
 to holding. A `GREEN` carrying `pending_gates` went green with a reviewer that never
 reported on the head: name it and recommend holding until it has. A merge-readiness
