@@ -25,6 +25,14 @@ the driving developer's own tracker instead, which the installed repo's `CLAUDE.
 describes. Where a GitHub issue carries out a Jira one, it names the `<KEY>-<n>` in its
 body rather than a second Jira item.
 
+## A description or comment points only at what its reader can open
+
+A Jira description, a comment or a Confluence page is read by people who do not have this
+machine. Never cite a file that lives only here: a note in a gitignored working directory, a
+PRD or plan the agent wrote, an absolute path. When the text needs such a file, stop and ask
+the user to publish it first (inline in the description, committed to the repo, or a shared
+page) and link the published copy.
+
 ## Authentication — always the first step
 
 ```bash

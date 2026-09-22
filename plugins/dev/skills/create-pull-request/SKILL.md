@@ -35,19 +35,6 @@ reviewer can jump to its source of truth:
 
 If there's genuinely no tracked item (e.g. a pure chore), say so in the body.
 
-## Reference only what the reader can open
-
-A PR body is read on GitHub, by people and agents who do not have this machine. Name
-code by repo-relative path, never by an absolute one. Never cite a local file: anything
-under a gitignored tracker directory such as `.scratch/`, a PRD or plan the agent wrote,
-a scratchpad note. Those exist only on the machine that wrote them, and a reader who
-follows the reference finds nothing.
-
-When the PR needs to point at such a file, stop and ask the author to publish it first
-(a Confluence page, a Claude artifact, or a file committed under `docs/`) and link the
-published copy. The same rule binds every shared surface an agent writes to: a Jira
-description or comment, a Confluence page, a Slack message.
-
 ## The title leads with the item
 
 `<ITEM_ID>: <what the change does>`. The `ITEM_ID` is the tracker's own id, and a
@@ -113,6 +100,19 @@ Re-read every linked surface and confirm each `ABC-123`-shaped key on it is in
 the allowed set. Drop the hyphen from every one that is not. A key a PR already
 moved is repaired from [`atlassian-cli`](../atlassian-cli/SKILL.md), *Repairing a
 status nobody set by hand*.
+
+## Reference only what the reader can open
+
+A PR body is read on GitHub by people and agents who do not have this machine, so one test
+binds every reference in it: the reader must be able to open it, from the branch this PR
+opens or from a link. Code and committed files go by repo-relative path, never an absolute
+one. Nothing that lives only on this machine qualifies: a note in a gitignored working
+directory, a PRD or plan the agent wrote, a scratchpad file. A reader who follows such a
+reference finds nothing.
+
+When the PR needs to point at such a file, stop and ask the user to publish it somewhere the
+reviewers can already open (inline in the body, committed on this branch, or a shared page)
+and link that copy.
 
 ## Creating the PR
 
