@@ -17,8 +17,7 @@ tells them how hard to look before they do. Eight lines, not a second PR descrip
   `agent-ledger` block when the description carries one, read off it rather than
   re-derived;
 - **Merge risk: low · moderate · high · very high**, with the reason;
-- **Lane: auto · human**, with every reason — whether this head could have merged with
-  no human read (below);
+- **Lane: auto · human**, with every reason (below);
 - what to look at first, if they read one thing;
 - anything else that moves the depth of that read — a check that passed on retry, an
   approval given on an earlier head, a challenge finding weighed and not held.
@@ -58,22 +57,25 @@ naming what is owed.
 
 ## The lane
 
-A verdict on record, never an action: nobody merges on it, and the merge question goes
-out the same whichever it says. It is what a later decision to merge unattended will be
-measured against, so every briefing carries it.
+Whether this head could have merged with no human read. A record, on every briefing:
+the merge question goes out the same whichever it says, and the answer to that question
+is what merges. The record is what a later decision to merge unattended is measured
+against.
 
-Read the repo's *Workflow skills config* (`AGENTS.md` or `CLAUDE.md`) for **Guarded
-paths** — the regexes naming what always takes a human there: migrations, payment
-code, permission classes — and run the gate with them:
+The gate settles the mechanical half. Read **Guarded paths** from the repo's *Workflow
+skills config* (`AGENTS.md` or `CLAUDE.md`) — the regexes naming what always takes a
+human there: migrations, payment code, permission classes — and hand them to it:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/skills/merge-briefing/scripts/lane-gate.sh" <OWNER_REPO> <PR> '<guarded paths, comma-separated>'
 ```
 
 **auto** needs all four: `gate=pass`, **Warranted: yes**, **Merge risk: low**, and a
-recommendation to merge. Anything else is **human**, and the line names every reason —
-the gate's, then the briefing's own. A config with no **Guarded paths** line reads
+recommendation to merge. Otherwise **human**. A config with no **Guarded paths** line is
 `human — no guarded paths configured`: a repo opts in by naming them.
+
+Done when the line reads `auto`, or `human` with every reason that put it there — the
+gate's, then the briefing's own.
 
 ## Write it into the PR description
 
