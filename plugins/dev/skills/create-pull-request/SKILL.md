@@ -35,6 +35,19 @@ reviewer can jump to its source of truth:
 
 If there's genuinely no tracked item (e.g. a pure chore), say so in the body.
 
+## Reference only what the reader can open
+
+A PR body is read on GitHub, by people and agents who do not have this machine. Name
+code by repo-relative path, never by an absolute one. Never cite a local file: anything
+under a gitignored tracker directory such as `.scratch/`, a PRD or plan the agent wrote,
+a scratchpad note. Those exist only on the machine that wrote them, and a reader who
+follows the reference finds nothing.
+
+When the PR needs to point at such a file, stop and ask the author to publish it first
+(a Confluence page, a Claude artifact, or a file committed under `docs/`) and link the
+published copy. The same rule binds every shared surface an agent writes to: a Jira
+description or comment, a Confluence page, a Slack message.
+
 ## The title leads with the item
 
 `<ITEM_ID>: <what the change does>`. The `ITEM_ID` is the tracker's own id, and a
