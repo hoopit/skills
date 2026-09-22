@@ -76,7 +76,7 @@ a release, and the issue that ships the code closes at merge, days before promot
   claim <repo> <n> --agent A [--tab T]    status -> In progress, then comment
   start <repo> <n>               the same, for work taken in this session
   release <repo> <n> --reason R [--ready]  status -> Backlog (or Ready), so the slot frees up
-  ready <repo> <n>               status -> Ready: the dispatch pool. Only on the user's ask
+  ready <repo> <n>               status -> Ready: the dispatch pool. Owed work, or the user's ask
   footprint <repo>...            paths the open PRs of each repo are touching
   drop <repo> <n> [--apply]      take a PullRequest item off the board
   triage <repo> <n> [--priority P2] [--effort M] [--autonomy Unattended]
@@ -116,9 +116,9 @@ IN_FLIGHT = ("In progress", "AI review", "Human review")
 # The part of flight an agent is still working, and so still spending quota on. A ready
 # PR waits on a human: it holds a slot and costs nothing.
 ACTIVE = ("In progress", "AI review")
-# Where dispatch picks from. A new item lands in `Backlog` and stays there, triaged or
-# not, until the user moves it to `Ready` — so promotion is the user's yes on each item,
-# and triage alone starts nothing.
+# Where dispatch picks from. Owed work is filed `Ready`; a proposal lands in `Backlog`
+# and waits, triaged or not, for the user to promote it — `create-gh-issue` draws the
+# line, and triage alone starts nothing.
 POOL = "Ready"
 PARKED = "Backlog"
 CLAIM_RE = re.compile(r"started (?:as (?:herdr )?agent|in a claude code session)", re.I)
@@ -907,8 +907,8 @@ def cmd_release(a):
 
 
 def make_ready(repo, number, project_id, fields, item_id, added):
-    """Move an item into the dispatch pool. Every write to the board's Status is on the
-    user's say-so; the callers pass that on as `--ready`.
+    """Move an item into the dispatch pool: owed work at filing, or a proposal the user
+    promotes. The callers pass that decision on as `--ready`.
 
     The add-workflow sets Backlog on an item the moment it joins the board, and it runs
     after the add returns — so a Ready written straight after the add is the one the
@@ -2380,7 +2380,7 @@ def main():
     s.add_argument("--not-before", dest="not_before", metavar="YYYY-MM-DD|none",
                    help="earliest day to pick this up; `none` clears it")
     s.add_argument("--ready", action="store_true",
-                   help="then move it to Ready — only when the user asked for it")
+                   help="then move it to Ready: owed work, or the user's ask")
     s.set_defaults(fn=cmd_triage)
     s = sub.add_parser("batch"); s.set_defaults(fn=cmd_batch)
     s = sub.add_parser("add"); s.add_argument("repo"); s.add_argument("number", type=int); s.set_defaults(fn=cmd_add)

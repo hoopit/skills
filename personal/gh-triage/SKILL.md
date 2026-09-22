@@ -14,9 +14,10 @@ Board: **LKs agent project** — <https://github.com/orgs/hoopit/projects/2>.
 lifted, decisions named — written onto the issues themselves, where the agent that
 eventually works them will read it.
 
-Triage starts nothing. The daemon picks from **Ready** alone, and a triaged item sits in
-**Backlog** until the user moves it there — `hoopit-board ready <repo> <n>`, on their
-say-so in this conversation and never on this run's. Step 4 offers the list.
+Triage starts nothing. The daemon picks from **Ready** alone, and what sits in
+**Backlog** is a proposal — filed there because its worth was the judgement — so it
+moves only on the user's say-so: `hoopit-board ready <repo> <n>`. Step 4 offers the
+list.
 
 Three passes, in order: **fields**, **collapse**, **grill**. Each costs more per item than
 the one before it, so an item that settles early never reaches a question.
