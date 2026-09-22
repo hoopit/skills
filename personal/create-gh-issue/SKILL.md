@@ -12,10 +12,10 @@ the backlog daemon filters on — so a blank one hands the triage
 straight back to a human. Untriaged is unfinished.
 
 Board: **LKs agent project** — <https://github.com/orgs/hoopit/projects/2>.
-Status says whether the work is **owed** or **proposed**. **Ready** is the pool
-`start-backlog-daemon` dispatches from, and owed work goes straight in. A proposal
-lands in **Backlog**, where it waits for the user to promote it. The gate below tells
-the two apart; the user's word beats it either way.
+**Ready** is the pool `start-backlog-daemon` dispatches from; **Backlog** is where an
+item waits for the user to promote it. Whether to file and which status to file into
+are two questions, and the two gates below answer them separately; the user's word
+beats either.
 
 Priority, Effort, Autonomy and `Start date` are org-wide **issue** fields on
 `hoopit`, shared by every repo and every board — the value rides on the issue itself,
@@ -30,19 +30,41 @@ other tracker. File what you are **sure** of, and ask about the rest.
 - **Sure**: the work follows from something you established — the item the task itself
   needs, a follow-up the shipped change leaves behind, a verification still to run, a
   confirmed bug, a wrong premise measured against prod, a finding that would otherwise
-  be lost. "This is broken and nobody has recorded it" files itself. This is owed work:
-  file it **Ready**.
+  be lost. "This is broken and nobody has recorded it" files itself.
 - **Unsure**: its worth is the judgement rather than its subject — a refactor, a
   cleanup, a nice-to-have, a decision dressed as a task, anything whose scope could be
-  a line or a month. "I think this would be good" asks, and torn asks. This is a
-  proposal: filed, it goes to **Backlog** unless the user says Ready.
+  a line or a month. "I think this would be good" asks, and torn asks.
 
 Asking is its own question — title and one line per proposed issue, never a bullet
-inside a larger summary being confirmed. With nobody there to ask, file it anyway in
-Backlog with Autonomy `Needs decision` and the decision named in the body: dropping it
-loses the finding, deciding it invents a requirement.
+inside a larger summary being confirmed. With nobody there to ask, file it anyway with
+Autonomy `Needs decision` and the decision named in the body: dropping it loses the
+finding, deciding it invents a requirement.
 
 Report what you filed with its number, so a wrong call is one click from closed.
+
+## Ready, or Backlog
+
+Clearing the filing gate says nothing about status. Ready is not importance and not
+confidence in the finding — **Ready means the decision to do this has already been
+taken, and only the doing is left**. Where filing the issue *is* the decision, it
+belongs in Backlog until the user makes it.
+
+One test: *if I did not file this, would something already agreed-to be left undone?*
+No — then Backlog.
+
+- **Ready**: the item the current task needs; work a shipped change is incomplete
+  without; a verification that change owes; a defect at `P0` or `P1`; anything the
+  user asked for.
+- **Backlog**: everything else, a confirmed `P2`/`P3` bug and a finding worth keeping
+  included. That a finding would otherwise be lost is a reason to **file** it, never a
+  reason to make it Ready — Backlog loses nothing.
+
+A finding a run turns up is almost always Backlog: the run was dispatched to do
+something else, and what it noticed on the way is a proposal however certain it is.
+`hoopit-board triage` backstops only the floor a machine can read — a `P3` never goes
+Ready, and `--ready` on one lands in Backlog with a line saying so. Everything above
+`P3` it takes on trust, so the test above is what decides those; `hoopit-board ready`
+is the override for when the user has said so.
 
 ## 1. Resolve the repo
 
@@ -135,8 +157,8 @@ hoopit-board triage <repo> <n> --priority P2 --effort M --autonomy Unattended --
 ```
 
 One call sets every field, and adds the issue to the board first when it is not there.
-`--ready` is the Status: on for owed work, off for a proposal, as the gate above
-decided. `--not-before YYYY-MM-DD` on the same call sets the fourth field, which most
+`--ready` is the Status: on only where the Ready gate above says the decision is
+already taken, off otherwise — and a `P3` is refused it whatever is passed. `--not-before YYYY-MM-DD` on the same call sets the fourth field, which most
 issues leave empty.
 
 **Priority**

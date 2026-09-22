@@ -80,7 +80,7 @@ a release, and the issue that ships the code closes at merge, days before promot
   footprint <repo>...            paths the open PRs of each repo are touching
   drop <repo> <n> [--apply]      take a PullRequest item off the board
   triage <repo> <n> [--priority P2] [--effort M] [--autonomy Unattended]
-         [--not-before YYYY-MM-DD|none] [--ready]
+         [--not-before YYYY-MM-DD|none] [--ready]   (--ready is refused on a P3)
   batch                          the same, for many items, from stdin
   add <repo> <n>                 put an issue on the board; prints its item id
   archive-done [--older-than N] [--apply]  (default 7 days)
@@ -116,9 +116,10 @@ IN_FLIGHT = ("In progress", "AI review", "Human review")
 # The part of flight an agent is still working, and so still spending quota on. A ready
 # PR waits on a human: it holds a slot and costs nothing.
 ACTIVE = ("In progress", "AI review")
-# Where dispatch picks from. Owed work is filed `Ready`; a proposal lands in `Backlog`
-# and waits, triaged or not, for the user to promote it — `create-gh-issue` draws the
-# line, and triage alone starts nothing.
+# Where dispatch picks from. `Ready` is for work whose decision is already taken;
+# anything whose decision the issue itself would be lands in `Backlog` and waits,
+# triaged or not, for the user to promote it — `create-gh-issue` draws the line, and
+# triage alone starts nothing.
 POOL = "Ready"
 PARKED = "Backlog"
 CLAIM_RE = re.compile(r"started (?:as (?:herdr )?agent|in a claude code session)", re.I)
@@ -2186,7 +2187,17 @@ def cmd_triage(a):
     for field, value in values:
         print(f"SET\t{a.repo}#{a.number}\t{field}={value}")
     if a.ready:
-        make_ready(a.repo, a.number, project_id, fields, item_id, added)
+        # The one part of the Ready gate a machine can read. Status is meant to say the
+        # decision to do the work is already taken, but "I am sure this finding is real"
+        # reads as that to an agent that just measured it, and the pool fills with work
+        # nobody scheduled. A P3 is by its own rubric fine if it sits, so it can never be
+        # owed; the rest is left to the caller's reading.
+        if a.priority == "P3":
+            print(f"NOT READY\t{a.repo}#{a.number}\tP3 is never owed work: left in "
+                  f"{PARKED}. `hoopit-board ready` if the user has said otherwise.",
+                  file=sys.stderr)
+        else:
+            make_ready(a.repo, a.number, project_id, fields, item_id, added)
 
 
 # None is the date field: any YYYY-MM-DD, or `none` to clear it.
@@ -2380,7 +2391,7 @@ def main():
     s.add_argument("--not-before", dest="not_before", metavar="YYYY-MM-DD|none",
                    help="earliest day to pick this up; `none` clears it")
     s.add_argument("--ready", action="store_true",
-                   help="then move it to Ready: owed work, or the user's ask")
+                   help="then move it to Ready: work already decided on. Refused on a P3")
     s.set_defaults(fn=cmd_triage)
     s = sub.add_parser("batch"); s.set_defaults(fn=cmd_batch)
     s = sub.add_parser("add"); s.add_argument("repo"); s.add_argument("number", type=int); s.set_defaults(fn=cmd_add)
