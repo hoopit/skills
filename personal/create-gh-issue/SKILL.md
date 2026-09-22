@@ -12,7 +12,10 @@ the backlog daemon filters on — so a blank one hands the triage
 straight back to a human. Untriaged is unfinished.
 
 Board: **LKs agent project** — <https://github.com/orgs/hoopit/projects/2>.
-Status belongs to the board's add-workflow; leave it where it lands.
+A new issue lands in **Backlog** and stays there. **Ready** is the dispatch pool —
+`start-backlog-daemon` picks from it alone — and moving an issue there is the user's
+yes on that item: pass `--ready` to `triage` only when they asked for it in the
+conversation, and never on an issue a run filed on its own judgement.
 
 Priority, Effort, Autonomy and `Start date` are org-wide **issue** fields on
 `hoopit`, shared by every repo and every board — the value rides on the issue itself,
@@ -130,7 +133,8 @@ hoopit-board triage <repo> <n> --priority P2 --effort M --autonomy Unattended
 
 One call sets every field, and adds the issue to the board first when it is not there.
 `--not-before YYYY-MM-DD` on the same call sets the fourth field, which most issues
-leave empty.
+leave empty. `--ready` on the same call moves it into the dispatch pool — the user's
+ask, as the top of this skill says, never the run's.
 
 **Priority**
 

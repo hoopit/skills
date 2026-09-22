@@ -75,11 +75,12 @@ a release, and the issue that ships the code closes at merge, days before promot
   check <repo> <n>               is this issue startable?  exit 0 yes / 1 no
   claim <repo> <n> --agent A [--tab T]    status -> In progress, then comment
   start <repo> <n>               the same, for work taken in this session
-  release <repo> <n> --reason R  status -> Backlog, so the slot frees up
+  release <repo> <n> --reason R [--ready]  status -> Backlog (or Ready), so the slot frees up
+  ready <repo> <n>               status -> Ready: the dispatch pool. Only on the user's ask
   footprint <repo>...            paths the open PRs of each repo are touching
   drop <repo> <n> [--apply]      take a PullRequest item off the board
   triage <repo> <n> [--priority P2] [--effort M] [--autonomy Unattended]
-         [--not-before YYYY-MM-DD|none]
+         [--not-before YYYY-MM-DD|none] [--ready]
   batch                          the same, for many items, from stdin
   add <repo> <n>                 put an issue on the board; prints its item id
   archive-done [--older-than N] [--apply]  (default 7 days)
@@ -115,6 +116,11 @@ IN_FLIGHT = ("In progress", "AI review", "Human review")
 # The part of flight an agent is still working, and so still spending quota on. A ready
 # PR waits on a human: it holds a slot and costs nothing.
 ACTIVE = ("In progress", "AI review")
+# Where dispatch picks from. A new item lands in `Backlog` and stays there, triaged or
+# not, until the user moves it to `Ready` — so promotion is the user's yes on each item,
+# and triage alone starts nothing.
+POOL = "Ready"
+PARKED = "Backlog"
 CLAIM_RE = re.compile(r"started (?:as (?:herdr )?agent|in a claude code session)", re.I)
 RELEASE_RE = re.compile(r"handed back to the backlog", re.I)
 STOPWORDS = set("""a an and are as at be by for from has have in into is it its of on or that the
@@ -547,17 +553,19 @@ def row(it, *extra):
 def cmd_slots(a):
     items = board()
     flight = [i for i in items if i["status"] in IN_FLIGHT]
-    backlog = sorted([i for i in items if i["status"] == "Backlog"], key=rank_key)
+    backlog = sorted([i for i in items if i["status"] == POOL], key=rank_key)
+    parked = [i for i in items if i["status"] == PARKED]
     deficit = a.target - len(flight)
-    print(f"in_flight={len(flight)}\ttarget={a.target}\tdeficit={max(deficit, 0)}")
+    print(f"in_flight={len(flight)}\ttarget={a.target}\tdeficit={max(deficit, 0)}"
+          f"\tready={len(backlog)}\tbacklog={len(parked)}")
     print("\n## IN FLIGHT")
     for i in sorted(flight, key=rank_key):
         print(row(i, i["status"], ",".join(p.rsplit("/", 1)[-1] for p in i["prs"]) or "-"))
-    untriaged = [i for i in backlog if i["type"] == "Issue" and not triaged(i)]
+    untriaged = [i for i in backlog + parked if i["type"] == "Issue" and not triaged(i)]
     if untriaged:
         print("\n## UNTRIAGED — set Priority, Effort and Autonomy before these can be ranked")
         for i in untriaged:
-            print(row(i, i["url"]))
+            print(row(i, i["status"], i["url"]))
     candidates = [i for i in backlog if triaged(i)]
     waiting = [i for i in candidates if scheduled(i)]
     candidates = [i for i in candidates if not scheduled(i)]
@@ -572,11 +580,18 @@ def cmd_slots(a):
             print("\n## HELD — not Unattended, so nobody is here to answer them")
             for i in held:
                 print(row(i, i["url"]))
-    print("\n## CANDIDATES — ranked, triaged only" + (", Unattended only" if a.unattended else ""))
+    print("\n## CANDIDATES — Ready, ranked, triaged only" + (", Unattended only" if a.unattended else ""))
     for i in candidates:
+        print(row(i, i["url"]))
+    promotable = sorted([i for i in parked if triaged(i) and not scheduled(i)
+                         and (not a.unattended or i["autonomy"] == "Unattended")], key=rank_key)
+    print("\n## BACKLOG — triaged, ranked; nothing here starts until the user moves it to Ready")
+    for i in promotable:
         print(row(i, i["url"]))
     if deficit <= 0:
         print("\nThe board is at capacity. Nothing to start.")
+    elif not candidates:
+        print(f"\nNothing is Ready. {len(parked)} item(s) sit in Backlog until the user promotes them.")
 
 
 def cmd_open(a):
@@ -878,12 +893,38 @@ def cmd_start(a):
 
 
 def cmd_release(a):
-    """Undo a claim: an agent that cannot finish leaves the slot to the next run."""
+    """Undo a claim: an agent that cannot finish leaves the slot to the next run.
+
+    The item goes to Backlog, where the user's promotion is what offers it again — a
+    release carries a question, and redispatching it unanswered repeats the run that
+    asked. `--ready` is for a release that carries no question: an agent that died
+    before it started, whose item the user already said yes to."""
     project_id, fields, _, item_id = ensure_item(a.repo, a.number)
-    set_status(project_id, fields, item_id, "Backlog")
+    set_status(project_id, fields, item_id, POOL if a.ready else PARKED)
     gh("api", f"repos/{a.repo}/issues/{a.number}/comments",
        "-f", f"body=Handed back to the backlog: {a.reason}", parse=False)
-    print(f"RELEASED\t{a.repo}#{a.number}")
+    print(f"RELEASED\t{a.repo}#{a.number}\t{POOL if a.ready else PARKED}")
+
+
+def make_ready(repo, number, project_id, fields, item_id, added):
+    """Move an item into the dispatch pool. Every write to the board's Status is on the
+    user's say-so; the callers pass that on as `--ready`.
+
+    The add-workflow sets Backlog on an item the moment it joins the board, and it runs
+    after the add returns — so a Ready written straight after the add is the one the
+    workflow overwrites. The wait lets it land first."""
+    if added:
+        time.sleep(10)
+    set_status(project_id, fields, item_id, POOL)
+    print(f"READY\t{repo}#{number}")
+
+
+def cmd_ready(a):
+    project_id, fields, _, item_id = locate(a.repo, a.number)
+    added = item_id is None
+    if added:
+        _, _, _, item_id = ensure_item(a.repo, a.number)
+    make_ready(a.repo, a.number, project_id, fields, item_id, added)
 
 
 def migration_app(path):
@@ -1197,8 +1238,12 @@ def cmd_footprint(a):
 
 
 def cmd_next(a):
-    """One tick of a dispatch loop: the deficit, and which backlog items can fill it
+    """One tick of a dispatch loop: the deficit, and which `Ready` items can fill it
     without colliding with work already in flight.
+
+    `Ready` is the pool and `Backlog` is not: an item waits there, however well triaged,
+    until the user promotes it. `backlog` counts what is waiting, so a tick with free
+    slots and nothing startable can be told from a starved one.
 
     `scheduled` is held out of it until its `Start date` falls due: the day it does,
     the item ranks again with no sweep to run and nothing to reset. `awaiting_deploy` is
@@ -1245,7 +1290,8 @@ def cmd_next(a):
 
     Exit 1 means there is nothing to dispatch, which is the loop's resting state. The
     JSON prints either way, so a caller can tell a full board from a starved one: free
-    slots with an empty `startable` and a non-zero `untriaged` is waiting on triage.
+    slots with an empty `startable` and a non-zero `untriaged` is waiting on triage, and
+    with `ready` at zero and `backlog` above it, waiting on the user's promotion.
     """
     exclude = {e.strip() for e in a.exclude}
     items = board()
@@ -1272,8 +1318,11 @@ def cmd_next(a):
                   if cap is not None)
     if a.max_review is not None and len(review) >= a.max_review:
         deficit = 0
-    backlog = sorted([i for i in items if i["status"] == "Backlog"], key=rank_key)
-    untriaged = [i for i in backlog if i["type"] == "Issue" and not triaged(i)]
+    backlog = sorted([i for i in items if i["status"] == POOL], key=rank_key)
+    parked = [i for i in items if i["status"] == PARKED]
+    # Fields are needed on both sides of the promotion — a Backlog item without them
+    # cannot be promoted into a rankable one — so triage sees both; only Ready ranks.
+    untriaged = [i for i in backlog + parked if i["type"] == "Issue" and not triaged(i)]
     ranked = [i for i in backlog if triaged(i) and i["type"] == "Issue"]
     # Unattended-only, always. `Needs decision` blocks on a sentence from the author and
     # `Out of reach` needs something no checkout reaches, so an agent cannot finish
@@ -1297,6 +1346,7 @@ def cmd_next(a):
     shortlist = candidates
     out = {
         "target": a.target, "in_flight": len(flight), "deficit": max(deficit, 0),
+        "ready": len(backlog), "backlog": len(parked),
         "max_active": a.max_active, "active": len(active),
         "max_review": a.max_review, "review": len(review),
         "quiet": [brief(i, "status", "prs", "agent") for i in quiet],
@@ -2112,28 +2162,31 @@ def cmd_drop(a):
 def cmd_triage(a):
     values = [(f, v) for f, v in (("Priority", a.priority), ("Effort", a.effort),
                                   ("Autonomy", a.autonomy)) if v]
-    if not values and not a.not_before:
+    if not values and not a.not_before and not a.ready:
         return 0
     # Locate before ensure_item: a rejected target must not be put on the board on its
     # way to the error.
-    project_id, _, res, item_id = locate(a.repo, a.number)
+    project_id, fields, res, item_id = locate(a.repo, a.number)
     # `resource()` on an /issues/<n> URL answers __typename "Issue" for a pull request
     # while handing back its PR_ global id, so the id is what says which one this is.
     if res["id"].startswith("PR_"):
         sys.exit(f"{a.repo}#{a.number} is a pull request: the three axes are issue "
                  "fields, and only an issue can carry them")
-    if not item_id:
-        gql('mutation($p:ID!,$c:ID!){ addProjectV2ItemById(input:{projectId:$p, contentId:$c}){ item{ id } } }',
-            p=project_id, c=res["id"])
+    added = item_id is None
+    if added:
+        item_id = gql('mutation($p:ID!,$c:ID!){ addProjectV2ItemById(input:{projectId:$p, contentId:$c}){ item{ id } } }',
+                      p=project_id, c=res["id"])["addProjectV2ItemById"]["item"]["id"]
     assigns = [axis_assign(f, v) for f, v in values]
     if a.not_before:
         assigns.append(date_assign(a.not_before))
         values.append((DATE_FIELD, a.not_before))
-    err = set_axes(res["id"], assigns)
+    err = set_axes(res["id"], assigns) if assigns else None
     if err:
         sys.exit(err)
     for field, value in values:
         print(f"SET\t{a.repo}#{a.number}\t{field}={value}")
+    if a.ready:
+        make_ready(a.repo, a.number, project_id, fields, item_id, added)
 
 
 # None is the date field: any YYYY-MM-DD, or `none` to clear it.
@@ -2279,7 +2332,12 @@ def main():
     s = sub.add_parser("start"); s.add_argument("repo"); s.add_argument("number", type=int)
     s.set_defaults(fn=cmd_start)
     s = sub.add_parser("release"); s.add_argument("repo"); s.add_argument("number", type=int)
-    s.add_argument("--reason", required=True); s.set_defaults(fn=cmd_release)
+    s.add_argument("--reason", required=True)
+    s.add_argument("--ready", action="store_true",
+                   help="back to Ready, not Backlog: the release carries no question")
+    s.set_defaults(fn=cmd_release)
+    s = sub.add_parser("ready"); s.add_argument("repo"); s.add_argument("number", type=int)
+    s.set_defaults(fn=cmd_ready)
     s = sub.add_parser("footprint"); s.add_argument("repos", nargs="+"); s.set_defaults(fn=cmd_footprint)
     s = sub.add_parser("next"); s.add_argument("target", nargs="?", type=int, default=None)
     s.add_argument("--exclude", action="append", default=[], metavar="REPO#N")
@@ -2321,6 +2379,8 @@ def main():
     s.add_argument("--autonomy", choices=AUTONOMY)
     s.add_argument("--not-before", dest="not_before", metavar="YYYY-MM-DD|none",
                    help="earliest day to pick this up; `none` clears it")
+    s.add_argument("--ready", action="store_true",
+                   help="then move it to Ready — only when the user asked for it")
     s.set_defaults(fn=cmd_triage)
     s = sub.add_parser("batch"); s.set_defaults(fn=cmd_batch)
     s = sub.add_parser("add"); s.add_argument("repo"); s.add_argument("number", type=int); s.set_defaults(fn=cmd_add)

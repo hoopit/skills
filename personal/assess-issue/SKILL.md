@@ -197,9 +197,10 @@ leaves the issue open and unworked while the board still reads **In progress**
 hoopit-board release <repo> <n> --reason '<the question, in a clause>'
 ```
 
-The release outranks the claim, so the issue is startable again once its
-question is answered. Only reach for this under `--started`; a run you invoked
-yourself has you to answer it.
+The release outranks the claim and parks the issue in **Backlog**, where nothing
+dispatches it: the user reads the question, answers it on the issue, and moves it to
+**Ready** — that promotion is the answer, and the next dispatch starts from it. Only
+reach for this under `--started`; a run you invoked yourself has you to answer it.
 
 ### Shipping
 
@@ -229,9 +230,9 @@ Under `--started`, a `ship` that hands back decides the slot by whether a PR is 
 - **No PR** — a `BLOCK`, the gate's cap, a brief Step 1 could not confirm. The issue is
   unworked again: write the question onto it, then release (*Handing the slot back*).
 - **A PR is open** — a hard fork, a stop or the cap in the watch. Keep the slot. A
-  released item returns to Backlog, where the next dispatch puts a second agent on a live
-  branch. The question goes on the PR's ledger and the issue, and the slot frees at the
-  merge.
+  released item returns to Backlog, and the promotion that answers its question puts a
+  second agent on a live branch. The question goes on the PR's ledger and the issue, and
+  the slot frees at the merge.
 
 ## 7. Report
 

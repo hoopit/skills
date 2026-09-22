@@ -14,6 +14,10 @@ Board: **LKs agent project** — <https://github.com/orgs/hoopit/projects/2>.
 lifted, decisions named — written onto the issues themselves, where the agent that
 eventually works them will read it.
 
+Triage starts nothing. The daemon picks from **Ready** alone, and a triaged item sits in
+**Backlog** until the user moves it there — `hoopit-board ready <repo> <n>`, on their
+say-so in this conversation and never on this run's. Step 4 offers the list.
+
 Three passes, in order: **fields**, **collapse**, **grill**. Each costs more per item than
 the one before it, so an item that settles early never reaches a question.
 
@@ -190,6 +194,9 @@ with each verdict stated, and every survivor names its decision.
   the number that matters: a retired item is a slot an unattended run fills from then on
   with nobody present.
 - Defects fixed: gate lines added or corrected, decisions named, paths supplied.
+- What is now `Unattended` in Backlog and could be promoted, ranked as `hoopit-board
+  slots --unattended` lists Backlog — the user picks which move to Ready; move none on
+  your own.
 - The `Out of reach` count alone, and that `gh-followup` is what works that bucket.
 - Whether anything is draining the queue: `systemctl --user is-active
   start-backlog.service` plus a `start-backlog-daemon` process check. A queue of

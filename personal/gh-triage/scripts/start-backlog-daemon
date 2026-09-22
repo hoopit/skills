@@ -69,9 +69,10 @@ MAX_REVIEW=${START_BACKLOG_MAX_REVIEW:-}
 INTERVAL=600
 ONCE=0
 DRY=0
-# A candidate this daemon dispatched inside the cooloff is passed over. An agent that
-# hands its issue straight back puts it in Backlog again and `check` reads the release
-# as cancelling the claim, so without this the same item redispatches every tick.
+# A candidate this daemon dispatched inside the cooloff is passed over. A reaped item
+# goes back to Ready and `check` reads the release as cancelling the claim, so without
+# this the same item redispatches every tick. (An agent that hands back with a question
+# parks its issue in Backlog, where only the user's promotion offers it again.)
 COOLOFF_HOURS=${START_BACKLOG_COOLOFF_HOURS:-6}
 # In progress this long with no open PR, and its herdr agent gone, means a dead agent
 # holding a slot nothing will ever free.
@@ -195,7 +196,9 @@ reap() {
     [[ "$agent" != "-" ]] || continue
     log "reap $item: agent '$agent' gone, claimed $age ago, no open PR"
     (( DRY )) && continue
-    hoopit-board release "${item%%#*}" "${item##*#}" \
+    # Back to Ready, not Backlog: the user's yes on this item stands, and the dead agent
+    # asked nothing that promotion would answer.
+    hoopit-board release "${item%%#*}" "${item##*#}" --ready \
       --reason "agent \`$agent\` is no longer running and left no open PR after $age." || true
   done < <(hoopit-board stale --older-than "$STALE_HOURS" 2>/dev/null)
 }
@@ -317,7 +320,7 @@ def of(n, cap):
     return f"{n}" if cap is None else f"{n}/{cap}"
 print(f'in_flight={of(d["in_flight"], d["target"])} active={of(d["active"], d["max_active"])} '
       f'quiet={len(d["quiet"])} review={of(d["review"], d["max_review"])} '
-      f'deficit={d["deficit"]} '
+      f'deficit={d["deficit"]} ready={d.get("ready", "?")} backlog={d.get("backlog", "?")} '
       f'candidates={d["candidates_total"]} startable={len(d["startable"])} '
       f'blocked={len(d["blocked"])} needs_judgement={len(d.get("needs_judgement", []))} '
       f'untriaged={len(d["untriaged"])} '
@@ -356,7 +359,9 @@ if d["deficit"] > 0 and not d["startable"]:
           f'{len(d.get("needs_judgement", []))} needing judgement, '
           f'{len(d["untriaged"])} untriaged, {len(d["held"])} held, '
           f'{len(d["scheduled"])} not yet due, {len(d["awaiting_deploy"])} awaiting '
-          f'deploy, {len(d["excluded"])} in cooloff, {d["unexamined"]} unexamined')
+          f'deploy, {len(d["excluded"])} in cooloff, {d["unexamined"]} unexamined'
+          + (f'; nothing is Ready and {d["backlog"]} wait in Backlog for promotion'
+             if not d.get("ready") and d.get("backlog") else ''))
 PY
   (( rc == 0 )) || return 0
 
