@@ -111,12 +111,14 @@ gh issue create --repo <repo> --assignee @me --type <Type> \
 | `Task` | Default. A specific piece of work that is neither of the above — a refactor, a chore, a cleanup, a spike. |
 | `Follow-up` | Work a **parent** issue is not complete without: logs to read once it ships, a script to run, errors to check, something to monitor. |
 
-The test is what the parent **owes**, not where you found this. A parent that closes
-incomplete without it — a verification it still owes, a shim to drop once the release
-drains, a flag to remove — is a `Follow-up`. Work the parent is complete without is
-typed on its own merits, a `Bug` or a `Task`, however much of it you found while
-working there. Name the parent in the body either way (`follows hoopit/api#412`): a
-cross-reference is not a type.
+The test is whether the work can **only begin once the parent has shipped** — a
+verification it owes, a repair its forward fix leaves behind, a shim to drop once the
+release drains, a flag to remove. That is a `Follow-up`, and where you found it decides
+nothing. Work that could start today is typed on its own merits, a `Bug` or a `Task`,
+however much of it you found while working on something else. An epic is a container
+being decomposed rather than a change that shipped, so its implementation rows are
+typed on their merits too. Name the parent in the body either way (`follows
+hoopit/api#412`): a cross-reference is not a type.
 
 ## 5. Set Priority, Effort and Autonomy
 
