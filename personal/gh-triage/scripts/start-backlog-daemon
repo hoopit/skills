@@ -13,7 +13,10 @@
 #
 # Judgement that needs a human is the `gh-triage` skill, and the items no agent can
 # finish — Autonomy `Needs decision` or `Out of reach` — are never started here at all;
-# `hoopit-board decisions` is the queue for clearing those by hand.
+# `hoopit-board decisions` is the queue for clearing those by hand. START_BACKLOG_SKIP_TYPES
+# holds back a second set: work an agent could finish, whose deliverable is an answer
+# rather than a diff. Those keep their place in Ready and wait for a session with
+# somebody in it.
 #
 # --max-active caps what an agent is still working — `In progress` and `AI review` — and
 # frees a slot when a PR goes ready, an assessment closes its issue, or an agent hands it
@@ -85,6 +88,11 @@ REPOS_DIR=${START_BACKLOG_REPOS_DIR:-$HOME/Dev/Hoopit}
 # nowhere else. The board also tracks tooling repos, and an unattended agent there
 # rewrites the skills every other agent is running on.
 REPOS=${START_BACKLOG_REPOS:-hoopit/api hoopit/web-admin hoopit/flutter-app}
+# Issue types left to a session with somebody in it. A `Follow-up` is gated on its
+# parent shipping and then measures production, so what it delivers is an answer about
+# what it found rather than a diff — and an unattended agent that finds the answer
+# wanting has nobody to put it to. Empty dispatches every type.
+SKIP_TYPES=${START_BACKLOG_SKIP_TYPES:-Follow-up}
 # 0 for a board whose work never touches AWS.
 AWS_CHECK=${START_BACKLOG_AWS_CHECK:-1}
 # How long between notifications while the session stays dead. The log says so every tick.
@@ -296,8 +304,9 @@ tick() {
           --idle-agents "$(awk -F'\t' '$4 == "quiet" { printf "%s%s", sep, $1; sep = "," }' "$seen")")
   fi
   mapfile -t excludes < <(cooloff_excludes)
-  local scope=() r
+  local scope=() r t
   for r in $REPOS; do scope+=(--repo "$r"); done
+  for t in $SKIP_TYPES; do scope+=(--skip-type "$t"); done
   hoopit-board next $TARGET ${MAX_ACTIVE:+--max-active "$MAX_ACTIVE"} \
     ${MAX_REVIEW:+--max-review "$MAX_REVIEW"} "${live[@]}" \
     "${scope[@]}" "${excludes[@]}" > "$run"
@@ -323,7 +332,7 @@ print(f'in_flight={of(d["in_flight"], d["target"])} active={of(d["active"], d["m
       f'deficit={d["deficit"]} ready={d.get("ready", "?")} backlog={d.get("backlog", "?")} '
       f'candidates={d["candidates_total"]} startable={len(d["startable"])} '
       f'blocked={len(d["blocked"])} needs_judgement={len(d.get("needs_judgement", []))} '
-      f'untriaged={len(d["untriaged"])} '
+      f'untriaged={len(d["untriaged"])} attended={len(d.get("attended", []))} '
       f'held={len(d["held"])} scheduled={len(d["scheduled"])} '
       f'awaiting_deploy={len(d["awaiting_deploy"])} cooloff={len(d["excluded"])} '
       f'unexamined={d["unexamined"]} blocked_by_issue={len(d["blocked_by_issue"])} '
@@ -358,6 +367,7 @@ if d["deficit"] > 0 and not d["startable"]:
           f'{len(d["blocked_by_issue"])} blocked by an open issue, '
           f'{len(d.get("needs_judgement", []))} needing judgement, '
           f'{len(d["untriaged"])} untriaged, {len(d["held"])} held, '
+          f'{len(d.get("attended", []))} left to an attended session, '
           f'{len(d["scheduled"])} not yet due, {len(d["awaiting_deploy"])} awaiting '
           f'deploy, {len(d["excluded"])} in cooloff, {d["unexamined"]} unexamined'
           + (f'; nothing is Ready and {d["backlog"]} wait in Backlog for promotion'
@@ -381,7 +391,7 @@ PY
   log "filled $count slot(s)"
 }
 
-log "start-backlog daemon: target=${TARGET:-none} max_active=${MAX_ACTIVE:-none} max_review=${MAX_REVIEW:-none} quiet_after=${QUIET_MINUTES}m interval=${INTERVAL}s dry=$DRY aws_check=$AWS_CHECK repos=$REPOS"
+log "start-backlog daemon: target=${TARGET:-none} max_active=${MAX_ACTIVE:-none} max_review=${MAX_REVIEW:-none} quiet_after=${QUIET_MINUTES}m interval=${INTERVAL}s dry=$DRY aws_check=$AWS_CHECK repos=$REPOS skip_types=${SKIP_TYPES:-none}"
 while :; do
   if ! herdr_up; then
     log "herdr server unreachable — holding"

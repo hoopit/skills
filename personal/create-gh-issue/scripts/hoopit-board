@@ -65,7 +65,7 @@ a release, and the issue that ships the code closes at merge, days before promot
 
   slots [X] [--unattended]       what to start, to reach X in flight (default 15)
   next [X] [--max-active N] [--max-review M] [--live-agents A,B] [--idle-agents C,D]
-       [--repo R]...
+       [--repo R]... [--skip-type TYPE]...
        [--exclude REPO#N]... [--no-judge]
                                  one tick, as JSON; exit 1 = nothing to do
   decisions [N] [--unnamed] [--out-of-reach] [--no-judge]   the top N decisions to answer (default 5)
@@ -379,7 +379,7 @@ BOARD_QUERY = """query($login:String!,$number:Int!,$after:String){
       pageInfo{ hasNextPage endCursor }
       nodes{ id
         content{ __typename
-          ... on Issue{ id number title url updatedAt repository{nameWithOwner} BODY
+          ... on Issue{ id number title url updatedAt issueType{name} repository{nameWithOwner} BODY
             blockedBy(first:20){ nodes{ number state repository{ nameWithOwner } } } }
           ... on PullRequest{ number title url updatedAt repository{nameWithOwner} } }
         status: fieldValueByName(name:"Status"){ ... on ProjectV2ItemFieldSingleSelectValue{name} }
@@ -433,6 +433,7 @@ def board(bodies=False):
             out.append({
                 "n": c["number"], "repo": c["repository"]["nameWithOwner"], "url": c["url"],
                 "title": c.get("title", ""), "type": c["__typename"],
+                "issue_type": (c.get("issueType") or {}).get("name") or "",
                 "updated": c.get("updatedAt"),
                 "status": (i.get("status") or {}).get("name", ""),
                 "priority": axis(i.get("priority")),
@@ -1304,6 +1305,10 @@ def cmd_next(a):
     elsewhere on the board holds no slot, and candidates elsewhere come back under
     `out_of_scope`.
 
+    `--skip-type` names an issue type to leave to a session with somebody in it; those
+    candidates come back under `attended`. It bounds nothing and releases nothing — the
+    items keep their place in Ready and `check` still passes them.
+
     Exit 1 means there is nothing to dispatch, which is the loop's resting state. The
     JSON prints either way, so a caller can tell a full board from a starved one: free
     slots with an empty `startable` and a non-zero `untriaged` is waiting on triage, and
@@ -1345,6 +1350,14 @@ def cmd_next(a):
     # either one however carefully it is dispatched. `decisions` is where they go.
     held = [i for i in ranked if i["autonomy"] != "Unattended"]
     ranked = [i for i in ranked if i["autonomy"] == "Unattended"]
+    # A type `--skip-type` names is left for a session with somebody in it. Unlike the
+    # Autonomy filter above, this holds back work an agent could finish: a `Follow-up`
+    # measures production and answers a question about what it found, and the answer is
+    # the deliverable rather than a diff. Nothing is released or moved — the item stays
+    # Ready, ranks as it did, and `check` still passes it, so `hoopit-board start` in an
+    # attended session picks it up untouched.
+    attended = [i for i in ranked if i["issue_type"] in a.skip_type]
+    ranked = [i for i in ranked if i["issue_type"] not in a.skip_type]
     waiting = [i for i in ranked if scheduled(i)]
     ranked = [i for i in ranked if not scheduled(i)]
     dependent = [i for i in ranked if i["blockers"]]
@@ -1368,6 +1381,7 @@ def cmd_next(a):
         "quiet": [brief(i, "status", "prs", "agent") for i in quiet],
         "untriaged": [brief(i) for i in untriaged],
         "held": [brief(i, "autonomy") for i in held],
+        "attended": [brief(i, "issue_type") for i in attended],
         "scheduled": [brief(i, "not_before")
                       for i in sorted(waiting, key=lambda x: x["not_before"])],
         "blocked_by_issue": [brief(i, "blockers") for i in dependent],
@@ -2377,6 +2391,8 @@ def main():
     s.add_argument("--idle-agents", default=None, metavar="C,D",
                    help="agents that exist and are not at work; with --live-agents, lets a "
                         "hand-started item be judged by the agent named gh<n>")
+    s.add_argument("--skip-type", action="append", dest="skip_type", default=[],
+                   metavar="TYPE", help="leave this issue type to an attended session")
     s.add_argument("--repo", action="append", dest="scope", default=[], metavar="OWNER/NAME",
                    help="count flight and start work only in these repos; every repo when omitted")
     s.add_argument("--no-judge", action="store_true",
