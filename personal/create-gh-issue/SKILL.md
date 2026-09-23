@@ -109,15 +109,11 @@ gh issue create --repo <repo> --assignee @me --type <Type> \
 | `Bug` | An unexpected problem or behaviour. Something is broken. |
 | `Feature` | A request, an idea, new functionality. |
 | `Task` | Default. A specific piece of work that is neither of the above — a refactor, a chore, a cleanup, a spike. |
-| `Follow-up` | Work a **parent** issue is not complete without: logs to read once it ships, a script to run, errors to check, something to monitor. |
+| `Follow-up` | **Gated** on a **parent** shipping: logs to read once it is live, a repair its forward fix leaves behind, a script to run, a shim to drop, a flag to remove. |
 
-The test is whether the work can **only begin once the parent has shipped** — a
-verification it owes, a repair its forward fix leaves behind, a shim to drop once the
-release drains, a flag to remove. That is a `Follow-up`, and where you found it decides
-nothing. Work that could start today is typed on its own merits, a `Bug` or a `Task`,
-however much of it you found while working on something else. An epic is a container
-being decomposed rather than a change that shipped, so its implementation rows are
-typed on their merits too. Name the parent in the body either way (`follows
+Type on what the work **waits for**, not on where you found it: work that could start
+today is a `Bug` or a `Task`. An epic is being decomposed rather than shipped, so its
+rows are typed on their own merits. Name the parent in the body either way (`follows
 hoopit/api#412`): a cross-reference is not a type.
 
 ## 5. Set Priority, Effort and Autonomy
