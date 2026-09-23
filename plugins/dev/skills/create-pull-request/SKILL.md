@@ -146,6 +146,11 @@ gh pr create \
   --base "$DEFAULT_BRANCH"
 ```
 
+A paragraph of the body is one line, however long: GitHub renders every newline in a
+PR body as a line break, so a paragraph wrapped at 80 or 120 columns shows up ragged.
+Break lines only where Markdown needs them, between paragraphs and list items. The
+72-column wrap belongs to commit bodies, which nothing renders.
+
 **Confirm the link registered**, while the body is still one edit away — from inside
 the worktree, on the branch you just opened:
 
