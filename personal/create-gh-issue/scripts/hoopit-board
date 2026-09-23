@@ -70,7 +70,7 @@ a release, and the issue that ships the code closes at merge, days before promot
                                  one tick, as JSON; exit 1 = nothing to do
   decisions [N] [--unnamed] [--out-of-reach] [--no-judge]   the top N decisions to answer (default 5)
   stale [--older-than H]         flight that may have lost its agent: no-pr | pr-quiet\n  dispatches [--since D] [--repo R]... [--no-judge]  merged PRs by the rung that wrote them
-  open                           every open item, one line each
+  open [--type TYPE]...          every open item, one line each
   scan [--no-judge]              every open item, with curation signals and judged duplicate pairs
   check <repo> <n>               is this issue startable?  exit 0 yes / 1 no
   claim <repo> <n> --agent A [--tab T]    status -> In progress, then comment
@@ -612,7 +612,13 @@ def cmd_slots(a):
 
 
 def cmd_open(a):
-    for i in sorted([i for i in board() if i["status"] != "Done"], key=rank_key):
+    """Every open item, ranked. `--type` narrows to one issue type — the board's own
+    view, so an issue nobody added is missing from it; `gh api search/issues` with
+    `type:"<name>"` is the org-wide read."""
+    items = [i for i in board() if i["status"] != "Done"]
+    if a.type:
+        items = [i for i in items if i["issue_type"] in a.type]
+    for i in sorted(items, key=rank_key):
         print(row(i, i["status"], i["url"]))
 
 
@@ -2358,6 +2364,8 @@ def main():
     s = sub.add_parser("slots"); s.add_argument("target", nargs="?", type=int, default=15)
     s.add_argument("--unattended", action="store_true"); s.set_defaults(fn=cmd_slots)
     s = sub.add_parser("open"); s.set_defaults(fn=cmd_open)
+    s.add_argument("--type", action="append", default=[], metavar="TYPE",
+                   help="only this issue type, e.g. Follow-up")
     s = sub.add_parser("scan"); s.set_defaults(fn=cmd_scan)
     s.add_argument("--no-judge", action="store_true",
                    help="skip the duplicate judgement; print the title-overlap pairs instead")
