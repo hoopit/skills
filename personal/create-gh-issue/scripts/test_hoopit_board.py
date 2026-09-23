@@ -168,11 +168,12 @@ def test_bad_input_is_refused_before_any_write():
 
 # --- `next`'s collision judgement -------------------------------------------------------
 
-def item(n, status="Backlog", effort="M", repo="hoopit/api", prs=(), title=None):
+def item(n, status="Ready", effort="M", repo="hoopit/api", prs=(), title=None):
     return {"n": n, "repo": repo, "url": f"https://github.com/{repo}/issues/{n}",
             "title": title or f"issue {n}", "type": "Issue", "updated": None,
             "status": status, "priority": "P2", "effort": effort,
-            "autonomy": "Unattended", "not_before": "", "content_id": f"C{n}",
+            "autonomy": "Unattended", "not_before": "", "blockers": [], "body": "",
+            "content_id": f"C{n}",
             "prs": list(prs), "pr_state": {u: "OPEN" for u in prs},
             "pr_updated": {}, "item_id": f"I{n}"}
 
@@ -189,6 +190,9 @@ def next_module(items, owners=None, per_pr=None, bodies=None, paths=(), apps=())
     m.migration_apps = lambda repo: list(apps)
     m.deploy_gate = lambda repo, body: ""
     m.repo_files = lambda repo, _c={}: (set(paths or ()), {}, True)
+    # The body cache is the user's own file: a test must neither read nor overwrite it.
+    m.body_cache_load = lambda: {}
+    m.body_cache_save = lambda cache: None
     m.gh = lambda *a, **k: (bodies or {}).get(int(a[1].rsplit("/", 1)[-1]), "")
     # A key on the machine running the tests must not decide whether the judgement is
     # reachable: every test here says so itself, by stubbing `ask`.
@@ -201,7 +205,9 @@ def run_next(m, target=15, no_judge=False):
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
         code = m.cmd_next(argparse.Namespace(target=target, exclude=[], scope=None,
-                                             no_judge=no_judge))
+                                             no_judge=no_judge, max_active=None,
+                                             max_review=None, live_agents=None,
+                                             idle_agents=None))
     return json.loads(out.getvalue()), code
 
 
