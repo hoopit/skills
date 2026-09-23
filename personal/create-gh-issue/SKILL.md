@@ -157,6 +157,13 @@ dispatched to do something else. That it would otherwise be lost is what makes i
 **filing**, never what makes it Ready — Backlog loses nothing. A `P3` is refused
 `--ready` outright; `hoopit-board ready` is the override.
 
+A `Follow-up` carrying a **condition** is the other side of that line: a `Gate: deployed`
+line or a `--not-before` date names what it waits for, and the parent shipping is what
+committed it. It is `Ready` from the moment it is filed — the condition holds it out of
+`startable` and out of `check` until it clears, so nothing starts early and nothing has
+to remember to promote it. Most are `P3`, so finish the triage call with
+`hoopit-board ready <repo> <n>`.
+
 **Effort**
 
 | | |
