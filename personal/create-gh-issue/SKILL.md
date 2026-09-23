@@ -169,7 +169,7 @@ dispatched to do something else. That it would otherwise be lost is what makes i
 | `L` | Multi-day, or cross-cutting enough that the approach needs deciding first. |
 | `XL` | Too big for one PR — say so, and offer to split it. |
 
-Price the hunt along with the fix: `DISPATCH_MODEL` in `hoopit-board` maps Effort to the
+Price the hunt along with the fix: the `dispatch-ladder` skill maps Effort to the
 model and reasoning effort an unattended start gets, so Effort is all that prices the
 hunt. A cause nobody has found, an approach still to decide, or a change across
 modules, migrations, concurrency or money is `L` even where the eventual diff is small.

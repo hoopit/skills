@@ -7,15 +7,9 @@ disable-model-invocation: true
 
 # Review the dispatch ladder
 
-`start-backlog-daemon` prices every issue off one table — `DISPATCH_MODEL` in `hoopit-board`,
-a joint ladder over model **and** effort:
-
-| Effort | XS | S | M | L | XL |
-|---|---|---|---|---|---|
-| | sonnet/medium | opus/medium | opus/high | fable/high | fable/xhigh |
-
-It is strictly increasing, and that is the one invariant: **no rung may be priced under a
-smaller one.** Checking effort alone is the wrong test — XS and S differ by model, not effort.
+`start-backlog-daemon` prices every issue off one table, a joint ladder over model **and**
+effort. Load the `dispatch-ladder` skill first: it names the file, the current rungs and the
+one invariant — **no rung may be priced under a smaller one.**
 
 You are here to answer one question: *did a rung go too far down?* Not to retune the ladder,
 not to add a tier. One move per run, or none.
@@ -96,11 +90,11 @@ across rungs; only the author varies.
 
 ## 5. Move at most one rung
 
-A move is one step, on one tier, in `DISPATCH_MODEL`. After it:
+A move is one step, on one tier, in the ladder file. After it:
 
-- Re-check the invariant across the whole table, not just the tier you touched.
-- Every level stays explicit. An unset effort silently inherits `~/.claude/settings.json`
-  (`effortLevel`, and `modelSettings` per model) — which a dispatch must never depend on.
+- Re-check the invariant across the whole table, not just the tier you touched —
+  `hoopit-board --help` loads the ladder and refuses one that breaks it. A move onto the
+  neighbouring tier's rung pools the two into one row from then on; say so.
 - Say in the commentary what the move was measured on.
 
 Moving *up* needs the same evidence as moving down. "It felt risky" is what the ladder

@@ -1,0 +1,11 @@
+{
+  "models": ["sonnet", "opus", "fable"],
+  "efforts": ["low", "medium", "high", "xhigh", "max"],
+  "rungs": {
+    "XS": {"model": "sonnet", "effort": "medium"},
+    "S": {"model": "opus", "effort": "medium"},
+    "M": {"model": "opus", "effort": "high"},
+    "L": {"model": "fable", "effort": "high"},
+    "XL": {"model": "fable", "effort": "xhigh"}
+  }
+}

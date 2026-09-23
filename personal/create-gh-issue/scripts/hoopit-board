@@ -94,20 +94,35 @@ PROJECT, OWNER = "2", "hoopit"
 PRIORITIES = ["P0", "P1", "P2", "P3"]
 EFFORTS = ["XS", "S", "M", "L", "XL"]
 AUTONOMY = ["Unattended", "Needs decision", "Out of reach"]
-# (model, reasoning effort) per Effort — one rung per tier, and the rungs are a joint
-# ladder over model *and* effort, never effort alone. It is strictly increasing:
-# sonnet/medium < opus/medium < opus/high < fable/high < fable/xhigh, so no tier is ever
-# priced under a smaller one. Every level is explicit; nothing relies on Claude Code's
-# own default (`xhigh`), which would silently make an unset tier the most expensive.
-# `claim` records what each dispatch got, which is the only durable join from a merged PR
-# back to the model that wrote it — and the only way the step down is observable at all.
-DISPATCH_MODEL = {
-    "XS": ("sonnet", "medium"),
-    "S": ("opus", "medium"),
-    "M": ("opus", "high"),
-    "L": ("fable", "high"),
-    "XL": ("fable", "xhigh"),
-}
+# The dispatch ladder is the `dispatch-ladder` skill's `ladder.json`, which states the rule.
+LADDER_FILE = os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                           "..", "..", "dispatch-ladder", "ladder.json")
+
+
+def load_ladder(path=LADDER_FILE):
+    """(model, reasoning effort) per Effort, refused if any tier is priced under a smaller
+    one. Every effort must be explicit: an unset one would inherit `effortLevel`.
+    `claim` records what each dispatch got, which is the only durable join from a merged PR
+    back to the model that wrote it — and the only way the step down is observable at all."""
+    with open(path) as f:
+        spec = json.load(f)
+    models, efforts, rungs = spec["models"], spec["efforts"], spec["rungs"]
+    if set(rungs) != set(EFFORTS):
+        sys.exit(f"{path}: rungs must be exactly {EFFORTS}, got {sorted(rungs)}")
+    ladder, prev = {}, None
+    for tier in EFFORTS:
+        r = rungs[tier]
+        if r.get("model") not in models or r.get("effort") not in efforts:
+            sys.exit(f"{path}: {tier} names a model or effort outside the listed axes: {r}")
+        rank = (models.index(r["model"]), efforts.index(r["effort"]))
+        if prev and rank < prev[1]:
+            sys.exit(f"{path}: {tier} is priced under {prev[0]}")
+        prev = (tier, rank)
+        ladder[tier] = (r["model"], r["effort"])
+    return ladder
+
+
+DISPATCH_MODEL = load_ladder()
 # GitHub's built-in date field, read as "not before": see the module docstring.
 DATE_FIELD = "Start date"
 # The two review statuses are the vocabulary `board-status.yml` writes: a draft PR is
