@@ -6,6 +6,7 @@
 #
 # Usage:  run_external_reviewers.sh <base-ref> [--challenge "<focus text>"] [--challenge-only]
 #                                   [--model "<codex model>"] [--skip-docs-only] [--no-cache]
+#                                   [--out <dir>]
 # <base-ref> is required — the default branch differs per project, so this script refuses to guess
 # rather than name one. Any ref the caller resolved is fine: a `full` pass passes
 # origin/<default branch>, a `light` pass the commit its last reviewers saw.
@@ -41,12 +42,17 @@
 # round over its own fix commits), NOT on a pass over a whole branch: in a docs or skills repo the
 # Markdown *is* the code, and a whole-branch skip would quietly leave that repo with no external
 # reviewer at all. `skipped` is not `unavailable` — nothing was there to review.
+#
+# --out writes the findings into a gate dir the caller already holds, so the caller's teardown
+# takes them with it. Without it the script opens a gate dir of its own (gate_dir.sh), which the
+# plugin's session hooks remove.
 
 BASE=""
 CHALLENGE=""
 CHALLENGE_MISSING=""
 MODEL=""
 SKIP_DOCS_ONLY=""
+OUT=""
 USE_CACHE=1
 STANDARD=1
 while [ $# -gt 0 ]; do
@@ -57,6 +63,9 @@ while [ $# -gt 0 ]; do
     --challenge-only) STANDARD=0; shift ;;
     --skip-docs-only) SKIP_DOCS_ONLY=1; shift ;;
     --no-cache) USE_CACHE=0; shift ;;
+    --out)
+      OUT="${2:-}"
+      shift; [ $# -gt 0 ] && shift ;;
     --model)
       MODEL="${2:-}"
       shift; [ $# -gt 0 ] && shift ;;
@@ -82,7 +91,10 @@ fail() {
 # Unique output dir per invocation so concurrent gates (different repos/worktrees,
 # run in parallel) never clobber each other's findings. The caller reads the exact
 # paths printed below, so the location is opaque to it.
-OUT="$(mktemp -d "${TMPDIR:-/tmp}/review-gate.XXXXXX")"
+if [ -z "$OUT" ]; then
+  OUT="$(bash "$(dirname "$0")/gate_dir.sh" open)" || fail "could not create an output dir"
+fi
+[ -d "$OUT" ] || fail "output dir $OUT does not exist"
 
 # An empty MODEL must expand to no arguments at all, so build the flag as an array. It goes to the
 # standard review alone — see --model above.

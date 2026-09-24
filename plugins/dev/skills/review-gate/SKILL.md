@@ -80,8 +80,19 @@ that policy.
    from the remote leaves the local branch behind, and that stale merge-base widens the reviewed
    diff by every unrelated upstream commit. Run from inside the worktree being reviewed. Every
    reviewer's findings land in one directory this pass
-   owns, so set `GATE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/review-gate.XXXXXX")` and keep it for the
-   whole pass.
+   owns, so open it and keep it for the whole pass:
+   ```bash
+   GATE_DIR=$(bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/gate_dir.sh" open)
+   ```
+   **Close it on every way the pass ends** — `PASS`, `BLOCK`, the Codex early return, a
+   hand-back — once you have read the findings in it:
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/gate_dir.sh" close "$GATE_DIR"
+   ```
+   That removes the dir, every probe worktree inside it, and their registration in the repo. A
+   pass that never gets there — interrupted, crashed — is swept by the plugin's session hooks
+   once its session ends, so nothing waits on this step alone; closing is what frees a probe's
+   ~60k files now rather than at session end.
 
    **A text-only diff** — every path in `git diff --name-only "$REVIEW_BASE"...HEAD` is prose:
    `*.md`, `*.mdx`, `*.txt`, `*.rst` — runs Codex's standard review and the **Standards** axis
@@ -90,7 +101,7 @@ that policy.
    A workflow, a config file or a script is code. Say in the notes that the diff was text-only.
 2. **External reviewer (Codex, required).** Run the bundled script:
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh" "$REVIEW_BASE" --challenge "$CHALLENGE" --model "$MODEL" $SKIP_DOCS_ONLY
+   bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh" "$REVIEW_BASE" --out "$GATE_DIR" --challenge "$CHALLENGE" --model "$MODEL" $SKIP_DOCS_ONLY
    ```
    Pass `--challenge` on a pass whose challenge runs (Inputs); leave it off otherwise. It
    prints `codex=<ran|cached|skipped|error|unavailable>[:file]` and, with a challenge,
@@ -147,11 +158,9 @@ that policy.
    can tell. Give each reviewer its own `PROBE_DIR` on the same prompt as its brief —
    `$GATE_DIR/standards-probe`, `$GATE_DIR/spec-probe`, `$GATE_DIR/independent-probe` — where
    it builds a private worktree the first time a probe has to change files (the agent
-   definition holds how), so only an axis that probes pays for the checkout. Once every
-   reviewer has reported, remove what they built:
-   ```bash
-   for w in "$GATE_DIR"/*-probe; do [ -d "$w" ] && git worktree remove --force "$w"; done
-   ```
+   definition holds how), so only an axis that probes pays for the checkout. A `PROBE_DIR`
+   is always inside `$GATE_DIR`: closing the dir is what removes the worktree, and one built
+   anywhere else outlives the pass.
    - **Preferred — invoke the `mattpocock-skills:code-review` skill** (the two-axis reviewer;
      use the namespaced name so it isn't confused with the built-in `/review`, which reviews an
      existing GitHub PR). Give it **`$REVIEW_BASE` as the fixed point** — it runs

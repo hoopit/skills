@@ -1,0 +1,27 @@
+{
+  "description": "Remove review-gate scratch dirs and probe worktrees a pass left behind.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/gate_dir_hook.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/gate_dir_hook.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
