@@ -80,19 +80,10 @@ that policy.
    from the remote leaves the local branch behind, and that stale merge-base widens the reviewed
    diff by every unrelated upstream commit. Run from inside the worktree being reviewed. Every
    reviewer's findings land in one directory this pass
-   owns, so open it and keep it for the whole pass:
+   owns, so open it and keep it for the whole pass — step 6 closes it:
    ```bash
    GATE_DIR=$(bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/gate_dir.sh" open)
    ```
-   **Close it on every way the pass ends** — `PASS`, `BLOCK`, the Codex early return, a
-   hand-back — once you have read the findings in it:
-   ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/gate_dir.sh" close "$GATE_DIR"
-   ```
-   That removes the dir, every probe worktree inside it, and their registration in the repo. A
-   pass that never gets there — interrupted, crashed — is swept by the plugin's session hooks
-   once its session ends, so nothing waits on this step alone; closing is what frees a probe's
-   ~60k files now rather than at session end.
 
    **A text-only diff** — every path in `git diff --name-only "$REVIEW_BASE"...HEAD` is prose:
    `*.md`, `*.mdx`, `*.txt`, `*.rst` — runs Codex's standard review and the **Standards** axis
@@ -109,7 +100,8 @@ that policy.
    for either that did not run a `<name>_reason=<what went wrong>` line. `codex=error` or
    `codex=unavailable` **ends the pass**: the moment the script returns, print
    `🔴 Codex unavailable — <reason>`, fire `PushNotification` with that line, and return
-   `BLOCK: Codex unavailable — <reason>` without running the rest of the pass. Nothing later in
+   `BLOCK: Codex unavailable — <reason>` without running the rest of the pass, closing the gate
+   dir first (step 6). Nothing later in
    the pass lifts that block — a second engine is what the gate is for — and reviewing the branch
    on one engine spends a round the caller pays for again once Codex is back. Make Codex
    available (its own auth counts — `codex setup`) and run the gate again; the re-run is a whole
@@ -236,7 +228,14 @@ that policy.
      one is recorded beside the block as *claim challenged, stands: <evidence>*, which is
      what the user weighs.
    - **Valid but unsafe / too large to fix in this change → `BLOCK`** with that reason.
-6. **Return the verdict:**
+6. **Close the gate dir, then return the verdict.** Every return closes it — `PASS`, `BLOCK`,
+   step 2's early return, a hand-back — once you have read the findings in it:
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/gate_dir.sh" close "$GATE_DIR"
+   ```
+   The pass is done when `$GATE_DIR` is gone and the verdict is returned. Closing removes every
+   probe worktree inside it along with its registration in the repo, freeing a probe's ~60k files
+   now; the plugin's session hooks sweep a pass that never reaches this step, at session end.
    - `PASS` + the scope and its fixed point + whether this pass made fix commits + a notes block
      for the PR: which reviewers ran (and which were skipped/unavailable), the challenge focus
      when one ran, findings fixed, findings skipped (with reasons), findings challenged and how

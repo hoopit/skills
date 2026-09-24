@@ -24,12 +24,11 @@ that is deliberate. Work only from the brief you are given and what you can read
   tree while you work: outside `PROBE_DIR`, the only file you write is `FINDINGS_FILE`. A probe
   that changes files — reverting one to the base, adding a scratch test — runs in a worktree of
   your own at the `PROBE_DIR` your brief carries:
-  `git worktree add --detach "$PROBE_DIR" HEAD`, then prepare only what the probe runs, the way
-  the repo's `CLAUDE.md` or its worktree skill prepares a fresh worktree — no dependency install
-  for a probe that runs no tests. A pnpm install there takes the reviewed worktree's store,
-  `pnpm install --store-dir "$(pnpm -C <reviewed worktree> store path)"`, or pnpm builds a
-  second store on the probe's filesystem. Never build it anywhere but `PROBE_DIR`: your caller
-  removes that path, and nothing removes any other.
+  `git worktree add --detach "$PROBE_DIR" HEAD` — exactly that path, the one your caller
+  removes. Prepare it the way the repo's `CLAUDE.md` or its worktree skill prepares a fresh
+  worktree, installing dependencies only when the probe runs tests. A pnpm install takes the
+  reviewed worktree's store, `--store-dir "$(pnpm -C <reviewed worktree> store path)"`, so the
+  probe shares it rather than building a second one on its own filesystem.
   Without a `PROBE_DIR`, probe by reading (`git show <base>:<path>`) and say in the finding
   that it was not run.
 
