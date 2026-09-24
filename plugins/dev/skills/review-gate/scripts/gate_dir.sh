@@ -13,7 +13,8 @@
 #
 # `open` stamps the dir with `.owner`: the session id, and the pid and start time of the Claude
 # process the caller runs under (CLAUDE_CODE_SESSION_ID, CLAUDE_PID). The start time is what
-# tells a live owner from a recycled pid. The plugin's SessionEnd hook sweeps the ending session's
+# tells a live owner from a recycled pid; where it cannot be read, the dir waits for its session's
+# end or the age rule. The plugin's SessionEnd hook sweeps the ending session's
 # dirs and its SessionStart hook sweeps dead owners', so a session that crashed is cleaned up by
 # the next one to start. A `review-gate*` path with no `.owner` — made outside `open` — is swept
 # once it is a day old, since nothing says whether its maker is still reading it.
@@ -37,15 +38,20 @@ owner_field() {  # <dir> <key>
   sed -n "s/^$2=//p" "$1/.owner" 2>/dev/null | head -1
 }
 
+# Git for Windows writes absolute paths as `C:/...`.
+is_abs() {
+  case "$1" in /*|[A-Za-z]:[/\\]*) return 0 ;; *) return 1 ;; esac
+}
+
 # The common git dir of the repo a worktree's `.git` file points into.
 common_dir() {  # <path to .git file>
   local admin
   admin="$(sed -n 's/^gitdir: //p' "$1" | head -1)"
   [ -n "$admin" ] || return 1
-  case "$admin" in /*) ;; *) admin="$(dirname "$1")/$admin" ;; esac
+  is_abs "$admin" || admin="$(dirname "$1")/$admin"
   if [ -f "$admin/commondir" ]; then
     local c; c="$(cat "$admin/commondir")"
-    case "$c" in /*) printf '%s\n' "$c" ;; *) printf '%s\n' "$admin/$c" ;; esac
+    if is_abs "$c"; then printf '%s\n' "$c"; else printf '%s\n' "$admin/$c"; fi
   else
     dirname "$(dirname "$admin")"
   fi
@@ -59,7 +65,8 @@ remove_dir() {  # <dir>
   done < <(find "$d" -maxdepth 2 -name .git -type f 2>/dev/null)
   rm -rf -- "$d"
   local r
-  for r in "${repos[@]}"; do
+  # The `+` form keeps an empty array from tripping `set -u` in bash 3.2 (macOS).
+  for r in ${repos[@]+"${repos[@]}"}; do
     [ -n "$r" ] && [ -d "$r" ] && git --git-dir="$r" worktree prune 2>/dev/null
   done
   return 0
@@ -83,8 +90,12 @@ sweep() {  # [session id]
         if [ -n "$session" ] && [ "$(owner_field "$d" session)" = "$session" ]; then
           remove_dir "$d"; continue
         fi
+        # An empty `started` means `open` could not read the owner's start time (Git Bash's `ps`
+        # has no `-o`), so liveness is unknown: only the session's end or the age rule removes it.
         pid="$(owner_field "$d" pid)"; started="$(owner_field "$d" started)"
-        if [ -z "$pid" ] || [ -z "$started" ] || [ "$(proc_start "$pid")" != "$started" ]; then
+        if [ -n "$started" ]; then
+          [ "$(proc_start "$pid")" != "$started" ] && remove_dir "$d"
+        elif [ -n "$(find "$d" -maxdepth 0 -mmin +"$STALE_MINUTES" 2>/dev/null)" ]; then
           remove_dir "$d"
         fi
       elif [ -n "$(find "$d" -maxdepth 0 -mmin +"$STALE_MINUTES" 2>/dev/null)" ]; then
