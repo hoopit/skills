@@ -80,7 +80,8 @@ with — an open PR, or another claimed issue — and the probability. Read the 
 that PR or issue and settle it one of two ways:
 
 - **It does not touch the same files.** Name the footprint in the body — backticked paths
-  that resolve in the checkout — so the path test decides it from then on.
+  that resolve in the checkout — so the path test decides it from then on. `AGENTS.md`,
+  `CLAUDE.md` and `.claude/rules/` never count: an issue cites those for their rules.
 - **It does.** Hold it behind the PR with `Gate: deployed <repo>#<pr>` in the body, so the
   board hands it back once that PR ships. Where the collision is with another in-flight
   issue rather than a PR, name the footprint instead: the paths then collide exactly and

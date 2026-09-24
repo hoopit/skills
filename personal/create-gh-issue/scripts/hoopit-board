@@ -152,6 +152,12 @@ DEPLOY_GATE = re.compile(
     re.I | re.M)
 BACKTICK = re.compile(r"`([^`\n]+)`")
 LINEREF = re.compile(r":\d+(?:-\d+)?$")
+# The files that tell an agent how to work rather than hold the work: `AGENTS.md` and
+# `CLAUDE.md` at any depth, and `.claude/rules/`. An issue cites them for the rule it
+# follows (`AGENTS.md:115-117`), which the path test cannot tell from a file it edits, so
+# one open PR that edits them would hold every issue quoting a rule. They collide with
+# nothing, on either side: two edits to one leave a prose conflict a rebase settles.
+INSTRUCTION_FILE = re.compile(r"(^|/)(AGENTS|CLAUDE)\.md$|^\.claude/rules/")
 # Two pieces of work that each add a migration conflict on the graph however far apart
 # their files sit, and an issue rarely says "migration" — it says what it enforces.
 # `CHECK (` stays case-sensitive under the re.I: lowercased it matches English prose
@@ -966,15 +972,21 @@ def footprints(repos):
     answer for. A PR that adds a migration also owns MIGRATION_TOKEN, so the next one to
     add one reads as a collision. The second return is the same reads kept per PR, which
     is what a judgement is asked about — the owners map has already lost which PR is which
-    by the time a candidate is compared against it."""
+    by the time a candidate is compared against it.
+
+    An INSTRUCTION_FILE is left out of both, so a PR that edits nothing else is never put
+    to a judgement either."""
     owners = defaultdict(list)
     per_pr = {}
     for repo in repos:
         for p in rest(f"repos/{repo}/pulls", 300, state="open"):
             tag = f'#{p["number"]}'
             # GitHub lists at most 3000 files per PR; a PR past 300 owns its module anyway.
-            files = [f["filename"] for f in rest(f"repos/{repo}/pulls/{p['number']}/files", 300)]
-            per_pr[f"{repo}{tag}"] = {"repo": repo, "title": p.get("title", ""), "files": files}
+            files = [f["filename"] for f in rest(f"repos/{repo}/pulls/{p['number']}/files", 300)
+                     if not INSTRUCTION_FILE.search(f["filename"])]
+            if files:
+                per_pr[f"{repo}{tag}"] = {"repo": repo, "title": p.get("title", ""),
+                                          "files": files}
             for name in files:
                 owners[(repo, name)].append(tag)
                 if MIGRATION_FILE.search(name):
@@ -1226,7 +1238,8 @@ def body_footprint(repo, body, judged=True):
     because it reads as a collision that is not there.
 
     A resolved migration file also carries its app's graph token: that one has a file
-    behind it, so it is as hard as the path it came from.
+    behind it, so it is as hard as the path it came from. An INSTRUCTION_FILE resolves
+    and is dropped: a body names one for its rules, not as work.
 
     `judged` is whether a migration judgement will speak for this body. With it on,
     nothing here is minted from prose — `adds_migration` reads the same words and can be
@@ -1241,6 +1254,7 @@ def body_footprint(repo, body, judged=True):
             out.add(cand)
         elif "/" not in cand and basenames.get(cand) and len(basenames[cand]) == 1:
             out.add(basenames[cand][0])
+    out = {p for p in out if not INSTRUCTION_FILE.search(p)}
     out |= {f"{MIGRATION_TOKEN}:{migration_app(p)}"
             for p in out if MIGRATION_FILE.search(p)}
     if not judged and MIGRATION_HINT.search(body or ""):

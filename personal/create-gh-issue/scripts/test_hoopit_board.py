@@ -170,7 +170,8 @@ def test_bad_input_is_refused_before_any_write():
 
 def item(n, status="Ready", effort="M", repo="hoopit/api", prs=(), title=None):
     return {"n": n, "repo": repo, "url": f"https://github.com/{repo}/issues/{n}",
-            "title": title or f"issue {n}", "type": "Issue", "updated": None,
+            "title": title or f"issue {n}", "type": "Issue", "issue_type": "",
+            "updated": None,
             "status": status, "priority": "P2", "effort": effort,
             "autonomy": "Unattended", "not_before": "", "blockers": [], "body": "",
             "content_id": f"C{n}",
@@ -207,7 +208,7 @@ def run_next(m, target=15, no_judge=False):
         code = m.cmd_next(argparse.Namespace(target=target, exclude=[], scope=None,
                                              no_judge=no_judge, max_active=None,
                                              max_review=None, live_agents=None,
-                                             idle_agents=None))
+                                             idle_agents=None, skip_type=[]))
     return json.loads(out.getvalue()), code
 
 
@@ -280,6 +281,42 @@ def test_an_exact_collision_is_never_put_to_the_model():
     assert only(d, "blocked") == ["hoopit/api#1"]
     assert d["blocked"][0]["collides"] == {"payments/models.py": ["#900"]}
     print("  an exact hit blocks without a request")
+
+
+def test_a_cited_instruction_file_is_no_footprint():
+    """An issue quotes `AGENTS.md` for the rule it follows. Read as a file it edits, one
+    open PR rewriting the rules holds every issue that quotes one."""
+    items = [item(1)]
+    m = next_module(items, owners={("hoopit/api", "AGENTS.md"): ["#900"],
+                                   ("hoopit/api", "payments/CLAUDE.md"): ["#900"]},
+                    bodies={1: "`AGENTS.md:115-117` says so, as does `payments/CLAUDE.md`; "
+                               "the fix is in `payments/tasks.py`"},
+                    paths=["AGENTS.md", "payments/CLAUDE.md", "payments/tasks.py"])
+    m.judge_candidate.ask = lambda s, q: ({"adds_migration": {"noul": 0.0}}, None)
+    d, code = run_next(m)
+    assert code == 0 and only(d, "startable") == ["hoopit/api#1"], d["blocked"]
+    assert d["startable"][0]["footprint"] == ["payments/tasks.py"]
+    print("  a quoted AGENTS.md or CLAUDE.md neither blocks nor footprints")
+
+
+def test_the_open_pr_sweep_skips_instruction_files():
+    """The other side of the same rule: a PR's own edits to them own nothing, and a PR
+    that edits nothing else is not put to a judgement."""
+    m = load()
+    files = {"900": ["AGENTS.md", "posts/AGENTS.md", ".claude/rules/testing.md"],
+             "901": ["CLAUDE.md", "posts/tasks.py"]}
+
+    def rest(path, limit, **params):
+        if path.endswith("/pulls"):
+            return [{"number": int(n), "title": f"pr {n}"} for n in files]
+        return [{"filename": f} for f in files[path.split("/")[-2]]]
+
+    m.rest = rest
+    owners, per_pr = m.footprints(["hoopit/api"])
+    assert dict(owners) == {("hoopit/api", "posts/tasks.py"): ["#901"]}, dict(owners)
+    assert list(per_pr) == ["hoopit/api#901"], per_pr
+    assert per_pr["hoopit/api#901"]["files"] == ["posts/tasks.py"]
+    print("  a rules-only PR owns nothing and is never judged")
 
 
 def test_a_migration_the_model_places_collides_on_the_graph():
