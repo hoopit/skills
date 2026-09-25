@@ -105,16 +105,7 @@ A **round** is one run of the **`review-gate`** skill from inside the worktree, 
 fix commits that run makes. Work rounds until the gate comes back clean — a round that
 declines every finding, the gate's closing pass, is clean too.
 
-**The checkpoint** comes every N rounds, N sized by the work item's Effort — `XS`/`S` 4,
-`M` 6, `L`/`XL` 10 — and 5 where there is none. On a GitHub issue, Effort is an org
-issue field:
-
-```bash
-gh api graphql -f query='{repository(owner:"<owner>",name:"<repo>"){issue(number:<n>){
-  issueFieldValues(first:20){nodes{... on IssueFieldSingleSelectValue{
-    name field{... on IssueFieldSingleSelect{name}}}}}}}}' \
-  --jq '.data.repository.issue.issueFieldValues.nodes[] | select(.field.name=="Effort") | .name'
-```
+**The checkpoint** comes every 5 rounds (below).
 
 Hand the gate `PRIOR_ROUNDS` from the rounds before, and `WORK_ITEM` and `BRIEF` as its
 `SPEC` — without the spec its Spec axis self-skips and half the review silently
@@ -166,8 +157,7 @@ from the rounds so far: the severity of what each round found, and how much of i
 in code an earlier round's fix added.
 
 - **Converging** — the findings have dropped to `Med` and below, and few land in fixes:
-  carry on without asking. Say so in one line, with what it turned on, and the next
-  checkpoint is N rounds on.
+  carry on without asking. Say so in one line, with what it turned on.
 - **Churning, or in doubt** — each round still finds `Critical`/`High`, the fixes keep
   drawing the findings, or the rounds do not settle which it is: stop and ask, saying
   why.

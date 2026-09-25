@@ -1,7 +1,7 @@
 ---
 name: monitor-pr
 description: Monitor a single pull request. Use only when explicitly asked to monitor a PR.
-argument-hint: "<PR url or number> [--rounds <N>] [--subagent[=<model>]] [--unattended]"
+argument-hint: "<PR url or number> [--subagent[=<model>]] [--unattended]"
 ---
 
 # Monitor PR
@@ -18,8 +18,8 @@ The watch runs to the merge. Three things end it early, each in front of the use
 - **a close holding a verdict** — a closing round that reports `verdict held` (*Closing
   the rounds* in [LEDGER.md](LEDGER.md)), whose head stays red and so never goes `GREEN`;
 - **a hard fork**, below;
-- **a checkpoint that stops** — every `--rounds` rounds, the agent weighs whether the
-  rounds are converging, and carries on unless it doubts they are (Step 4).
+- **a checkpoint that stops** — every 5 rounds, the agent weighs whether the rounds are
+  converging, and carries on unless it doubts they are (Step 4).
 
 Any other **closing round** — every item declined, nothing committed — ends the rounds,
 not the watch. The monitor stays armed, and the head's `GREEN` runs the merge-readiness
@@ -44,7 +44,6 @@ thread is soft by default; grade it hard only when its answer reaches the work i
 
 Flags:
 
-- `--rounds <N>` — a **checkpoint** every N rounds (Step 4). Unset, there is none.
 - `--subagent[=<model>]` — run rounds in a `hoopit-dev:monitor-pr-worker` instead of yourself,
   reused across rounds and rotated as [SUBAGENT.md](SUBAGENT.md) says. The model defaults
   to `opus`: the worker carries the labour and the probing, and the design judgement stays
@@ -117,8 +116,7 @@ its status is pending, or a thread of its is unresolved — and its silence hold
 rate-limited CodeRabbit never reports. For a repo whose reviewer statuses have other
 names, prefix `GATE_CHECKS=<a>,<b>`. Tune the timeout with `GATE_TIMEOUT=<seconds>`.
 
-Tell the user in one line that the watch is armed, what opens a round, and the
-checkpoint when `--rounds` sets one.
+Tell the user in one line that the watch is armed and what opens a round.
 
 ## Step 3 — Work each `ROUND`
 
@@ -161,14 +159,13 @@ monitor, then ask — as does the same check "still failing" in two consecutive 
 unless that check is a **verdict** (*Closing the rounds* in [LEDGER.md](LEDGER.md)), which
 the rounds carry themselves.
 
-**The checkpoint.** At every Nth counted round under `--rounds <N>`, weigh whether more
-rounds will bring the head to `GREEN`. Read it off the ledger: its convergence counts —
+**The checkpoint.** At every 5th counted round, weigh whether more rounds will bring the
+head to `GREEN`. Read it off the ledger: its convergence counts —
 findings in code a round added, design reversals — the `fixes R<k>` chains, and the
 severity of what the reviewers still find.
 
 - **Converging** — the reviewers have moved to polish, and no chain is growing: carry on
-  without asking. The round's report says so in one line, with the counts it turned on,
-  and the next checkpoint is N rounds on.
+  without asking. The round's report says so in one line, with the counts it turned on.
 - **Churning, or in doubt** — the rounds keep finding defects in their own fixes, or
   reopen a mechanism a step back already replaced, or the counts do not settle which it
   is: stop. A real doubt is the user's to settle.
