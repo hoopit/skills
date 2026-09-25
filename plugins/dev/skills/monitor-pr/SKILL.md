@@ -212,6 +212,11 @@ Facts are yours to find, decisions are the user's: anything answerable from the 
 logs, the diff or the code you look up yourself, so what reaches the user is only what
 they alone can settle.
 
+Until the PR is marked ready, ask only what the PR itself needs. A question that does not
+reach its code — a follow-up to file, a finding outside its scope — is settled without
+asking, filed where `create-gh-issue` says it should be, or held for the `GREEN` merge
+question.
+
 Five paths reach the user. The first two leave the watch running.
 
 **A soft fork.** Collect every soft fork the round produced, let the round finish its
