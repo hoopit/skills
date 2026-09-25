@@ -1,7 +1,7 @@
 ---
 name: assess-issue
 description: Decide whether one issue is worth fixing — price the fix, measure the harm against live data, then close it with the findings or ship it.
-argument-hint: "<issue> — a GitHub issue URL, <repo>#<n>, or #<n> in the current repo [--started] [--rounds N]"
+argument-hint: "<issue> — a GitHub issue URL, <repo>#<n>, or #<n> in the current repo [--started]"
 ---
 
 # Assess one issue
@@ -26,7 +26,6 @@ Flags:
   they dispatch exists).
   Skips the claim gate in step 1 and the status move in step 6; everything else
   is unchanged. Without it, an issue someone else claimed is not yours.
-- `--rounds <N>` — passed through to `ship`.
 
 ## 1. Resolve it and gate on it
 
@@ -217,7 +216,6 @@ after the fact. Then invoke the **`hoopit-dev:ship`** skill with:
   issue claimed: the true premise from step 2, and any figure from step 4 that
   bounds the fix (a migration's row count, the clubs affected). Where the filed
   premise turned out wrong, the brief says so and the PR body says so.
-- any `--rounds` this run was given;
 - `--unattended` under `--started`.
 
 The PR description carries `closes #<n>`, one line per issue. `ship` owns

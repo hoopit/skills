@@ -1,7 +1,7 @@
 ---
 name: ship
 description: Take one understood piece of work in one repo from a branch to a monitored PR. Use when asked to implement, fix, ship or handle an issue.
-argument-hint: "<the work, or the item tracking it> [--rounds <N>] [--unattended]"
+argument-hint: "<the work, or the item tracking it> [--unattended]"
 ---
 
 # Ship
@@ -20,8 +20,6 @@ once per repo, independently.
 
 Flags:
 
-- `--rounds <N>` — a checkpoint every N review-gate rounds (Step 6). Unset, Step 6 sizes
-  it from the work item.
 - `--unattended` — nobody is watching. Wherever this skill would ask the user, it
   **hands back** first: the run stops and returns the same substance — the findings,
   your reasoning, what you would do about each — to the caller as its result, which
@@ -107,9 +105,8 @@ A **round** is one run of the **`review-gate`** skill from inside the worktree, 
 fix commits that run makes. Work rounds until the gate comes back clean — a round that
 declines every finding, the gate's closing pass, is clean too.
 
-**The checkpoint** comes every N rounds: N is `--rounds` when given. Otherwise it follows
-the work item's Effort — `XS`/`S`
-4, `M` 6, `L`/`XL` 10 — and is 10 where there is none. On a GitHub issue, Effort is an org
+**The checkpoint** comes every N rounds, N sized by the work item's Effort — `XS`/`S` 4,
+`M` 6, `L`/`XL` 10 — and 5 where there is none. On a GitHub issue, Effort is an org
 issue field:
 
 ```bash
