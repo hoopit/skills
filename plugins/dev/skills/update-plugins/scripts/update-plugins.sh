@@ -47,10 +47,22 @@ for dir in "${candidates[@]}"; do
   done
 done
 
+# installed_plugins.json records native paths. On Windows that is `D:\x` or `d:\x`
+# while Git Bash sees `/d/x`, so both sides compare as `d:/x`, case-insensitively.
+if command -v cygpath >/dev/null; then
+  native() { cygpath -m "$1"; }
+  PATH_NORM='gsub("\\\\"; "/") | ascii_downcase'
+else
+  native() { printf '%s\n' "$1"; }
+  PATH_NORM='.'
+fi
+
 for dir in "${!found[@]}"; do
   repo=${found[$dir]}
-  if jq -e --arg d "$dir" --arg p "$PLUGIN" \
-       '.plugins[$p] // [] | any(.scope == "project" and .projectPath == $d)' "$INSTALLED" >/dev/null 2>&1; then
+  if jq -e --arg d "$(native "$dir")" --arg p "$PLUGIN" \
+       "def norm: $PATH_NORM;
+        .plugins[\$p] // [] | any(.scope == \"project\" and (.projectPath | norm) == (\$d | norm))" \
+       "$INSTALLED" >/dev/null 2>&1; then
     out=$(cd "$dir" && claude plugin update "$PLUGIN" --scope project --json 2>&1)
   else
     out=$(cd "$dir" && claude plugin install "$PLUGIN" --scope project --json 2>&1)
