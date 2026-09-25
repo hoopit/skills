@@ -308,7 +308,8 @@ def test_the_open_pr_sweep_skips_instruction_files():
 
     def rest(path, limit, **params):
         if path.endswith("/pulls"):
-            return [{"number": int(n), "title": f"pr {n}"} for n in files]
+            return [{"number": int(n), "title": f"pr {n}", "user": {"login": "someone"},
+                     "html_url": f"https://github.com/hoopit/api/pull/{n}"} for n in files]
         return [{"filename": f} for f in files[path.split("/")[-2]]]
 
     m.rest = rest
@@ -316,6 +317,8 @@ def test_the_open_pr_sweep_skips_instruction_files():
     assert dict(owners) == {("hoopit/api", "posts/tasks.py"): ["#901"]}, dict(owners)
     assert list(per_pr) == ["hoopit/api#901"], per_pr
     assert per_pr["hoopit/api#901"]["files"] == ["posts/tasks.py"]
+    assert per_pr["hoopit/api#901"]["author"] == "someone"
+    assert per_pr["hoopit/api#901"]["url"] == "https://github.com/hoopit/api/pull/901"
     print("  a rules-only PR owns nothing and is never judged")
 
 

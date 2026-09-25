@@ -986,7 +986,8 @@ def footprints(repos):
                      if not INSTRUCTION_FILE.search(f["filename"])]
             if files:
                 per_pr[f"{repo}{tag}"] = {"repo": repo, "title": p.get("title", ""),
-                                          "files": files}
+                                          "author": (p.get("user") or {}).get("login"),
+                                          "url": p.get("html_url"), "files": files}
             for name in files:
                 owners[(repo, name)].append(tag)
                 if MIGRATION_FILE.search(name):
@@ -1410,7 +1411,7 @@ def cmd_next(a):
         "flight": [brief(i, "status", "prs") for i in sorted(flight, key=rank_key)],
         "candidates_total": len(candidates), "unexamined": len(candidates),
         "startable": [], "blocked": [], "needs_judgement": [], "awaiting_deploy": [],
-        "no_checkout": [],
+        "no_checkout": [], "open_prs": {},
     }
     if deficit <= 0 or not candidates:
         print(json.dumps(out, indent=2))
@@ -1561,6 +1562,10 @@ def cmd_next(a):
             taken.setdefault((i["repo"], path), []).append(f'#{i["n"]} (picked this tick)')
 
     body_cache_save({k: v for k, v in bodies.items() if k in live})
+    # Who holds what a `blocked` entry collided with, so a reader can see whose PR to wait
+    # on. The PR sweep already fetched it; nothing here costs a query.
+    out["open_prs"] = {k: {"author": v.get("author"), "url": v.get("url")}
+                      for k, v in pr_files.items()}
     print(json.dumps(out, indent=2))
     return 0 if out["startable"] else 1
 

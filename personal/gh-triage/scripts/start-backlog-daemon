@@ -324,13 +324,27 @@ tick() {
     return 0
   fi
 
-  python3 - "$run" "$seen" <<'PY'
+  python3 - "$run" "$seen" "$COOLOFF_HOURS" "$SKIP_TYPES" <<'PY'
 import json, re, sys
 d = json.load(open(sys.argv[1]))
-def holders(repo, tags):
-    # A holder is tagged `#<n>` within the candidate's own repo.
-    return ",".join(re.sub(r"^#(\d+)", rf"https://github.com/{repo}/issues/\1", t) for t in tags)
 seen = {r[0]: r for r in (l.rstrip("\n").split("\t") for l in open(sys.argv[2])) if len(r) == 4}
+cooloff_hours, skip_types = sys.argv[3], sys.argv[4].split()
+prs = d.get("open_prs", {})
+ITEM = re.compile(r"[^ ]+#\d+")
+def who(key):
+    """`owner/repo#n` as a link, and the author when it is an open PR."""
+    repo, n = key.rsplit("#", 1)
+    pr = prs.get(key)
+    if pr and pr.get("url"):
+        return pr["url"] + (f' by @{pr["author"]}' if pr.get("author") else "")
+    return f"https://github.com/{repo}/issues/{n}"
+def holders(repo, tags):
+    # A holder is tagged `#<n>` within the candidate's own repo, with a note after it.
+    out = []
+    for t in tags:
+        m = re.match(r"#(\d+)(.*)", t)
+        out.append(who(f"{repo}#{m[1]}") + m[2] if m else t)
+    return ", ".join(out)
 def of(n, cap):
     return f"{n}" if cap is None else f"{n}/{cap}"
 print(f'in_flight={of(d["in_flight"], d["target"])} active={of(d["active"], d["max_active"])} '
@@ -346,11 +360,12 @@ print(f'in_flight={of(d["in_flight"], d["target"])} active={of(d["active"], d["m
       f'judgement={d.get("judgement", "off")}')
 for g in d["awaiting_deploy"][:5]:
     print(f'  awaiting deploy {g["url"]} {g["priority"]}/{g["effort"]}: {g["gate"]}')
-for b in d["blocked"][:5]:
+for b in d["blocked"]:
     if "collides" in b:
-        why = "; ".join(f'{p} held by {holders(b["repo"], v)}' for p, v in b["collides"].items())
+        why = "; ".join(f'{p} is held by {holders(b["repo"], v)}' for p, v in b["collides"].items())
     else:
-        why = "; ".join(f'{k} at {v}' for k, v in b.get("judged", {}).items())
+        why = "; ".join(f'likely overlaps {who(k) if ITEM.fullmatch(k) else k} ({v:.0%})'
+                        for k, v in b.get("judged", {}).items())
     print(f'  blocked {b["url"]} {b["priority"]}/{b["effort"]}: {why}')
 for j in d.get("needs_judgement", [])[:5]:
     # Neither startable nor rejected: the judgement landed between the thresholds, and
@@ -369,15 +384,34 @@ if d["max_review"] is not None and d["review"] >= d["max_review"]:
     print(f'  HOLDING: Human review is at {d["review"]}/{d["max_review"]} — nothing starts '
           f'until something there merges or closes')
 if d["deficit"] > 0 and not d["startable"]:
-    print(f'  IDLE with {d["deficit"]} slot(s) free: {len(d["blocked"])} blocked, '
-          f'{len(d["blocked_by_issue"])} blocked by an open issue, '
-          f'{len(d.get("needs_judgement", []))} needing judgement, '
-          f'{len(d["untriaged"])} untriaged, {len(d["held"])} held, '
-          f'{len(d.get("attended", []))} left to an attended session, '
-          f'{len(d["scheduled"])} not yet due, {len(d["awaiting_deploy"])} awaiting '
-          f'deploy, {len(d["excluded"])} in cooloff, {d["unexamined"]} unexamined'
-          + (f'; nothing is Ready and {d["backlog"]} wait in Backlog for promotion'
-             if not d.get("ready") and d.get("backlog") else ''))
+    # Every Ready item lands in exactly one of these, so the lines add up to `ready` —
+    # bar `untriaged`, which counts Backlog too. A zero line is left out.
+    held = d["held"]
+    autonomy = ", ".join(f'{n} {a}' for a, n in sorted(
+        {a: sum(h["autonomy"] == a for h in held) for a in {h["autonomy"] for h in held}}.items()))
+    why = [
+        (len(d["blocked"]), "would edit files an open PR or a claimed item already holds "
+                            "(listed above); each retries once that work merges"),
+        (len(d["blocked_by_issue"]), "wait on an open issue GitHub lists as blocking them"),
+        (len(d.get("needs_judgement", [])), "may overlap work in flight, too close to call "
+                                            "unattended; /gh-triage settles them"),
+        (len(held), f"need you first ({autonomy}); see `hoopit-board decisions`"),
+        (len(d.get("attended", [])), f"are a type left for a session with you in it "
+                                     f"({', '.join(skip_types) or 'none'})"),
+        (len(d["scheduled"]), "have a Start date still ahead"),
+        (len(d["awaiting_deploy"]), "wait on the deploy their Gate line names"),
+        (len(d["excluded"]), f"were dispatched in the last {cooloff_hours}h and are cooling off"),
+        (len(d["out_of_scope"]), "are in a repo this daemon does not fill"),
+        (d["unexamined"], "were not reached this tick"),
+        (len(d["untriaged"]), "lack Priority, Effort or Autonomy (Ready and Backlog both)"),
+    ]
+    print(f'  IDLE: {d["deficit"]} slot(s) free, and none of the {d.get("ready", "?")} '
+          f'Ready items can start:')
+    for n, what in why:
+        if n:
+            print(f'    {n:>3} {what}')
+    if not d.get("ready") and d.get("backlog"):
+        print(f'    nothing is Ready; {d["backlog"]} wait in Backlog for you to promote')
 PY
   (( rc == 0 )) || return 0
 
