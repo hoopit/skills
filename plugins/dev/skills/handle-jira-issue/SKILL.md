@@ -19,11 +19,11 @@ Flags:
   one included, and each session runs as agent `<name>`. The agent is defined in the
   directory you run from, so each session adds that directory with `--add-dir`.
 
-## Configuration — read from CLAUDE.md, never hardcode
+## Configuration — read from AGENTS.md, never hardcode
 
 This skill is project-agnostic. Every per-project identifier — Jira key, Jira base URL,
 ITSM project key, repo name — comes from the **`## Agent skills` →
-`### Workflow skills config`** block in that repo's `CLAUDE.md`. Read them from there;
+`### Workflow skills config`** block in that repo's `AGENTS.md`. Read them from there;
 if one you need is missing, **hand back**, naming the missing field, rather than assuming
 a default.
 
@@ -37,14 +37,14 @@ HOOPIT_ROOT="$(dirname "$(git rev-parse --show-toplevel)")"
 ### Build the Jira-key → repo map dynamically
 
 Do **not** assume a fixed `BAC/WEB/FA` map. For each sibling repo under
-`$HOOPIT_ROOT` that has a `CLAUDE.md`, read its declared **Jira project key** from
+`$HOOPIT_ROOT` that has an `AGENTS.md`, read its declared **Jira project key** from
 the Workflow skills config block. That yields the current `Jira key → repo`
 mapping, so new projects work without editing this skill:
 
 ```bash
 # Prints "KEY<TAB>/path/to/repo" for every sibling repo that declares a Jira key.
 for repo in "$HOOPIT_ROOT"/*/; do
-  cm="$repo/CLAUDE.md"; [ -f "$cm" ] || continue
+  cm="$repo/AGENTS.md"; [ -f "$cm" ] || continue
   key="$(grep -iE '^\s*[-*]\s*\*\*Jira project key:\*\*' "$cm" | grep -oE '`[A-Z][A-Z0-9]+`' | tr -d '`' | head -1)"
   [ -n "$key" ] && printf '%s\t%s\n' "$key" "${repo%/}"
 done
@@ -57,15 +57,15 @@ test below means "is its prefix one of them?". Wherever the steps show `BAC` / `
 Variables used throughout this skill:
 - `ITSM_ISSUE_KEY` — the ITSM ticket, **if one exists**. May be unset.
 - `DETAILS_KEY` — the issue you read the bug report / symptoms / attachments from: the **ITSM ticket when one exists**, otherwise the project issue itself.
-- `JIRA_BASE_URL` — the Jira base URL from CLAUDE.md (e.g. `https://hoopit.atlassian.net`).
-- `ITSM_PROJECT` — the ITSM project key from CLAUDE.md (e.g. `ITSM`); ITSM keys look like `<ITSM_PROJECT>-1234`.
+- `JIRA_BASE_URL` — the Jira base URL from AGENTS.md (e.g. `https://hoopit.atlassian.net`).
+- `ITSM_PROJECT` — the ITSM project key from AGENTS.md (e.g. `ITSM`); ITSM keys look like `<ITSM_PROJECT>-1234`.
 - Per affected repo:
   - `TARGET_PROJECT` — the Jira project key the fix is tracked under.
-  - `TARGET_REPO` — the repo whose CLAUDE.md declares `TARGET_PROJECT`.
+  - `TARGET_REPO` — the repo whose AGENTS.md declares `TARGET_PROJECT`.
   - `TARGET_KEY` — the platform issue key in `TARGET_PROJECT` (e.g. `BAC-6934`). Becomes that repo's working `JIRA_KEY`.
 
 > Wherever the steps below show `https://hoopit.atlassian.net` or `ITSM`, substitute
-> `$JIRA_BASE_URL` and `$ITSM_PROJECT` from CLAUDE.md.
+> `$JIRA_BASE_URL` and `$ITSM_PROJECT` from AGENTS.md.
 
 ### Implementation links
 
@@ -139,7 +139,7 @@ browser network activity at the time of the bug and often reveal the exact reque
 error responses that reproduce the problem; screenshots pin the affected screen/state.
 
 `acli` cannot download attachments, so that skill uses the Jira REST API (needs `JIRA_API_TOKEN` +
-`JIRA_EMAIL`, e.g. `set -a; . ~/.config/hoopit/jira.env; set +a`, with `$JIRA_BASE_URL` from CLAUDE.md).
+`JIRA_EMAIL`, e.g. `set -a; . ~/.config/hoopit/jira.env; set +a`, with `$JIRA_BASE_URL` from AGENTS.md).
 Pass it `DETAILS_KEY`. Key reminder it enforces: HARs are 5–15 MB — never read one whole; extract just
 the failing requests (status `0` or `>= 400`) and inspect those.
 

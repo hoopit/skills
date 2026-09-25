@@ -288,15 +288,15 @@ def test_a_cited_instruction_file_is_no_footprint():
     open PR rewriting the rules holds every issue that quotes one."""
     items = [item(1)]
     m = next_module(items, owners={("hoopit/api", "AGENTS.md"): ["#900"],
-                                   ("hoopit/api", "payments/CLAUDE.md"): ["#900"]},
-                    bodies={1: "`AGENTS.md:115-117` says so, as does `payments/CLAUDE.md`; "
+                                   ("hoopit/api", "payments/AGENTS.md"): ["#900"]},
+                    bodies={1: "`AGENTS.md:115-117` says so, as does `payments/AGENTS.md`; "
                                "the fix is in `payments/tasks.py`"},
-                    paths=["AGENTS.md", "payments/CLAUDE.md", "payments/tasks.py"])
+                    paths=["AGENTS.md", "payments/AGENTS.md", "payments/tasks.py"])
     m.judge_candidate.ask = lambda s, q: ({"adds_migration": {"noul": 0.0}}, None)
     d, code = run_next(m)
     assert code == 0 and only(d, "startable") == ["hoopit/api#1"], d["blocked"]
     assert d["startable"][0]["footprint"] == ["payments/tasks.py"]
-    print("  a quoted AGENTS.md or CLAUDE.md neither blocks nor footprints")
+    print("  a quoted AGENTS.md neither blocks nor footprints")
 
 
 def test_the_open_pr_sweep_skips_instruction_files():
@@ -304,7 +304,7 @@ def test_the_open_pr_sweep_skips_instruction_files():
     that edits nothing else is not put to a judgement."""
     m = load()
     files = {"900": ["AGENTS.md", "posts/AGENTS.md", ".claude/rules/testing.md"],
-             "901": ["CLAUDE.md", "posts/tasks.py"]}
+             "901": ["AGENTS.md", "posts/tasks.py"]}
 
     def rest(path, limit, **params):
         if path.endswith("/pulls"):

@@ -63,7 +63,7 @@ is what merges. The record is what a later decision to merge unattended is measu
 against.
 
 The gate settles the mechanical half. Read **Guarded paths** from the repo's *Workflow
-skills config* (`AGENTS.md` or `CLAUDE.md`) — the regexes naming what always takes a
+skills config* (`AGENTS.md`) — the regexes naming what always takes a
 human there: migrations, payment code, permission classes — and hand them to it:
 
 ```bash

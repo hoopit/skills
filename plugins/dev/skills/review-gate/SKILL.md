@@ -73,7 +73,7 @@ that policy.
 
 ## Steps
 
-1. **Fixed point.** Resolve `$DEFAULT_BRANCH` from the repo's CLAUDE.md *Workflow skills config*
+1. **Fixed point.** Resolve `$DEFAULT_BRANCH` from the repo's AGENTS.md *Workflow skills config*
    (e.g. `master`), then set the base every reviewer in this pass diffs against:
    `git fetch` and `REVIEW_BASE=origin/$DEFAULT_BRANCH` under `full`, `REVIEW_BASE=$REVIEWED_AT`
    under `light`. **The remote-tracking ref carries the fixed point**, because a worktree branched

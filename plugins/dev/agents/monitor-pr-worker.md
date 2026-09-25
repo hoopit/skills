@@ -171,7 +171,7 @@ questioned rather than patched.
    and neither does a **verdict** (*Closing the rounds* in `LEDGER`): its findings are
    axis 2's threads.
 4. **Prune the prose you edited.** When any fix above touched agent-facing prose —
-   `AGENTS.md` / `CLAUDE.md`, a rule, a skill, anything under `docs/` — re-read every heading
+   `AGENTS.md`, a rule, a skill, anything under `docs/` — re-read every heading
    this round touched against `mattpocock-skills:writing-for-agents`, **every round**. Where
    that skill is not installed, hold them to its core test: every line bears on what the
    document does, and each meaning lives once, under the heading it belongs to. Rounds

@@ -32,7 +32,7 @@ to it: that is `ship`'s Step 1, in the repo it owns.
 ## Where each session starts
 
 - **Directory** — `<TARGET_REPO>`, the repo the session ships in, so it picks up that repo's
-  `CLAUDE.md`, settings and skills.
+  `AGENTS.md`, settings and skills.
 - **Name** — `fix-<TARGET_KEY>`.
 - **Agent** — only under `--session-agent`: `--add-dir "<your directory>" --agent
   <SESSION_AGENT>`. The agent is defined in your directory, and `--add-dir` is what lets a

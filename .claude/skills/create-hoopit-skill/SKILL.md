@@ -31,15 +31,15 @@ Instead:
 
 - **Derive it at runtime** when you can. E.g. an org/repo that's already present
   in a URL or in `git remote` — parse it, don't hard-code it.
-- **Defer to `CLAUDE.md`** otherwise. Anything project-specific the skill needs
-  belongs in the `CLAUDE.md` of *every* repo the skill is installed into. The
-  skill should say "check the current repo's `CLAUDE.md` for X" rather than
-  naming X. Keeping those facts in `CLAUDE.md` is part of shipping the skill —
+- **Defer to `AGENTS.md`** otherwise. Anything project-specific the skill needs
+  belongs in the `AGENTS.md` of *every* repo the skill is installed into. The
+  skill should say "check the current repo's `AGENTS.md` for X" rather than
+  naming X. Keeping those facts in `AGENTS.md` is part of shipping the skill —
   if you add a skill that needs a new fact, add that fact to each target repo's
-  `CLAUDE.md`.
+  `AGENTS.md`.
 
 ❌ `The org/repo for this project is hoopit/api.`
-✅ `Parse the org/repo from the URL; if absent, see the repo's CLAUDE.md.`
+✅ `Parse the org/repo from the URL; if absent, see the repo's AGENTS.md.`
 
 Skill content should read identically useful whether Claude is in `api`,
 `flutter-app`, or a repo that doesn't exist yet.
@@ -99,7 +99,7 @@ context — stop rather than run it.
 ## Checklist
 
 - [ ] Skill body contains no project-specific terms (Rule 1)
-- [ ] Any project-specific facts it relies on are added to each target repo's `CLAUDE.md`
+- [ ] Any project-specific facts it relies on are added to each target repo's `AGENTS.md`
 - [ ] Skill lives at `plugins/<group>/skills/<name>/SKILL.md`
 - [ ] Bundled scripts invoked as `${CLAUDE_PLUGIN_ROOT}/skills/<name>/scripts/…`
 - [ ] `marketplace.json` touched only if a plugin/group was added or removed (valid JSON)

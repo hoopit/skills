@@ -21,7 +21,7 @@ setting: the cost lands on the team either way. Reading, searching and viewing a
 free — the gate is on writes that create work.
 
 Agent-driven work items — follow-ups, findings, the tickets cut from a spec — belong in
-the driving developer's own tracker instead, which the installed repo's `CLAUDE.md`
+the driving developer's own tracker instead, which the installed repo's `AGENTS.md`
 describes. Where a GitHub issue carries out a Jira one, it names the `<KEY>-<n>` in its
 body rather than a second Jira item.
 

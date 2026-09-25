@@ -37,7 +37,7 @@ Flags:
   and which tracker it lives in. Unset for ad-hoc work; the PR then says so.
 
 Every other fact this skill needs is read at runtime from `TARGET_REPO` —
-`DEFAULT_BRANCH` and tracker config from its `CLAUDE.md` *Workflow skills config*,
+`DEFAULT_BRANCH` and tracker config from its `AGENTS.md` *Workflow skills config*,
 conventions from the repo itself.
 
 ## Step 1 — Investigate against the code

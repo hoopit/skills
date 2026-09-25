@@ -60,5 +60,5 @@ for i, t in enumerate(failures, 1):
 "
 ```
 
-- If the URL doesn't include the org/repo, check the current repo's `CLAUDE.md`
+- If the URL doesn't include the org/repo, check the current repo's `AGENTS.md`
   for its GitHub repo slug and other CircleCI specifics.

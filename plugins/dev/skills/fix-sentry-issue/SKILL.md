@@ -9,10 +9,10 @@ Triggered when the user says something like "fix this sentry issue" and provides
 
 This skill owns the Sentry-specific work — fetch the issue, create or link a Jira ticket with a native two-way link — then hands off to the **`ship`** skill for the branch → code → test → review → PR flow.
 
-## Configuration — read from CLAUDE.md, never hardcode
+## Configuration — read from AGENTS.md, never hardcode
 
 This skill is project-agnostic. Run it from inside the affected repo and read its
-**`## Agent skills` → `### Workflow skills config`** block in `CLAUDE.md`; if a value you
+**`## Agent skills` → `### Workflow skills config`** block in `AGENTS.md`; if a value you
 need is missing or marked TODO, **stop and ask the user to add it** rather than assuming a
 default.
 
@@ -20,11 +20,11 @@ default.
 - `JIRA_BASE_URL` — the **Jira base URL** (e.g. `https://hoopit.atlassian.net`).
 - `SENTRY_ORG` — the **Sentry org** (e.g. `hoopit`).
 - `SENTRY_PROJECT` — the **Sentry project** slug.
-- `SENTRY_JIRA_INTEGRATION_ID` — the numeric id of the Sentry↔Jira integration, used to create the native two-way issue link (e.g. `12493`). If it's missing from CLAUDE.md, derive it once with the command in Step 2c and add it.
+- `SENTRY_JIRA_INTEGRATION_ID` — the numeric id of the Sentry↔Jira integration, used to create the native two-way issue link (e.g. `12493`). If it's missing from AGENTS.md, derive it once with the command in Step 2c and add it.
 
 Wherever the steps below show `BAC`, `hoopit`, or `https://hoopit.atlassian.net`,
 substitute `$JIRA_PROJECT`, `$SENTRY_ORG`, and `$JIRA_BASE_URL`. Resolve the repo from
-where you are invoked (cwd) and its CLAUDE.md — not from the Sentry ID prefix.
+where you are invoked (cwd) and its AGENTS.md — not from the Sentry ID prefix.
 
 ## Step 1 — Fetch Sentry issue details
 
@@ -36,7 +36,7 @@ Use the `sentry` CLI to get full issue details. If a full Sentry URL is provided
 sentry issue view <SENTRY_ID> --json
 ```
 
-If the CLI cannot auto-detect the org, prefix the issue ID with the org slug (`$SENTRY_ORG` from CLAUDE.md):
+If the CLI cannot auto-detect the org, prefix the issue ID with the org slug (`$SENTRY_ORG` from AGENTS.md):
 
 ```bash
 sentry issue view $SENTRY_ORG/<SENTRY_ID> --json
@@ -117,7 +117,7 @@ Note the new Jira issue key printed by the command (e.g. `BAC-6934`).
 Create the **native** two-way integration link — the same one as the Sentry UI's "Link Jira Issue", not a
 plain text reference. With Sentry's Jira integration `issue-sync` enabled this is bidirectional: the Sentry
 issue shows the linked Jira issue and the Jira issue shows the Sentry one, and status/assignee sync across.
-Use the **numeric group ID** from Step 1 (not the short ID) and `SENTRY_JIRA_INTEGRATION_ID` from CLAUDE.md:
+Use the **numeric group ID** from Step 1 (not the short ID) and `SENTRY_JIRA_INTEGRATION_ID` from AGENTS.md:
 
 ```bash
 sentry api groups/<NUMERIC_ID>/integrations/$SENTRY_JIRA_INTEGRATION_ID/ -X PUT -d '{"externalIssue":"<JIRA_KEY>"}'
@@ -127,7 +127,7 @@ The response echoes the linked issue (key + url) on success. (Preview the resolv
 it with `-n`/`--dry-run`.) This works the same whether `<JIRA_KEY>` was just created (2b) or an existing
 issue found in 2a.
 
-If `SENTRY_JIRA_INTEGRATION_ID` is not yet in CLAUDE.md, derive it once (then add it to the config block):
+If `SENTRY_JIRA_INTEGRATION_ID` is not yet in AGENTS.md, derive it once (then add it to the config block):
 
 ```bash
 sentry api "organizations/$SENTRY_ORG/integrations/?provider_key=jira"   # use the integration "id" field
@@ -151,7 +151,7 @@ acli jira workitem comment create \
 Hand off to the **`ship`** skill, which takes the repo from the branch
 to a monitored PR. Pass it:
 
-- `TARGET_REPO` — the repo you were invoked in (resolved from cwd + its CLAUDE.md).
+- `TARGET_REPO` — the repo you were invoked in (resolved from cwd + its AGENTS.md).
 - `BRIEF` — the error, stacktrace, and event context you fetched in Step 1, and the
   Sentry issue to read fuller detail from.
 - `WORK_ITEM` — the Jira issue from Step 2 and its `$JIRA_BASE_URL/browse/<JIRA_KEY>`

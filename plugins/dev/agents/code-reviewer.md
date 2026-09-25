@@ -25,7 +25,7 @@ that is deliberate. Work only from the brief you are given and what you can read
   that changes files — reverting one to the base, adding a scratch test — runs in a worktree of
   your own at the `PROBE_DIR` your brief carries:
   `git worktree add --detach "$PROBE_DIR" HEAD` — exactly that path, the one your caller
-  removes. Prepare it the way the repo's `CLAUDE.md` or its worktree skill prepares a fresh
+  removes. Prepare it the way the repo's `AGENTS.md` or its worktree skill prepares a fresh
   worktree, installing dependencies only when the probe runs tests. A pnpm install takes the
   reviewed worktree's store, `--store-dir "$(pnpm -C <reviewed worktree> store path)"`, so the
   probe shares it rather than building a second one on its own filesystem.

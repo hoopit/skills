@@ -136,8 +136,8 @@ Read [`destinations.md`](destinations.md) — the homes knowledge can take, the
 boundaries between them, and the format each one wants. It settles the destinations
 in step 4 and the write-up in step 6.
 
-- List what this repo already has: root `AGENTS.md`/`CLAUDE.md`, every module-level
-  one (`find . -name 'AGENTS.md' -o -name 'CLAUDE.md'`), `.claude/rules/`,
+- List what this repo already has: root `AGENTS.md`, every module-level
+  one (`find . -name 'AGENTS.md'`), `.claude/rules/`,
   `.claude/skills/`, `docs/`, `docs/adr/`. Note the modules with none — those are
   homes you can still create.
 - Check whether the memory dir is git-tracked, and clear out any `.md.bak` left by an
@@ -220,7 +220,7 @@ ls *.md.bak                                     # one per expired memory, plus M
 Graduated knowledge enters shared docs through **review**. Finish the curation by
 opening the PR.
 
-- Resolve the repo's default branch: `DEFAULT_BRANCH` from the repo CLAUDE.md
+- Resolve the repo's default branch: `DEFAULT_BRANCH` from the repo AGENTS.md
   **Workflow skills config** block if present, else
   `git symbolic-ref refs/remotes/origin/HEAD`.
 - Create a branch off it, e.g. `chore/curate-memory-<yyyy-mm-dd>`.

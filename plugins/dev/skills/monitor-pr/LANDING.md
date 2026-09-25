@@ -17,7 +17,7 @@ places and list what survives:
 - questions this session asked and the user never came back to;
 - TODOs and follow-ups written into the PR description outside the ledger block.
 
-Offer to file them where this repo's `CLAUDE.md` says work items live — one line per
+Offer to file them where this repo's `AGENTS.md` says work items live — one line per
 proposed item, title and a sentence — and file only what the user picks. Under
 `--unattended`, file them all and list each with its number; one whose worth is a
 judgement is filed marked as needing the user's decision, that decision named in its

@@ -153,11 +153,11 @@ DEPLOY_GATE = re.compile(
 BACKTICK = re.compile(r"`([^`\n]+)`")
 LINEREF = re.compile(r":\d+(?:-\d+)?$")
 # The files that tell an agent how to work rather than hold the work: `AGENTS.md` and
-# `CLAUDE.md` at any depth, and `.claude/rules/`. An issue cites them for the rule it
+# `AGENTS.md` at any depth, and `.claude/rules/`. An issue cites them for the rule it
 # follows (`AGENTS.md:115-117`), which the path test cannot tell from a file it edits, so
 # one open PR that edits them would hold every issue quoting a rule. They collide with
 # nothing, on either side: two edits to one leave a prose conflict a rebase settles.
-INSTRUCTION_FILE = re.compile(r"(^|/)(AGENTS|CLAUDE)\.md$|^\.claude/rules/")
+INSTRUCTION_FILE = re.compile(r"(^|/)AGENTS\.md$|^\.claude/rules/")
 # Two pieces of work that each add a migration conflict on the graph however far apart
 # their files sit, and an issue rarely says "migration" — it says what it enforces.
 # `CHECK (` stays case-sensitive under the re.I: lowercased it matches English prose

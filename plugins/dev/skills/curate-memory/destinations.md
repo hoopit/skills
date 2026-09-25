@@ -129,6 +129,5 @@ matches only at the root.
 
 ### Module `AGENTS.md`
 
-Mirror the repo root: where the root keeps `AGENTS.md` with a `CLAUDE.md` symlink
-beside it, create both (`ln -s AGENTS.md CLAUDE.md`) and commit both; where the root
-is a plain `CLAUDE.md`, write that.
+Write `AGENTS.md`, never a `CLAUDE.md` beside it: Claude Code reads `AGENTS.md` when no
+`CLAUDE.md` is present.

@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 
 Guidance for Claude Code when working in this repo. This is a **distribution** of
 agent skills, shipped as a Claude Code plugin marketplace (see [README.md](README.md)) —
@@ -32,7 +32,7 @@ Skills here are distributed across **all** Hoopit projects (the `api` / backend,
   correctly whether it's installed into `api`, `web-admin`, or `flutter-app`.
   Anything that differs per project — GitHub repo slug, default branch, Jira project
   key (`BAC` / `WEB` / `FA`), Sentry project — is read at runtime from the installed
-  repo's `CLAUDE.md` ("Workflow skills config"), never baked in.
+  repo's `AGENTS.md` ("Workflow skills config"), never baked in.
 
 This refines `create-hoopit-skill`'s Rule 1: the test is "true for one Hoopit
 **project** but not another," not "mentions Hoopit at all."
@@ -58,8 +58,8 @@ now.
 - ✅ `This token must exist only as a secret of the automation environment.`
 - ❌ `The org-level copy is now deleted, so this is finally a real boundary.`
 
-This binds code comments, workflow and config comments, doc comments, `CLAUDE.md`
-/ `AGENTS.md` and everything under `docs/` alike. The one exception is a document
+This binds code comments, workflow and config comments, doc comments, `AGENTS.md`
+and everything under `docs/` alike. The one exception is a document
 whose genre *is* the historical record — an ADR's Context and Decision, or a
 changelog — where the dated narrative is the point.
 

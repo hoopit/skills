@@ -412,13 +412,13 @@ uv run pytest users/tests
   presets it along with `DJANGO_SETTINGS_MODULE`.
 - **Format with `ruff format .`**, lint + import-order with `ruff check .`.
 - **Prefer early failure** over silently handling unexpected state (see the
-  repo's `CLAUDE.md`): no defensive `{}.get()` / `or` / null-guards where a value
+  repo's `AGENTS.md`): no defensive `{}.get()` / `or` / null-guards where a value
   is expected.
 - **Staging/prod**: run with `DOTENV=staging.env|prod.env` (or `manage-staging.py`
   / `manage-prod.py`). Secrets are pulled from SSM at startup and require a valid
   `aws login` session for the `hoopit-{staging,prod}-developer` role.
 - **Branching/PRs** derive names from the Jira ticket key — query tickets with `acli`.
-- The repo's `CLAUDE.md` and its `.claude/skills/` (migrations, models, views,
+- The repo's `AGENTS.md` and its `.claude/skills/` (migrations, models, views,
   running-tests, readonly-db, …) are the day-to-day reference.
 
 ---

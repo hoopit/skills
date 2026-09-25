@@ -16,7 +16,7 @@ HAR" or describe a screenshot they already attached.**
 through the Jira REST API with a **Jira API token** (Basic auth).
 
 Credentials live in `~/.config/hoopit/jira.env` (`JIRA_API_TOKEN` + `JIRA_EMAIL`). Load them with
-`set -a; . ~/.config/hoopit/jira.env; set +a`, and take `$JIRA_BASE_URL` from the repo's CLAUDE.md
+`set -a; . ~/.config/hoopit/jira.env; set +a`, and take `$JIRA_BASE_URL` from the repo's AGENTS.md
 (e.g. `https://hoopit.atlassian.net`).
 
 ### Preflight — make sure the env file works first
