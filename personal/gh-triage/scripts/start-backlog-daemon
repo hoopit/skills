@@ -125,6 +125,9 @@ mkdir -p "$STATE_DIR" "$RUN_DIR"
 touch "$DISPATCHED"
 
 log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*"; }
+# The log names every item by its URL, so a line in the journal opens in one click.
+# GitHub redirects /issues/<n> to /pull/<n> when the number is a PR.
+item_url() { printf 'https://github.com/%s/issues/%s' "${1%%#*}" "${1##*#}"; }
 jqr() { python3 -c "import json,sys; print(eval(sys.argv[1], {'d': json.load(sys.stdin)}))" "$1"; }
 
 # The client talks to the herdr server over a socket and does not care whether the
@@ -197,12 +200,12 @@ reap() {
     if [[ "$reason" == "pr-quiet" ]]; then
       local who="agent '$agent' is gone"
       [[ "$agent" == "-" ]] && who="nothing claims it"
-      log "attention $item: open PR untouched for $age and $who — $url"
+      log "attention $(item_url "$item"): open PR untouched for $age and $who"
       continue
     fi
     # No claim marker: a human moved it, and nothing here can judge a Claude Code session.
     [[ "$agent" != "-" ]] || continue
-    log "reap $item: agent '$agent' gone, claimed $age ago, no open PR"
+    log "reap $(item_url "$item"): agent '$agent' gone, claimed $age ago, no open PR"
     (( DRY )) && continue
     # Back to Ready, not Backlog: the user's yes on this item stands, and the dead agent
     # asked nothing that promotion would answer.
@@ -252,23 +255,23 @@ dispatch() {
   [[ "$reff" == "-" ]] && reff=""
   local name="${repo##*/}" agent="gh$n" dir wsid pane
   dir="$REPOS_DIR/$name"
-  [[ -d "$dir" ]] || { log "skip $repo#$n: no checkout at $dir"; return 1; }
+  [[ -d "$dir" ]] || { log "skip $url: no checkout at $dir"; return 1; }
 
   local verdict
   # check prints START on success and SKIP<tab>item<tab>why on rejection.
-  verdict=$(hoopit-board check "$repo" "$n") || { log "skip $repo#$n: ${verdict##*$'\t'}"; return 1; }
+  verdict=$(hoopit-board check "$repo" "$n") || { log "skip $url: ${verdict##*$'\t'}"; return 1; }
 
   if (( DRY )); then
-    log "dry run: would start $agent on $repo#$n ($model${reff:+/$reff}) in $dir — footprint: $fp"
+    log "dry run: would start $agent on $url ($model${reff:+/$reff}) in $dir — footprint: $fp"
     return 0
   fi
 
   wsid=$(workspace_for "$name" "$dir")
-  [[ -n "$wsid" ]] || { log "skip $repo#$n: no workspace for $name"; return 1; }
+  [[ -n "$wsid" ]] || { log "skip $url: no workspace for $name"; return 1; }
 
   pane=$(herdr tab create --workspace "$wsid" --cwd "$dir" --label "$agent" --no-focus 2>/dev/null |
          jqr "d['result']['root_pane']['pane_id']")
-  [[ -n "$pane" ]] || { log "skip $repo#$n: tab create failed in $wsid"; return 1; }
+  [[ -n "$pane" ]] || { log "skip $url: tab create failed in $wsid"; return 1; }
 
   hoopit-board claim "$repo" "$n" --agent "$agent" --tab "$agent" \
     --model "$model" ${reff:+--reasoning-effort "$reff"} || return 1
@@ -276,7 +279,7 @@ dispatch() {
   if ! herdr agent start "$agent" --kind claude --pane "$pane" -- \
         -n "$agent" --permission-mode bypassPermissions --model "$model" \
         ${reff:+--effort "$reff"} >/dev/null 2>&1; then
-    log "FAILED to start $agent on $repo#$n — releasing"
+    log "FAILED to start $agent on $url — releasing"
     hoopit-board release "$repo" "$n" --reason "the agent could not be started; the slot is free again." || true
     return 1
   fi
@@ -292,7 +295,7 @@ make, write the question onto the issue and release the slot with
     log "warning: $agent started but the opening prompt did not send"
 
   printf '%s\t%s\n' "$repo#$n" "$(date +%s)" >> "$DISPATCHED"
-  log "dispatched $agent on $repo#$n ($model${reff:+/$reff}) — footprint: $fp"
+  log "dispatched $agent on $url ($model${reff:+/$reff}) — footprint: $fp"
 }
 
 tick() {
@@ -322,8 +325,11 @@ tick() {
   fi
 
   python3 - "$run" "$seen" <<'PY'
-import json, sys
+import json, re, sys
 d = json.load(open(sys.argv[1]))
+def holders(repo, tags):
+    # A holder is tagged `#<n>` within the candidate's own repo.
+    return ",".join(re.sub(r"^#(\d+)", rf"https://github.com/{repo}/issues/\1", t) for t in tags)
 seen = {r[0]: r for r in (l.rstrip("\n").split("\t") for l in open(sys.argv[2])) if len(r) == 4}
 def of(n, cap):
     return f"{n}" if cap is None else f"{n}/{cap}"
@@ -339,17 +345,17 @@ print(f'in_flight={of(d["in_flight"], d["target"])} active={of(d["active"], d["m
       f'out_of_scope={len(d["out_of_scope"])} '
       f'judgement={d.get("judgement", "off")}')
 for g in d["awaiting_deploy"][:5]:
-    print(f'  awaiting deploy {g["repo"]}#{g["n"]} {g["priority"]}/{g["effort"]}: {g["gate"]}')
+    print(f'  awaiting deploy {g["url"]} {g["priority"]}/{g["effort"]}: {g["gate"]}')
 for b in d["blocked"][:5]:
     if "collides" in b:
-        why = "; ".join(f'{p} held by {",".join(v)}' for p, v in b["collides"].items())
+        why = "; ".join(f'{p} held by {holders(b["repo"], v)}' for p, v in b["collides"].items())
     else:
         why = "; ".join(f'{k} at {v}' for k, v in b.get("judged", {}).items())
-    print(f'  blocked {b["repo"]}#{b["n"]} {b["priority"]}/{b["effort"]}: {why}')
+    print(f'  blocked {b["url"]} {b["priority"]}/{b["effort"]}: {why}')
 for j in d.get("needs_judgement", [])[:5]:
     # Neither startable nor rejected: the judgement landed between the thresholds, and
     # nothing unattended may settle that. `gh-triage` step 2 reads these and settles each.
-    print(f'  needs judgement {j["repo"]}#{j["n"]} {j["priority"]}/{j["effort"]}: '
+    print(f'  needs judgement {j["url"]} {j["priority"]}/{j["effort"]}: '
           + "; ".join(f'{k} at {v}' for k, v in j.get("judged", {}).items()))
 if d["no_checkout"]:
     print(f'  no checkout: {", ".join(d["no_checkout"])} — footprints there are empty')
@@ -357,8 +363,8 @@ for q in d["quiet"]:
     _, status, age, _ = seen.get(q["agent"], (None, None, None, None))
     how = (f'agent {q["agent"]} is gone' if status is None
            else f'agent {q["agent"]} is {status}, silent for {age}m')
-    print(f'  quiet {q["repo"]}#{q["n"]} ({q["status"]}): {how} — holds no active slot: '
-          + (", ".join(q["prs"]) or q["url"]))
+    print(f'  quiet {q["url"]} ({q["status"]}): {how} — holds no active slot: '
+          + (", ".join(q["prs"]) or "no open PR"))
 if d["max_review"] is not None and d["review"] >= d["max_review"]:
     print(f'  HOLDING: Human review is at {d["review"]}/{d["max_review"]} — nothing starts '
           f'until something there merges or closes')
