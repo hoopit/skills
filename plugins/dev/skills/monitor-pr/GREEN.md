@@ -64,19 +64,3 @@ Leave the monitor running either way: on a merge it sees `PR_CLOSED state=MERGED
 poll and Step 4a lands it, and on *keep watching* a PR that moves again still has a watch.
 An unattended `GREEN` that went out without the question stops it instead
 ([UNATTENDED.md](UNATTENDED.md)).
-
-## Handing over without a `GREEN`
-
-An ending that marks the PR ready on a head that has had no `GREEN` — a close holding a
-verdict, the `--rounds` cap, a *Stop, I'll take it* answer on any path — runs the
-challenge and the briefing above first, on the current head, before it marks the PR ready.
-Skip the challenge when it already ran on this head. Two things differ from a `GREEN`:
-
-- **A finding that holds goes into the briefing**, as held, and holds the recommendation:
-  the rounds are over, so it is the merger's to weigh.
-- **The recommendation is hold** whenever the head is not green, naming each thing that
-  keeps it from being so: a check still running or failing, the verdict held, an
-  unresolved thread, a conflict, a finding that held. A head that would have gone `GREEN`
-  takes the recommendation as a `GREEN` does.
-
-Then ask the ending's own question (SKILL.md Step 5), carrying the briefing's text.

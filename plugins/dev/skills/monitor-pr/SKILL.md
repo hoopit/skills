@@ -28,8 +28,11 @@ settled at the close or settle after it. A new thread or a red check opens a rou
 A `GREEN` line ends nothing either: it puts the merge decision to the user and the watch
 keeps running, because a PR can go green and then move again.
 
-**No PR reaches whoever merges it without the merge-readiness challenge and the merge
-briefing on its head.** Every ending that marks it ready runs them first ([GREEN.md](GREEN.md)).
+**Short of a stop, the watch runs until the head is `GREEN`**: the merge-readiness
+challenge run, the merge briefing written into the PR description, the PR marked ready,
+and the merge question asked with the briefing ([GREEN.md](GREEN.md)). A stop — the three
+endings above, a *Stop, I'll take it* answer, or a stop in Step 5 — ends the watch at
+once, with no challenge or briefing after it.
 
 The hard fork is the whole test for whether a question stops the watch. A **hard fork**
 is a question whose answer could invalidate work already done or reviews already run: the
@@ -171,10 +174,8 @@ or `PR_CLOSED` — drop the label again, so it only ever marks PRs under an acti
 **A PR is a draft exactly while an agent owns its review rounds.** So an ending that hands
 the PR to the user with the rounds over — a close holding a verdict, the cap, or any *Stop,
 I'll take it* answer — marks it ready, or it stays unmergeable with its issue parked in `AI
-review` and no event left to move it. It first runs *Handing over without a `GREEN`* in
-[GREEN.md](GREEN.md), so the ready PR carries its briefing. A hard fork and an error stop
-leave it a draft, with no briefing, on purpose: that work is unfinished, and re-arming the
-watch picks it up where it stands.
+review` and no event left to move it. A hard fork and an error stop leave it a draft on
+purpose: that work is unfinished, and re-arming the watch picks it up where it stands.
 
 ```bash
 bash <SKILL_DIR>/scripts/pr-labels.sh <OWNER_REPO> <PR> -monitored -agent-working
@@ -220,9 +221,8 @@ A `GREEN` after a closing round also lists that round's declines — each thread
 worth a round` with its evidence where that was the reason — so the user can take any of
 them back; a decline taken back rides into the next round as `ANSWERED`.
 
-**Closed or capped** — a close holding a verdict, or the `--rounds` cap reached. Stop, run
-*Handing over without a `GREEN`* in [GREEN.md](GREEN.md), then ask whether to keep
-watching, carrying the briefing. The close's question lists its declines as a `GREEN`
+**Closed or capped** — a close holding a verdict, or the `--rounds` cap reached. Stop, then
+ask whether to keep watching. The close's question lists its declines as a `GREEN`
 after a close does; a cap's says what is still outstanding and whether the rounds were
 converging. A close holding a verdict leads with the verdict: the appeal is spent,
 so what is left is taking a decline back or the bypass the repo documents, and bypassing
