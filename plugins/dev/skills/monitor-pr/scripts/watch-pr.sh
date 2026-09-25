@@ -12,7 +12,6 @@
 #                          go missing entirely on a head (skipped, rate-limited) rather than just
 #                          pending, so waiting on it forever would idle the watch; the timeout
 #                          bounds that wait, and the GREEN line names what stayed silent.
-#        ONCE=1          — exit right after the first ROUND or GREEN line.
 #        MAX_FETCH_FAILS — consecutive failed GitHub reads before giving up (default 5).
 #        REVIEW_MAX_AGE  — seconds a review-thread read is reused while nothing says it changed
 #                          (default 600). The thread read is the watch's only GraphQL call, and
@@ -103,7 +102,6 @@ while true; do
     gate_wait_start=0
     echo "ROUND head=${head:0:7} unresolved=$(grep -c . <<<"$threads") new_threads=$new_threads failing=${failing:+$(paste -sd, - <<<"$failing")} conflicting=$conflicting${pending_gates:+ pending_gates=$pending_gates}"
     fired_threads=$threads; fired_fail=$failing; fired_conflict=$conflicting
-    [ "${ONCE:-0}" = 1 ] && exit 0
   elif [ "$fired_green" != "$head" ] && [ -z "$threads" ] && [ -z "$failing" ] \
        && [ "$running" = 0 ] && [ "$conflicting" = 0 ]; then
     # Nothing pending means a closed gate is a reviewer that never reported at all; give it
@@ -116,7 +114,6 @@ while true; do
     gate_wait_start=0
     echo "GREEN head=${head:0:7}${pending_gates:+ pending_gates=$pending_gates}"
     fired_green=$head
-    [ "${ONCE:-0}" = 1 ] && exit 0
   else
     gate_wait_start=0
   fi

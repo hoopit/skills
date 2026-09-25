@@ -9,7 +9,7 @@ Step 5 says:
 
 - **an irreversible move** — deleting work that exists nowhere else, and the merge, which
   a `GREEN` recommending it puts without the ping (below);
-- **a decision you doubt** — a hard fork, a stop, the cap, and any recommendation you
+- **a decision you doubt** — a hard fork, a stop, a checkpoint that stops, and any recommendation you
   hold without the evidence to defend it to a reviewer.
 
 A soft fork is reversible: its ledger row reads `decided unattended: <the choice>`, and

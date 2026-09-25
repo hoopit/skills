@@ -228,7 +228,7 @@ Under `--started`, a `ship` that hands back decides the slot by whether a PR is 
 
 - **No PR** — a `BLOCK`, the gate's cap, a brief Step 1 could not confirm. The issue is
   unworked again: write the question onto it, then release (*Handing the slot back*).
-- **A PR is open** — a hard fork, a stop or the cap in the watch. Keep the slot. A
+- **A PR is open** — a hard fork, a stop or a checkpoint in the watch. Keep the slot. A
   released item returns to Backlog, and the promotion that answers its question puts a
   second agent on a live branch. The question goes on the PR's ledger and the issue, and
   the slot frees at the merge.

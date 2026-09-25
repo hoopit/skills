@@ -204,8 +204,8 @@ link hygiene. Add to the body it specifies:
 
 Someone has to work the PR's review rounds to the merge. Start the **`monitor-pr`** skill
 on the new PR with `--subagent`, so its rounds run in workers rather than this session. It
-works rounds until the PR merges, a round declines everything left and closes, or a
-decision only the user can settle turns up — and on the merge it cleans up the worktree
+works rounds until the PR is green, briefed and ready, or a decision only the user can
+settle turns up — and on the merge it cleans up the worktree
 itself. Pass `--unattended` on when you hold it.
 
 This skill's work ends here. Report the PR url and the watch back to the caller, which

@@ -18,7 +18,8 @@ The watch runs to the merge. Three things end it early, each in front of the use
 - **a close holding a verdict** — a closing round that reports `verdict held` (*Closing
   the rounds* in [LEDGER.md](LEDGER.md)), whose head stays red and so never goes `GREEN`;
 - **a hard fork**, below;
-- **the `--rounds` cap**, when one is set.
+- **a checkpoint that stops** — every `--rounds` rounds, the agent weighs whether the
+  rounds are converging, and carries on unless it doubts they are (Step 4).
 
 Any other **closing round** — every item declined, nothing committed — ends the rounds,
 not the watch. The monitor stays armed, and the head's `GREEN` runs the merge-readiness
@@ -43,7 +44,7 @@ thread is soft by default; grade it hard only when its answer reaches the work i
 
 Flags:
 
-- `--rounds <N>` — a hard cap on rounds. Unset, there is none.
+- `--rounds <N>` — a **checkpoint** every N rounds (Step 4). Unset, there is none.
 - `--subagent[=<model>]` — run rounds in a `hoopit-dev:monitor-pr-worker` instead of yourself,
   reused across rounds and rotated as [SUBAGENT.md](SUBAGENT.md) says. The model defaults
   to `opus`: the worker carries the labour and the probing, and the design judgement stays
@@ -87,7 +88,7 @@ bash <SKILL_DIR>/scripts/pr-labels.sh <OWNER_REPO> <PR> +monitored
 
 ```
 Monitor(
-  command: "ONCE=<1 when --rounds is 1, else 0> bash <SKILL_DIR>/scripts/watch-pr.sh <OWNER_REPO> <PR> 60",
+  command: "bash <SKILL_DIR>/scripts/watch-pr.sh <OWNER_REPO> <PR> 60",
   description: "monitor-pr #<PR>",
   persistent: true,
 )
@@ -109,16 +110,15 @@ The script polls every 60 s and prints only:
   row (expired auth, network, deleted PR); the script exits non-zero. The watch is dead:
   go to Step 5.
 
-With `ONCE=1` the script exits after its first `ROUND` or `GREEN` line. Otherwise the
-script runs on and the session `TaskStop`s it when the watch ends.
+The script runs on until the session `TaskStop`s it when the watch ends.
 
 The gate is `codex-review` alone. CodeRabbit holds a head the way any check does — while
 its status is pending, or a thread of its is unresolved — and its silence holds nothing: a
 rate-limited CodeRabbit never reports. For a repo whose reviewer statuses have other
 names, prefix `GATE_CHECKS=<a>,<b>`. Tune the timeout with `GATE_TIMEOUT=<seconds>`.
 
-Tell the user in one line that the watch is armed, what opens a round, and the `--rounds`
-cap when one is set.
+Tell the user in one line that the watch is armed, what opens a round, and the
+checkpoint when `--rounds` sets one.
 
 ## Step 3 — Work each `ROUND`
 
@@ -142,8 +142,7 @@ says so on the `Absorbed` line.
 Print the round's report under a `Round N — <trigger>` heading. It is the round's
 **delta** — what this round did; the **ledger** the round wrote into the PR description
 holds the PR's cumulative state, so the two never need to say the same thing twice. Link
-the PR once beneath the heading so the ledger is one click away, and put the cap in the
-heading when `--rounds` set one — `Round 3/8 — <trigger>`. A round that reports `Ledger:
+the PR once beneath the heading so the ledger is one click away. A round that reports `Ledger:
 not updated` says so too, with the reason — the ledger is then behind by a round.
 
 A round that found nothing to do — the previous round's last look had taken it — is
@@ -162,24 +161,36 @@ monitor, then ask — as does the same check "still failing" in two consecutive 
 unless that check is a **verdict** (*Closing the rounds* in [LEDGER.md](LEDGER.md)), which
 the rounds carry themselves.
 
-A report reading `CLOSED verdict held: …`, or the `--rounds` cap reached, `TaskStop`s the
+**The checkpoint.** At every Nth counted round under `--rounds <N>`, weigh whether more
+rounds will bring the head to `GREEN`. Read it off the ledger: its convergence counts —
+findings in code a round added, design reversals — the `fixes R<k>` chains, and the
+severity of what the reviewers still find.
+
+- **Converging** — the reviewers have moved to polish, and no chain is growing: carry on
+  without asking. The round's report says so in one line, with the counts it turned on,
+  and the next checkpoint is N rounds on.
+- **Churning, or in doubt** — the rounds keep finding defects in their own fixes, or
+  reopen a mechanism a step back already replaced, or the counts do not settle which it
+  is: stop. A real doubt is the user's to settle.
+
+A report reading `CLOSED verdict held: …`, or a checkpoint that stops, `TaskStop`s the
 monitor and takes its path in Step 5. Otherwise idle until the next `ROUND` or `GREEN` —
 after a plain `CLOSED` and after `APPEALED` too: the head answers as a `GREEN` or as the
 next `ROUND`.
 
-Whenever the watch ends — a close holding a verdict, the cap, a hard fork, an error stop,
+Whenever the watch ends — a close holding a verdict, a checkpoint, a hard fork, an error stop,
 or `PR_CLOSED` — drop the label again, so it only ever marks PRs under an active watch, and
 `agent-working` with it: a PR waiting on the user is not being worked.
 
 **A PR is a draft exactly while an agent owns its review rounds.** So an ending that hands
-the PR to the user with the rounds over — a close holding a verdict, the cap, or any *Stop,
+the PR to the user with the rounds over — a close holding a verdict, a checkpoint, or any *Stop,
 I'll take it* answer — marks it ready, or it stays unmergeable with its issue parked in `AI
 review` and no event left to move it. A hard fork and an error stop leave it a draft on
 purpose: that work is unfinished, and re-arming the watch picks it up where it stands.
 
 ```bash
 bash <SKILL_DIR>/scripts/pr-labels.sh <OWNER_REPO> <PR> -monitored -agent-working
-gh pr ready <PR> --repo <OWNER_REPO>   # verdict-held close, cap, or "Stop, I'll take it" only
+gh pr ready <PR> --repo <OWNER_REPO>   # verdict-held close, checkpoint, or "Stop, I'll take it" only
 ```
 
 ## Step 4a — Land the merge
@@ -221,10 +232,10 @@ A `GREEN` after a closing round also lists that round's declines — each thread
 worth a round` with its evidence where that was the reason — so the user can take any of
 them back; a decline taken back rides into the next round as `ANSWERED`.
 
-**Closed or capped** — a close holding a verdict, or the `--rounds` cap reached. Stop, then
-ask whether to keep watching. The close's question lists its declines as a `GREEN`
-after a close does; a cap's says what is still outstanding and whether the rounds were
-converging. A close holding a verdict leads with the verdict: the appeal is spent,
+**Closed or checkpointed** — a close holding a verdict, or a checkpoint that stopped.
+Stop, then ask whether to keep watching. The close's question lists its declines as a
+`GREEN` after a close does; a checkpoint's says what is still outstanding and the counts
+that made you doubt the rounds were converging. A close holding a verdict leads with the verdict: the appeal is spent,
 so what is left is taking a decline back or the bypass the repo documents, and bypassing
 a check is the user's call, `--unattended` included. *Keep watching* re-arms the watch (back to Step 2, label included), and a
 decline the user takes back rides into its next round as `ANSWERED`.
@@ -245,7 +256,7 @@ options, because they answer different things:
 | Soft fork | **Answer in chat** (recommended) · **Take all your recommendations** · **Stop monitoring, I'll take it from here** |
 | Hard fork | **Answer in chat** (recommended) · **Take all your recommendations** · **Stop monitoring, I'll take it from here** — the first two re-arm the watch |
 | Green | **Merge it** · **Not yet — keep watching** · **Stop monitoring, I'll take it from here** |
-| Closed or capped | **Keep watching** · **Stop, I'll take it** · **Answer in chat** (when questions are outstanding) |
+| Closed or checkpointed | **Keep watching** · **Stop, I'll take it** · **Answer in chat** (when questions are outstanding) |
 | Stop | **Re-arm the watch** (a transient stop — go back to Step 2, label included) · **Stop, I'll take it** · **Keep going anyway** (re-arm past a check failing for reasons outside this PR) |
 
 Print the blocker's details — the open threads, the failing check's log excerpt — before
