@@ -20,8 +20,8 @@ once per repo, independently.
 
 Flags:
 
-- `--rounds <N>` — the cap on review-gate rounds (Step 6). Unset, Step 6 sizes it from the
-  work item.
+- `--rounds <N>` — a checkpoint every N review-gate rounds (Step 6). Unset, Step 6 sizes
+  it from the work item.
 - `--unattended` — nobody is watching. Wherever this skill would ask the user, it
   **hands back** first: the run stops and returns the same substance — the findings,
   your reasoning, what you would do about each — to the caller as its result, which
@@ -107,7 +107,8 @@ A **round** is one run of the **`review-gate`** skill from inside the worktree, 
 fix commits that run makes. Work rounds until the gate comes back clean — a round that
 declines every finding, the gate's closing pass, is clean too.
 
-**The cap** is `--rounds` when given. Otherwise it follows the work item's Effort — `XS`/`S`
+**The checkpoint** comes every N rounds: N is `--rounds` when given. Otherwise it follows
+the work item's Effort — `XS`/`S`
 4, `M` 6, `L`/`XL` 10 — and is 10 where there is none. On a GitHub issue, Effort is an org
 issue field:
 
@@ -161,10 +162,18 @@ Each round returns one verdict:
 code an earlier round's fix added — is a design that does not fit, and a fourth patch is not
 the answer. Step back before the next fix: weigh removing the mechanism or taking a simpler
 shape against patching it again, and take the simpler one where it still delivers `BRIEF`.
-Where it would not, ask, on the cap's path below.
+Where it would not, ask, on the checkpoint's path below.
 
-At the cap with the gate still unclean, stop and ask, saying whether the rounds were
-converging.
+At a checkpoint with the gate still unclean, weigh whether more rounds will make it clean,
+from the rounds so far: the severity of what each round found, and how much of it landed
+in code an earlier round's fix added.
+
+- **Converging** — the findings have dropped to `Med` and below, and few land in fixes:
+  carry on without asking. Say so in one line, with what it turned on, and the next
+  checkpoint is N rounds on.
+- **Churning, or in doubt** — each round still finds `Critical`/`High`, the fixes keep
+  drawing the findings, or the rounds do not settle which it is: stop and ask, saying
+  why.
 
 Both paths reach the user the same way. Put the substance in chat first — the
 blocking or surviving findings, your reasoning, what you would do about each — then fire
@@ -173,7 +182,7 @@ blocking or surviving findings, your reasoning, what you would do about each —
 | Path | Options |
 | --- | --- |
 | `BLOCK` | **Answer in chat** (recommended) · **Take all your recommendations** · **Open the PR anyway, with the block in its body** |
-| Cap | **Keep going** · **Open the PR anyway, with the findings in its body** · **Answer in chat** |
+| Checkpoint | **Keep going** · **Open the PR anyway, with the findings in its body** · **Answer in chat** |
 
 An answer settles the findings it covers and rounds resume;
 *Open the PR anyway* carries the standing findings into the PR body (Step 7).
@@ -196,7 +205,7 @@ link hygiene. Add to the body it specifies:
 - a `## Testing` line covering the tests added, or why none was feasible;
 - the review-gate notes across every round: the scope it ran at, which reviewers ran,
   findings addressed, findings skipped and why — and, when the user chose to open past a
-  block or the cap, the findings still standing and that they chose to ship over
+  block or a checkpoint, the findings still standing and that they chose to ship over
   them;
 - any extra sections the caller asked for.
 

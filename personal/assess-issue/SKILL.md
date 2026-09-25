@@ -226,7 +226,7 @@ here.
 
 Under `--started`, a `ship` that hands back decides the slot by whether a PR is open:
 
-- **No PR** — a `BLOCK`, the gate's cap, a brief Step 1 could not confirm. The issue is
+- **No PR** — a `BLOCK`, a gate checkpoint that stopped, a brief Step 1 could not confirm. The issue is
   unworked again: write the question onto it, then release (*Handing the slot back*).
 - **A PR is open** — a hard fork, a stop or a checkpoint in the watch. Keep the slot. A
   released item returns to Backlog, and the promotion that answers its question puts a
