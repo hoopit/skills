@@ -23,16 +23,12 @@ checkout's directory as an argument when the user names one the search would mis
 
 Done when the script has exited and printed a `RESULT` line per checkout found.
 
-## 2. Settle the gaps
+## 2. Report
 
-- A `MISSING <repo>` line means no checkout of that repo was found. Ask the user whether
-  they have one elsewhere; if they name a directory, rerun with it as an argument. A repo
-  they do not have checked out is not a failure.
-- A `failed` line carries the CLI's own output beneath it. Report it verbatim with the
-  checkout it belongs to.
+One line per repo: its checkout, and `old -> new` or `already current`. A `MISSING <repo>`
+line means the machine has no checkout of that repo, which is normal; list it as not
+checked out. A `failed` line carries the CLI's own output beneath it; report it verbatim
+with the checkout it belongs to.
 
-## 3. Report
-
-One line per repo: its checkout, and `old -> new` or `already current`. End with the
-reminder that a plugin update applies only to sessions started after it, so any open
-Claude Code session in an updated checkout needs a restart.
+End with the reminder that a plugin update applies only to sessions started after it, so
+any open Claude Code session in an updated checkout needs a restart.
