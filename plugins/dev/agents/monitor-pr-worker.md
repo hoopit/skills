@@ -250,7 +250,8 @@ Ledger: updated | not updated (<reason>)
 Whatever you return — report or design check — leads with `CODEX DOWN: <reason>` when the
 script printed a reason line, so the session relays it before anything else.
 
-`CLOSED` in place of the push says the round closed, and is what ends the watch.
+`CLOSED` in place of the push says the round closed, and ends the rounds: the session
+keeps the watch armed for the head's `GREEN`, and ends it only on `verdict held`.
 `APPEALED` says it declined everything and re-requested the verdict's review; the watch
 stays armed for the answer.
 

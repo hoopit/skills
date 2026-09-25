@@ -15,13 +15,21 @@ there is any and the push still carries the whole review.
 
 The watch runs to the merge. Three things end it early, each in front of the user (Step 5):
 
-- **a closing round** — every item declined, nothing committed (*Closing the rounds* in
-  [LEDGER.md](LEDGER.md)), the one way the rounds stop on their own;
+- **a close holding a verdict** — a closing round that reports `verdict held` (*Closing
+  the rounds* in [LEDGER.md](LEDGER.md)), whose head stays red and so never goes `GREEN`;
 - **a hard fork**, below;
 - **the `--rounds` cap**, when one is set.
 
-A `GREEN` line ends nothing: it puts the merge decision to the user and the watch keeps
-running, because a PR can go green and then move again.
+Any other **closing round** — every item declined, nothing committed — ends the rounds,
+not the watch. The monitor stays armed, and the head's `GREEN` runs the merge-readiness
+challenge and writes the merge briefing as any `GREEN` does, whether its checks had
+settled at the close or settle after it. A new thread or a red check opens a round again.
+
+A `GREEN` line ends nothing either: it puts the merge decision to the user and the watch
+keeps running, because a PR can go green and then move again.
+
+**No PR reaches whoever merges it without the merge-readiness challenge and the merge
+briefing on its head.** Every ending that marks it ready runs them first ([GREEN.md](GREEN.md)).
 
 The hard fork is the whole test for whether a question stops the watch. A **hard fork**
 is a question whose answer could invalidate work already done or reviews already run: the
@@ -151,23 +159,26 @@ monitor, then ask — as does the same check "still failing" in two consecutive 
 unless that check is a **verdict** (*Closing the rounds* in [LEDGER.md](LEDGER.md)), which
 the rounds carry themselves.
 
-A report reading `CLOSED`, or the `--rounds` cap reached, `TaskStop`s the monitor and
-takes its path in Step 5. Otherwise idle until the next `ROUND` — after `APPEALED` too:
-the re-review answers as a `GREEN` or as the next `ROUND`.
+A report reading `CLOSED verdict held: …`, or the `--rounds` cap reached, `TaskStop`s the
+monitor and takes its path in Step 5. Otherwise idle until the next `ROUND` or `GREEN` —
+after a plain `CLOSED` and after `APPEALED` too: the head answers as a `GREEN` or as the
+next `ROUND`.
 
-Whenever the watch ends — a closing round, the cap, a hard fork, an error stop, or
-`PR_CLOSED` — drop the label again, so it only ever marks PRs under an active watch, and
+Whenever the watch ends — a close holding a verdict, the cap, a hard fork, an error stop,
+or `PR_CLOSED` — drop the label again, so it only ever marks PRs under an active watch, and
 `agent-working` with it: a PR waiting on the user is not being worked.
 
 **A PR is a draft exactly while an agent owns its review rounds.** So an ending that hands
-the PR to the user with the rounds over — a closing round, the cap, or any *Stop, I'll take
-it* answer — marks it ready, or it stays unmergeable with its issue parked in `AI review`
-and no event left to move it. A hard fork and an error stop leave it a draft on purpose:
-that work is unfinished, and re-arming the watch picks it up where it stands.
+the PR to the user with the rounds over — a close holding a verdict, the cap, or any *Stop,
+I'll take it* answer — marks it ready, or it stays unmergeable with its issue parked in `AI
+review` and no event left to move it. It first runs *Handing over without a `GREEN`* in
+[GREEN.md](GREEN.md), so the ready PR carries its briefing. A hard fork and an error stop
+leave it a draft, with no briefing, on purpose: that work is unfinished, and re-arming the
+watch picks it up where it stands.
 
 ```bash
 bash <SKILL_DIR>/scripts/pr-labels.sh <OWNER_REPO> <PR> -monitored -agent-working
-gh pr ready <PR> --repo <OWNER_REPO>   # closing round, cap, or "Stop, I'll take it" only
+gh pr ready <PR> --repo <OWNER_REPO>   # verdict-held close, cap, or "Stop, I'll take it" only
 ```
 
 ## Step 4a — Land the merge
@@ -205,12 +216,15 @@ next round carries all the answers.
 
 **Green** — a `GREEN` line. Read [GREEN.md](GREEN.md) and follow it: the merge-readiness
 challenge, the merge briefing written into the PR description, then the merge question.
+A `GREEN` after a closing round also lists that round's declines — each thread, and `not
+worth a round` with its evidence where that was the reason — so the user can take any of
+them back; a decline taken back rides into the next round as `ANSWERED`.
 
-**Closed or capped** — a closing round, or the `--rounds` cap reached. Stop, then ask
-whether to keep watching. A closing round's question lists its declines — each thread, and
-`not worth a round` with its evidence where that was the reason — so the user can take any
-of them back; a cap's says what is still outstanding and whether the rounds were
-converging. A close reporting `verdict held` leads with the verdict: the appeal is spent,
+**Closed or capped** — a close holding a verdict, or the `--rounds` cap reached. Stop, run
+*Handing over without a `GREEN`* in [GREEN.md](GREEN.md), then ask whether to keep
+watching, carrying the briefing. The close's question lists its declines as a `GREEN`
+after a close does; a cap's says what is still outstanding and whether the rounds were
+converging. A close holding a verdict leads with the verdict: the appeal is spent,
 so what is left is taking a decline back or the bypass the repo documents, and bypassing
 a check is the user's call, `--unattended` included. *Keep watching* re-arms the watch (back to Step 2, label included), and a
 decline the user takes back rides into its next round as `ANSWERED`.
