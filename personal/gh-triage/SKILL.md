@@ -76,7 +76,7 @@ Two more things the body owes whoever starts it, both visible only from here:
 `needs_judgement` comes next: candidates whose collision judgement landed between
 `COLLIDE_LOW` and `COLLIDE_HIGH`. `next` neither dispatches nor rejects them, so they
 recur every tick until settled here. Each entry's `judged` map names what it may collide
-with — an open PR, or another claimed issue — and the probability. Read the issue against
+with — an open PR of an item in flight, or another claimed issue — and the probability. Read the issue against
 that PR or issue and settle it one of two ways:
 
 - **It does not touch the same files.** Name the footprint in the body — backticked paths

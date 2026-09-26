@@ -965,7 +965,7 @@ def migration_app(path):
     return path.split("/migrations/")[0].split("/")[-1]
 
 
-def footprints(repos):
+def footprints(repos, only=None):
     """`((repo, path) -> the open PRs touching it, key -> one open PR's own file list)`.
 
     REST only: the files of every open PR is the one question here GraphQL has no cheaper
@@ -975,11 +975,16 @@ def footprints(repos):
     by the time a candidate is compared against it.
 
     An INSTRUCTION_FILE is left out of both, so a PR that edits nothing else is never put
-    to a judgement either."""
+    to a judgement either.
+
+    `only` is a set of PR URLs, and with it every other open PR is skipped before its
+    files are read."""
     owners = defaultdict(list)
     per_pr = {}
     for repo in repos:
         for p in rest(f"repos/{repo}/pulls", 300, state="open"):
+            if only is not None and p.get("html_url") not in only:
+                continue
             tag = f'#{p["number"]}'
             # GitHub lists at most 3000 files per PR; a PR past 300 owns its module anyway.
             files = [f["filename"] for f in rest(f"repos/{repo}/pulls/{p['number']}/files", 300)
@@ -1277,7 +1282,8 @@ def cmd_footprint(a):
 
 def cmd_next(a):
     """One tick of a dispatch loop: the deficit, and which `Ready` items can fill it
-    without colliding with work already in flight.
+    without colliding with work already in flight on the board. An open PR no board item
+    links to holds nothing here.
 
     `Ready` is the pool and `Backlog` is not: an item waits there, however well triaged,
     until the user promotes it. `backlog` counts what is waiting, so a tick with free
@@ -1417,9 +1423,13 @@ def cmd_next(a):
         print(json.dumps(out, indent=2))
         return 1
 
+    # Only the board's own work holds files: the open PRs linked to an item in flight.
+    # Anyone else's open PR is theirs to rebase over, and a candidate waits on none of them.
+    ours = {u for i in flight for u in i["prs"] if i["pr_state"][u] == "OPEN"}
     repos = sorted({i["repo"] for i in flight} | {i["repo"] for i in shortlist})
     out["no_checkout"] = [r for r in repos if not repo_files(r)[2]]
-    owners, pr_files = footprints(repos)
+    pr_repos = {"/".join(u.split("/")[3:5]) for u in ours}
+    owners, pr_files = footprints(sorted(set(repos) | pr_repos), only=ours)
 
     # An item claimed minutes ago has no PR yet, so the open-PR sweep cannot see it. Its
     # own body is the only account of what it is about to touch. Nothing judges a claim —
