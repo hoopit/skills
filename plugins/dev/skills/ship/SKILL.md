@@ -48,6 +48,14 @@ Done when you can name the change and defend why it is the right one. If the ava
 information cannot get you there, stop and report back — the caller (or the user) owns
 the request-info / escalate decision.
 
+**Work that writes a command to run** — a backfill, a data fix, a repair script — ships
+the command *and* its run in this one PR: the run happens once the PR is green and ready,
+before the merge (`monitor-pr`), and its run log lands on the branch. Decide here whether
+it can. It cannot when the command needs this PR live in production first — a migration
+the PR adds, or a writer the PR fixes, whose bad rows would keep arriving between the run
+and the deploy. Then the run is its own issue, filed through `create-gh-issue` with a
+`Gate: deployed` line naming this PR; say why in the PR body.
+
 ## Step 2 — Create the branch as a worktree
 
 Name the branch after the work item's source: mirror the shape the repo already uses
@@ -190,6 +198,9 @@ link hygiene. Add to the body it specifies:
 
 - the `WORK_ITEM` link section — or, unset, a line saying the change is untracked;
 - a `## Testing` line covering the tests added, or why none was feasible;
+- for a run shipped with the PR (Step 1), a `## Run before merge` section: one unticked
+  checkbox per run, naming the command, its arguments and the environment it runs
+  against — `monitor-pr` asks for the run from it and ticks it when done;
 - the review-gate notes across every round: the scope it ran at, which reviewers ran,
   findings addressed, findings skipped and why — and, when the user chose to open past a
   block or a checkpoint, the findings still standing and that they chose to ship over

@@ -7,8 +7,9 @@ Under `--unattended` a question waits for someone who may never come, so every
 **reversible** choice takes your own recommendation. Two kinds stay questions, asked as
 Step 5 says:
 
-- **an irreversible move** — deleting work that exists nowhere else, and the merge, which
-  a `GREEN` recommending it puts without the ping (below);
+- **an irreversible move** — deleting work that exists nowhere else, a run owed before
+  merge ([GREEN.md](GREEN.md)), and the merge, which a `GREEN` recommending it puts
+  without the ping (below);
 - **a decision you doubt** — a hard fork, a stop, a checkpoint that stops, and any recommendation you
   hold without the evidence to defend it to a reviewer.
 

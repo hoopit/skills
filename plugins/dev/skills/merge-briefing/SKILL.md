@@ -52,8 +52,8 @@ holding; a very-high-risk PR that is green and challenged recommends merging.
 The recommendation answers *may this merge*; the risk answers *how long to look first*.
 
 With no recommendation handed to you, recommend merging when every check is green, no
-review thread is unresolved and no reviewer is still owed on this head; otherwise hold,
-naming what is owed.
+review thread is unresolved and no reviewer is still owed on this head, and no box in a
+`## Run before merge` section is unticked; otherwise hold, naming what is owed.
 
 ## The lane
 

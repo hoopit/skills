@@ -4,9 +4,9 @@ The `GREEN` path of [SKILL.md](SKILL.md)'s Step 5; steps named here are that fil
 `<GATE_SCRIPT>` and `<SKILL_DIR>` are the paths its Step 1 resolved.
 
 **Green** — a `GREEN` line. Before the merge question, once per head that carries pushes
-since the last one, challenge the whole PR — the read no per-push reviewer gives it. From
-the PR's worktree, with the ledger's judgement rows — the declines, the step-back picks —
-and the issues the PR closes as the focus. The **issues** are the ones its description
+since the last one, a run-log push aside (below), challenge the whole PR — the read no
+per-push reviewer gives it. From the PR's worktree, with the ledger's judgement rows —
+the declines, the step-back picks — and the issues the PR closes as the focus. The **issues** are the ones its description
 links (`closes #<n>`, the tracker section); a PR linking none is weighed against its
 description, and the briefing says so:
 
@@ -45,11 +45,29 @@ and not held. It writes the briefing into the PR description; the merge question
 the same text. When the write fails, say so in the merge question and ask anyway.
 
 The merge is the user's call, always: ask, and recommend it. No Hoopit repo requires an
-approval, so a `GREEN` waits on nobody's review; two things alone turn the recommendation
+approval, so a `GREEN` waits on nobody's review; three things alone turn the recommendation
 to holding. A `GREEN` carrying `pending_gates` went green with a reviewer that never
 reported on the head: name it and recommend holding until it has. A merge-readiness
 challenge that did not run holds it the same way, for the same reason — a reviewer that
-never reported.
+never reported. And a run still owed (below) holds it until the run is done.
+
+**A run owed before merge.** A description whose `## Run before merge` section still has
+an unticked box puts the run question in place of the merge question, once the PR is
+ready and briefed — the briefing recommending hold, naming the run. The question carries
+the exact command, how it will run and against what, and anything the output should
+show. Run it the way the repo's `AGENTS.md` says a command runs against that
+environment. Options: **Run it** · **I'll run it — output to follow in chat** ·
+**Not yet — keep watching**.
+
+With the output in hand, from you or the user, read it against what it should show. A
+failed run, or one that did something other than expected, is a stop: report it and ask,
+never re-run on your own. A good run writes its **run log** where the repo's convention
+puts it, in one commit touching nothing else, and ticks the box in the description with
+the date and a line of what the run did. Push that commit with no review round: it
+changes no code, so the head it makes needs green checks alone — its `GREEN` skips the
+challenge, rewrites the briefing for the new head with the run's result, and asks the
+merge question.
+
 On *Merge it*, merge with a method the repo allows. Mark the PR ready first: a question
 that went out recommending hold left it a draft, GitHub refuses to merge one, and `gh pr
 merge` has no guard of its own for it. On a PR already ready the call warns and exits 0.

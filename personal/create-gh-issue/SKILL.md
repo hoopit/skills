@@ -80,7 +80,8 @@ with none found.
     rows). Otherwise whoever runs it can satisfy the line in ten minutes and learn
     nothing, and the issue closes on an empty window.
   - An acceptance line whose last step needs the code **deployed** — logs read once it
-    ships, a promotion confirmed, a script only the deployed app can run — makes this
+    ships, a promotion confirmed, a script only the deployed app can run, a repair of
+    rows a bug fixed in the same PR keeps writing until it ships — makes this
     two issues, not one longer one. The two phases have different gates and different
     actors, and the board cannot represent "merged but not yet done": the PR closes what
     it delivers, so an item held open past its merge freezes at `In progress` with nobody
@@ -88,8 +89,8 @@ with none found.
     deployed` (step 5), and let the first close at its merge.
   - A run that only needs the code **reviewed** stays in one issue. In `hoopit/api`,
     `manage-prod.py` runs the local checkout against prod, so a repair command runs from
-    its own branch once the review gate passes, and its run log lands in the same PR
-    before merge.
+    its own branch once the PR is green and ready (`monitor-pr` asks for it), and its
+    run log lands in the same PR before merge.
 - **The decision**, where the issue turns on a question only the author can answer —
   product behaviour, naming, UX, scope. Give it a `## The decision` heading of its own
   and state the question and the shapes it could take, so clearing it costs a sentence
@@ -188,6 +189,9 @@ reason is in front of you.
 | `Unattended` | **Decided** and **reachable**: the issue says what to do, and everything it needs is in a repo the agent checks out. |
 | `Needs decision` | A question of product behaviour, naming, UX or scope is the author's. An issue too vague to judge lands here. |
 | `Out of reach` | It needs something no checkout reaches — a third-party dashboard, a credential the author keeps, an app-store step, a deploy someone triggers, a manual action with no PR behind it. |
+
+A command to write and run is judged on the writing: its PR asks for the run before it
+merges (step 3), so the run has a PR behind it and does not make the issue `Out of reach`.
 
 **Production is readable**, through the `readonly-db` skill, so an issue that needs
 live data to settle is reachable and the measuring is the agent's work. An agent

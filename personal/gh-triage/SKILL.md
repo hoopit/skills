@@ -62,7 +62,8 @@ section:
   unnamed decision costs a re-read before anyone can answer it, and those pile up under
   `hoopit-board decisions --unnamed`.
 - `Out of reach` — what it needs that no checkout reaches. Where part of it *is*
-  reachable, file that part as its own `Unattended` issue.
+  reachable, file that part as its own `Unattended` issue. A command to write and run is
+  not split this way: it is one issue, `create-gh-issue` says why.
 
 Two more things the body owes whoever starts it, both visible only from here:
 
