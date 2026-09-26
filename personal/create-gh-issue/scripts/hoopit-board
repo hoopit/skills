@@ -1372,11 +1372,14 @@ def cmd_next(a):
     # cannot be promoted into a rankable one — so triage sees both; only Ready ranks.
     untriaged = [i for i in backlog + parked if i["type"] == "Issue" and not triaged(i)]
     ranked = [i for i in backlog if triaged(i) and i["type"] == "Issue"]
-    # Unattended-only, always. `Needs decision` blocks on a sentence from the author and
-    # `Out of reach` needs something no checkout reaches, so an agent cannot finish
-    # either one however carefully it is dispatched. `decisions` is where they go.
-    held = [i for i in ranked if i["autonomy"] != "Unattended"]
-    ranked = [i for i in ranked if i["autonomy"] == "Unattended"]
+    # `Needs decision` blocks on a sentence from the author and `Out of reach` needs
+    # something no checkout reaches, so an agent alone cannot finish either one however
+    # carefully it is dispatched. `decisions` is where they go. `--allow-out-of-reach`
+    # is for a caller whose agents have somebody at hand to supply what the checkout
+    # cannot; a decision is never dispatched, since the answer is the author's to give.
+    dispatchable = {"Unattended"} | ({"Out of reach"} if a.allow_out_of_reach else set())
+    held = [i for i in ranked if i["autonomy"] not in dispatchable]
+    ranked = [i for i in ranked if i["autonomy"] in dispatchable]
     # A type `--skip-type` names is left for a session with somebody in it. Unlike the
     # Autonomy filter above, this holds back work an agent could finish, for a caller that
     # wants a person reading what it finds. Nothing is released or moved — the item stays
@@ -2429,6 +2432,8 @@ def main():
                         "hand-started item be judged by the agent named gh<n>")
     s.add_argument("--skip-type", action="append", dest="skip_type", default=[],
                    metavar="TYPE", help="leave this issue type to an attended session")
+    s.add_argument("--allow-out-of-reach", action="store_true",
+                   help="rank Autonomy `Out of reach` alongside `Unattended`")
     s.add_argument("--repo", action="append", dest="scope", default=[], metavar="OWNER/NAME",
                    help="count flight and start work only in these repos; every repo when omitted")
     s.add_argument("--no-judge", action="store_true",

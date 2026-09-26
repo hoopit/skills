@@ -34,7 +34,10 @@
 # released or closed for it, and it counts again the tick its agent moves.
 #
 #   start-backlog-daemon [<target>] [--max-active N] [--max-review M]
-#                        [--interval SEC] [--once] [--dry-run]
+#                        [--interval SEC] [--once] [--dry-run] [--attended]
+#
+# --attended says somebody is watching the tabs. It also dispatches Autonomy
+# `Out of reach`, and tells each agent to ask in its tab and wait rather than release.
 #
 # An agent working one of these repos reaches AWS, so a dead `aws login` session turns a
 # start into a run that fails late, with the slot claimed and the tab already open. Each
@@ -71,6 +74,7 @@ MAX_REVIEW=${START_BACKLOG_MAX_REVIEW:-}
 INTERVAL=600
 ONCE=0
 DRY=0
+ATTENDED=${START_BACKLOG_ATTENDED:-0}
 # A candidate this daemon dispatched inside the cooloff is passed over. A reaped item
 # goes back to Ready and `check` reads the release as cancelling the claim, so without
 # this the same item redispatches every tick. (An agent that hands back with a question
@@ -106,13 +110,14 @@ while [[ $# -gt 0 ]]; do
     --interval) INTERVAL="$2"; shift 2 ;;
     --once) ONCE=1; shift ;;
     --dry-run) DRY=1; shift ;;
-    -h|--help) sed -n '2,45p' "$0"; exit 0 ;;
+    --attended) ATTENDED=1; shift ;;
+    -h|--help) sed -n '2,53p' "$0"; exit 0 ;;
     -*) echo "unknown flag: $1" >&2; exit 2 ;;
     *) TARGET="$1"; shift ;;
   esac
 done
 # --max-review holds starts and bounds none, so one of the other two must be there.
-[[ -n "$TARGET$MAX_ACTIVE" ]] || { echo "usage: start-backlog-daemon [<target>] [--max-active N] [--max-review M] [--interval SEC] [--once] [--dry-run] — give <target> or --max-active" >&2; exit 2; }
+[[ -n "$TARGET$MAX_ACTIVE" ]] || { echo "usage: start-backlog-daemon [<target>] [--max-active N] [--max-review M] [--interval SEC] [--once] [--dry-run] [--attended] — give <target> or --max-active" >&2; exit 2; }
 
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/start-backlog"
 RUN_DIR="${XDG_RUNTIME_DIR:-/tmp}/start-backlog"
@@ -285,10 +290,18 @@ dispatch() {
   local prompt="Work $repo#$n: $url
 
 Run it with: /assess-issue $url --started
-
+"
+  if [[ $ATTENDED == 1 ]]; then
+    prompt+="
+Somebody is watching this tab. If the work needs something no checkout reaches, or a
+decision only the author can make, write the question onto the issue, then ask it here
+and wait for the answer."
+  else
+    prompt+="
 Nobody is watching this tab. If the assessment turns on a decision only the author can
 make, write the question onto the issue and release the slot with
 \`hoopit-board release $repo $n --reason '<why>'\` rather than waiting for an answer."
+  fi
   herdr agent prompt "$agent" "$prompt" >/dev/null 2>&1 ||
     log "warning: $agent started but the opening prompt did not send"
 
@@ -308,6 +321,7 @@ tick() {
   local scope=() r t
   for r in $REPOS; do scope+=(--repo "$r"); done
   for t in $SKIP_TYPES; do scope+=(--skip-type "$t"); done
+  [[ $ATTENDED == 1 ]] && scope+=(--allow-out-of-reach)
   hoopit-board next $TARGET ${MAX_ACTIVE:+--max-active "$MAX_ACTIVE"} \
     ${MAX_REVIEW:+--max-review "$MAX_REVIEW"} "${live[@]}" \
     "${scope[@]}" "${excludes[@]}" > "$run"
@@ -429,7 +443,7 @@ PY
   log "filled $count slot(s)"
 }
 
-log "start-backlog daemon: target=${TARGET:-none} max_active=${MAX_ACTIVE:-none} max_review=${MAX_REVIEW:-none} quiet_after=${QUIET_MINUTES}m interval=${INTERVAL}s dry=$DRY aws_check=$AWS_CHECK repos=$REPOS skip_types=${SKIP_TYPES:-none}"
+log "start-backlog daemon: target=${TARGET:-none} max_active=${MAX_ACTIVE:-none} max_review=${MAX_REVIEW:-none} quiet_after=${QUIET_MINUTES}m interval=${INTERVAL}s dry=$DRY aws_check=$AWS_CHECK repos=$REPOS skip_types=${SKIP_TYPES:-none} attended=$ATTENDED"
 while :; do
   if ! herdr_up; then
     log "herdr server unreachable — holding"
