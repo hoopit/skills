@@ -1378,9 +1378,8 @@ def cmd_next(a):
     held = [i for i in ranked if i["autonomy"] != "Unattended"]
     ranked = [i for i in ranked if i["autonomy"] == "Unattended"]
     # A type `--skip-type` names is left for a session with somebody in it. Unlike the
-    # Autonomy filter above, this holds back work an agent could finish: a `Follow-up`
-    # measures production and answers a question about what it found, and the answer is
-    # the deliverable rather than a diff. Nothing is released or moved — the item stays
+    # Autonomy filter above, this holds back work an agent could finish, for a caller that
+    # wants a person reading what it finds. Nothing is released or moved — the item stays
     # Ready, ranks as it did, and `check` still passes it, so `hoopit-board start` in an
     # attended session picks it up untouched.
     attended = [i for i in ranked if i["issue_type"] in a.skip_type]

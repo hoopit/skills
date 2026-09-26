@@ -133,6 +133,12 @@ Close only on something you can print:
 
 Everything else ships, small and dull included.
 
+A `Follow-up` whose deliverable is an answer — a verification, a measurement, logs to
+read once something is live — has a third ending: **answered**. Run the check, and
+where it comes back as expected, close with the findings (step 6) under `--reason
+completed`. Where it does not, the finding is the work: ship the fix, or, when what to
+do about it is the author's call, ask it the way the questions below do.
+
 Two outcomes are neither, and both end in a question rather than an action:
 
 - **Bigger than one PR.** Set `--effort XL` and say what the split would be. One
@@ -179,7 +185,8 @@ gh issue comment <n> --repo <repo> --body-file <path>
 gh issue close <n> --repo <repo> --reason 'not planned'
 ```
 
-`--duplicate-of <m>` instead of `--reason` when another issue covers it.
+`--duplicate-of <m>` instead of `--reason` when another issue covers it, and
+`--reason completed` when the close is an answered follow-up.
 Closing carries the board item to Done on its own. Reopening costs one click,
 and a close written so that reopening is *informed* is the whole point — never
 close with a verdict alone.
