@@ -51,10 +51,10 @@ the request-info / escalate decision.
 **Work that writes a command to run** — a backfill, a data fix, a repair script — ships
 the command *and* its run in this one PR: the run happens once the PR is green and ready,
 before the merge (`monitor-pr`), and its run log lands on the branch. Decide here whether
-it can. It cannot when the command needs this PR live in production first — a migration
-the PR adds, or a writer the PR fixes, whose bad rows would keep arriving between the run
-and the deploy. Then the run is its own issue, filed through `create-gh-issue` with a
-`Gate: deployed` line naming this PR; say why in the PR body.
+it can. The run needs its own issue only when the command needs this PR live in
+production first — a migration the PR adds, or a writer the PR fixes, whose bad rows would
+keep arriving between the run and the deploy. Then file the run through `create-gh-issue`
+with a `Gate: deployed` line naming this PR, and say why in the PR body.
 
 ## Step 2 — Create the branch as a worktree
 

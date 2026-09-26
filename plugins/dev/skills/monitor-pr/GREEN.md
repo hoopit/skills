@@ -66,7 +66,8 @@ puts it, in one commit touching nothing else, and ticks the box in the descripti
 the date and a line of what the run did. Push that commit with no review round: it
 changes no code, so the head it makes needs green checks alone — its `GREEN` skips the
 challenge, rewrites the briefing for the new head with the run's result, and asks the
-merge question.
+merge question. Done when every box is ticked and the merge question names the run's
+result.
 
 On *Merge it*, merge with a method the repo allows. Mark the PR ready first: a question
 that went out recommending hold left it a draft, GitHub refuses to merge one, and `gh pr

@@ -49,8 +49,8 @@ today. The kinds, and the test for each:
 "confirm this Sentry issue stops", "count the rows that are still wrong" — is reachable
 work an agent does, and belongs on the board as `Unattended` with a deploy gate. A
 backfill, a repair, a row edit or anything that writes stays the user's — unless its
-command is still to write: then it is one `Unattended` issue whose PR asks for the run
-before it merges (`create-gh-issue`), and the run is still the user's call. An item that
+command is still to write: then it converts to one `Unattended` issue whose PR asks the
+user for the run before it merges (`create-gh-issue`). An item that
 verifies *and then repairs* splits: the verification converts, the repair waits on its
 result.
 
@@ -92,7 +92,7 @@ left. Close it only where the user says the work is finished.
 
 An item that turns out to have a reachable part and an out-of-reach part splits: file the
 reachable part through `create-gh-issue` as `Unattended`, and leave the remainder here
-with the split named. Writing a command and running it is not such a split.
+with the split named. A command to write and its run stay one item (`create-gh-issue`).
 
 ## 5. Summarise the waiting
 

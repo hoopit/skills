@@ -191,7 +191,7 @@ reason is in front of you.
 | `Out of reach` | It needs something no checkout reaches — a third-party dashboard, a credential the author keeps, an app-store step, a deploy someone triggers, a manual action with no PR behind it. |
 
 A command to write and run is judged on the writing: its PR asks for the run before it
-merges (step 3), so the run has a PR behind it and does not make the issue `Out of reach`.
+merges (step 3), so the run has a PR behind it and the issue can be `Unattended`.
 
 **Production is readable**, through the `readonly-db` skill, so an issue that needs
 live data to settle is reachable and the measuring is the agent's work. An agent
