@@ -8,7 +8,9 @@
 # installed_plugins.json, and the siblings of each of those. A directory counts when its
 # origin remote is hoopit/<repo> for one of REPOS and it is a main worktree (linked
 # worktrees are skipped). Prints one line per checkout:
-#   RESULT <repo> <dir> <updated|current|installed|failed> <old> -> <new>
+#   RESULT <repo> <dir> <updated|current|installed|stale|failed> <old> -> <new>
+# `stale` means the CLI reported success but this checkout's own record is not at <new>;
+# the records at fault are listed beneath it.
 # then a final `MISSING <repo>` for each product repo with no checkout found.
 set -uo pipefail
 
@@ -48,16 +50,18 @@ for dir in "${candidates[@]}"; do
 done
 
 # installed_plugins.json records native paths. On Windows that is `D:\x` or `d:\x`
-# while Git Bash sees `/d/x`, so both sides compare as `d:/x`, case-insensitively.
+# while Git Bash sees `/d/x`, so both sides compare as `d:/x`. Case is folded only where
+# paths are case-insensitive: Windows, and macOS on its default volumes.
+native() { printf '%s\n' "$1"; }
+PATH_NORM='.'
 if command -v cygpath >/dev/null; then
   native() { cygpath -m "$1"; }
   PATH_NORM='gsub("\\\\"; "/") | ascii_downcase'
-else
-  native() { printf '%s\n' "$1"; }
-  PATH_NORM='.'
+elif [[ "$(uname -s)" == Darwin ]]; then
+  PATH_NORM='ascii_downcase'
 fi
 
-for dir in "${!found[@]}"; do
+while IFS= read -r dir; do
   repo=${found[$dir]}
   if jq -e --arg d "$(native "$dir")" --arg p "$PLUGIN" \
        "def norm: $PATH_NORM;
@@ -73,12 +77,24 @@ for dir in "${!found[@]}"; do
                     elif .updateOutcome == "updated" then "updated" else "current" end' <<<"$line")
     old=$(jq -r '.oldVersion // "-"' <<<"$line")
     new=$(jq -r '.newVersion // .version // "-"' <<<"$line")
-    echo "RESULT $repo $dir $status $old -> $new"
+    # The CLI can write a different record than this checkout's: a nested worktree's,
+    # or one of several records whose paths differ only in case.
+    stale=$(jq -r --arg d "$(native "$dir")" --arg p "$PLUGIN" --arg v "$new" \
+      "def norm: $PATH_NORM;
+       .plugins[\$p] // [] | map(select(.scope == \"project\" and (.projectPath | norm) == (\$d | norm)))
+       | if length == 0 then [\"(no record)\"] else map(select(.version != \$v) | \"\(.projectPath) \(.version)\") end
+       | .[]" "$INSTALLED" 2>&1)
+    if [[ "$new" != "-" && -n "$stale" ]]; then
+      echo "RESULT $repo $dir stale $old -> $new"
+      sed 's/^/  /' <<<"$stale"
+    else
+      echo "RESULT $repo $dir $status $old -> $new"
+    fi
   else
     echo "RESULT $repo $dir failed - -> -"
     sed 's/^/  /' <<<"$out"
   fi
-done | sort -k2
+done < <(for d in "${!found[@]}"; do printf '%s\n' "$d"; done | sort)
 
 for r in "${REPOS[@]}"; do
   printf '%s\n' "${found[@]}" | grep -qx "$r" || echo "MISSING $r"
