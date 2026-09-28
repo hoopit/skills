@@ -30,5 +30,15 @@ line means the machine has no checkout of that repo, which is normal; list it as
 checked out. A `failed` line carries the CLI's own output beneath it; report it verbatim
 with the checkout it belongs to.
 
+A `stale` line means the CLI reported success but wrote some other record, so one of the
+checkout's own records is still old. The old records are listed beneath it. Back up
+`installed_plugins.json`, then:
+
+- If an old record differs from the current one only in the case of its path, it is a
+  duplicate: delete it.
+- Otherwise the CLI updated a nested worktree's record (`<dir>/.claude/worktrees/...`).
+  Delete that worktree's record and rerun the script. If the worktree still exists, run
+  `claude plugin install hoopit-dev@hoopit-skills --scope project` inside it.
+
 End with the reminder that a plugin update applies only to sessions started after it, so
 any open Claude Code session in an updated checkout needs a restart.
