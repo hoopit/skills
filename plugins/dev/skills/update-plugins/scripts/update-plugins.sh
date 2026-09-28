@@ -22,6 +22,10 @@ export MISE_QUIET=1
 
 command -v jq >/dev/null || { echo "jq is required" >&2; exit 2; }
 
+# An inherited GIT_DIR, GIT_WORK_TREE etc. would point every git call at the caller's repo.
+mapfile -t git_env < <(git rev-parse --local-env-vars)
+unset "${git_env[@]}"
+
 echo "Refreshing marketplace $MARKETPLACE..."
 claude plugin marketplace update "$MARKETPLACE" >/dev/null || { echo "marketplace update failed" >&2; exit 1; }
 
