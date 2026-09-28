@@ -50,14 +50,14 @@ for dir in "${candidates[@]}"; do
 done
 
 # installed_plugins.json records native paths. On Windows that is `D:\x` or `d:\x`
-# while Git Bash sees `/d/x`, so both sides compare as `d:/x`, case-insensitively.
+# while Git Bash sees `/d/x`, so both sides compare as `d:/x`. Case is folded on every
+# system: Windows and default macOS volumes are case-insensitive.
 if command -v cygpath >/dev/null; then
   native() { cygpath -m "$1"; }
-  PATH_NORM='gsub("\\\\"; "/") | ascii_downcase'
 else
   native() { printf '%s\n' "$1"; }
-  PATH_NORM='.'
 fi
+PATH_NORM='gsub("\\\\"; "/") | ascii_downcase'
 
 while IFS= read -r dir; do
   repo=${found[$dir]}
