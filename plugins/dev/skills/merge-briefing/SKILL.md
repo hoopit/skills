@@ -74,8 +74,7 @@ Read the file its `codex_challenge=` line names; `cached` reads as `ran`. A find
 
 - **One holds**: write nothing, and return `HELD:` with each holding finding and your
   reachability read. A caller that owns the rounds opens one on them. Asked directly, put
-  them to the user: fixing first, or briefing over them, is theirs. A briefing over them
-  names each in the last line as *held, briefed over by the user*, never as not held.
+  them to the user as `HELD:` too: this head is fixed before it is briefed.
 - **None holds**: they go into the last line as weighed and not held.
 - **A `codex_challenge_reason` line, or a fetch or checkout that failed**: the challenge
   did not run. Brief anyway,
@@ -106,7 +105,8 @@ Risk is not a recommendation. A low-risk PR with a reviewer still owed recommend
 holding; a very-high-risk PR that is green and challenged recommends merging.
 The recommendation answers *may this merge*; the risk answers *how long to look first*.
 
-With no recommendation handed to you, recommend merging when every check is green, no
+With no recommendation handed to you, recommend merging when every check is green — the
+`merge-briefing` status aside, which this briefing is what passes — no
 review thread is unresolved and no reviewer is still owed on this head, and no box in a
 `## Run before merge` section is unticked; otherwise hold, naming what is owed.
 
@@ -149,7 +149,8 @@ recommendation, between `<!-- agent-merge-briefing:start -->` and
 which the product repos' required `merge-briefing` check reads: it passes a ready PR when
 the challenge ran and `head` is the PR head, or every commit since it merges the base in.
 A briefing whose caller skipped the challenge carries `challenge` over from the block it
-replaces; with no marker there to carry, it runs the challenge instead. Read the body fresh at write time, so an edit made meanwhile survives:
+replaces; with no marker there to carry, or one that is not `ran`, it runs the challenge
+instead. Read the body fresh at write time, so an edit made meanwhile survives:
 
 ```bash
 gh api repos/<OWNER_REPO>/pulls/<PR> --jq .body > body.md

@@ -186,9 +186,9 @@ the PR to the user with the rounds over — a close holding a verdict, a checkpo
 I'll take it* answer — marks it ready, or it stays unmergeable with its issue parked in `AI
 review` and no event left to move it. A hard fork and an error stop leave it a draft on
 purpose: that work is unfinished, and re-arming the watch picks it up where it stands.
-A PR handed over this way carries no merge briefing for its head, so where the repo
-requires the `merge-briefing` check, the ending says one is owed before merge
-(`/merge-briefing <PR>`).
+A PR handed over without a briefing for its head — every one of these endings but a
+*Stop* answered to a `GREEN` question — owes one where its base requires the
+`merge-briefing` check, and the ending says so (`/merge-briefing <PR>`).
 
 ```bash
 bash <SKILL_DIR>/scripts/pr-labels.sh <OWNER_REPO> <PR> -monitored -agent-working

@@ -1,7 +1,18 @@
 # Green
 
 The `GREEN` path of [SKILL.md](SKILL.md)'s Step 5; steps named here are that file's.
-`<SKILL_DIR>` is the path its Step 1 resolved.
+`<SKILL_DIR>` is the path its Step 1 resolved, and `<base>` is the PR's base branch
+(`.base.ref`).
+
+**Does the base require the check?** Ask once, first: whether `<base>` requires the
+`merge-briefing` status decides what a briefing that did not pass costs below. Branch
+protection and rulesets are both readable with read access:
+
+```bash
+{ gh api repos/<OWNER_REPO>/branches/<base> --jq '.protection.required_status_checks.contexts[]?'
+  gh api repos/<OWNER_REPO>/rules/branches/<base> --jq '.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context'
+} | grep -qx merge-briefing && echo REQUIRED=yes || echo REQUIRED=no
+```
 
 **Green** — a `GREEN` line. Before the merge question, once per head that carries pushes
 since the last one, brief the PR: invoke the `merge-briefing` skill from the PR's worktree,
@@ -10,25 +21,33 @@ reviewer gives the PR — and writes the briefing into the description. Hand it 
 the PR closes (the ones its description links, `closes #<n>`, the tracker section), the
 ledger's judgement rows — the declines, the step-back picks — as the challenge's focus,
 the recommendation with its reason (below), and on a run-log push (below) that it skips
-the challenge. Its `CHALLENGE:` line is the challenge's score: it goes into the ledger
-tally as **challenge findings weighed** and **held**, and it is what the paths below read.
+the challenge. Its `CHALLENGE:` line is the challenge's score: write it into the ledger's
+tally in the description as **challenge findings weighed** and **held** — no round will —
+and it is what the paths below read.
 
 **`HELD`** — a challenge finding held, and nothing was written. It opens a round rather
 than a question, the same work a reviewer thread would open: under `--subagent` as
 `ROUND: CHALLENGE head=<sha> findings=<n>` with the findings and the reachability read
 `merge-briefing` returned in `GUIDANCE`, inline by working them yourself as the worker
 briefing says. Its push brings the next `GREEN`, and that one carries the merge question.
+A round that commits nothing — every held finding declined on a second read — brings no
+new head and so no `GREEN`: brief this head again at once, with those declines among the
+judgement rows.
 
 **`CHALLENGE: not-run`** is Step 4's `CODEX DOWN`: `merge-briefing`
 has turned the recommendation to hold and named what the challenge would have weighed.
-**`marker=unwritten`** is a failed write: retry it once, and when it fails again the
-merge question says so, recommending hold whatever the briefing's text says. Either way a
-repo that requires the `merge-briefing` check will refuse the merge until this head is
-briefed again with the challenge run, and the question says that too.
+**`marker=unwritten`** with no `HELD:` is a failed write: re-send the write once, and when
+it fails again the merge question says so. With `REQUIRED=yes`, either leaves a head the
+merge is refused on until it is briefed again with the challenge run: the question
+recommends hold whatever the briefing's text says, and offers **Brief this head again**
+beside the usual options, which re-runs `merge-briefing` on this head with the challenge
+— never skipped — and then asks the merge question again. With `REQUIRED=no` the briefing
+gates nothing: a failed write is reported and the question asked as usual.
 
 Drop `agent-working` before asking (Step 4): the PR is the user's until they answer.
-When this head is ready on the agent's side — `marker=ran`, nothing held, and the `GREEN`
-carries no `pending_gates` — mark the PR ready for review, the
+When this head is ready on the agent's side — the challenge ran (or was carried as `ran`)
+and nothing held, the marker written where `REQUIRED=yes`, and the `GREEN` carries no
+`pending_gates` — mark the PR ready for review, the
 hand-off:
 
 ```bash
@@ -41,8 +60,8 @@ approval, so a `GREEN` waits on nobody's review; these alone turn the recommenda
 holding. A `GREEN` carrying `pending_gates` went green with a gate that never
 reported on the head: name it and recommend holding until it has. A merge-readiness
 challenge that did not run holds it the same way, for the same reason — a reviewer that
-never reported — and so does a briefing that never reached the description, which the
-required check cannot pass. And a run still owed (below) holds it until the run is done.
+never reported — and, with `REQUIRED=yes`, so does a briefing that never reached the
+description, which the check cannot pass. And a run still owed (below) holds it until the run is done.
 
 **A run owed before merge.** A description whose `## Run before merge` section still has
 an unticked box puts the run question in place of the merge question, once the PR is
@@ -71,23 +90,16 @@ gh api repos/<OWNER_REPO> --jq '{squash: .allow_squash_merge, merge: .allow_merg
 gh pr ready <PR> --repo <OWNER_REPO>
 ```
 
-Where the base requires the `merge-briefing` status, readying is what makes it post, a
-minute or so later, and the watch leaves that status out (`pr_checks`). So first ask the
-base whether it requires it — branch protection and rulesets, both readable with read
-access — and when it does, wait in the background for the head's status to read
-`success`. Waiting on `success` alone, not on any settled state, is what lets a stale
-`failure` from before the briefing be replaced:
+With `REQUIRED=yes`, readying is what makes the status post, a minute or so later, and
+the watch leaves that status out (`pr_checks`). So wait in the background for the head's
+status to read `success`. Waiting on `success` alone, not on any settled state, is what
+lets a stale `failure` from before the briefing be replaced:
 
 ```bash
-s="not required"
-if { gh api repos/<OWNER_REPO>/branches/<base> --jq '.protection.required_status_checks.contexts[]?'
-     gh api repos/<OWNER_REPO>/rules/branches/<base> --jq '.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context'
-   } | grep -qx merge-briefing; then
-  for i in $(seq 30); do
-    s=$(gh api repos/<OWNER_REPO>/commits/<head sha>/status --jq '[.statuses[] | select(.context == "merge-briefing") | .state][0] // empty')
-    [ "$s" = success ] && break; sleep 10
-  done
-fi; echo "merge-briefing=${s:-missing}"
+for i in $(seq 30); do
+  s=$(gh api repos/<OWNER_REPO>/commits/<head sha>/status --jq '[.statuses[] | select(.context == "merge-briefing") | .state][0] // empty')
+  [ "$s" = success ] && break; sleep 10
+done; echo "merge-briefing=${s:-missing}"
 ```
 
 Then merge, never with `--admin`: GitHub's own refusal is what guards a head the check

@@ -46,6 +46,7 @@ pr_meta() {
 # The `merge-briefing` status is left out. GREEN writes the briefing that passes it, so it is
 # never a round's work: a push onto a ready PR fails it until the next GREEN, and every reader
 # of these checks — the watch, pr-state, a worker's failing-checks pass — has to agree on that.
+# The job that posts it stays in: that job failing is an outage to report, not a verdict.
 pr_checks() {
   local runs statuses
   runs=$(gh api --paginate --slurp "repos/$1/commits/$2/check-runs?per_page=100") || return 1
