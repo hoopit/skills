@@ -21,11 +21,13 @@ briefing says. Its push brings the next `GREEN`, and that one carries the merge 
 
 **`CHALLENGE: not-run`** is Step 4's `CODEX DOWN`: `merge-briefing`
 has turned the recommendation to hold and named what the challenge would have weighed.
-The merge question still goes, saying so, without *Merge it*: the repo's required
-`merge-briefing` check fails a briefing whose challenge did not run, so restoring Codex,
-then briefing this head again, is the way to a merge. Bypassing the check is the user's
-call, as a held verdict's bypass is. A failed
-write is said in the merge question, which is asked anyway, carrying the briefing's text.
+
+**Any `marker=` but `ran`** — the challenge did not run, a run-log briefing carried
+`not-run` over, or the write failed — is a head the repo's required `merge-briefing` check
+fails, so it recommends holding. The merge question still goes, saying which and carrying
+the briefing's text, but without *Merge it*: restoring Codex, or retrying the write, then briefing this head again
+is the way to a merge. Bypassing the check is the user's call, as a held verdict's bypass
+is.
 
 Drop `agent-working` before asking (Step 4): the PR is the user's until they answer.
 When this head is ready on the agent's side — the briefing ran its challenge and nothing
@@ -65,8 +67,11 @@ result.
 On *Merge it*, merge with a method the repo allows. Mark the PR ready first: a question
 that went out recommending hold left it a draft, GitHub refuses to merge one, and `gh pr
 merge` has no guard of its own for it. On a PR already ready the call warns and exits 0.
-Readying is also what makes the required `merge-briefing` check post, so a PR readied
-here merges only once that status has posted on its head; until then GitHub refuses it.
+Readying is also what makes the required `merge-briefing` check post, so merge once the
+head's `merge-briefing` status reads `success`: until it has posted, read it again on the
+watch's next poll rather than merging, and name a status still missing after a few polls
+to the user — its caller workflow never ran. A `failure` is not merged: put its
+description to the user, whose call a bypass is.
 
 ```bash
 gh api repos/<OWNER_REPO> --jq '{squash: .allow_squash_merge, merge: .allow_merge_commit, rebase: .allow_rebase_merge}'
