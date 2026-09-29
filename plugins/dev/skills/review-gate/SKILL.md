@@ -29,6 +29,13 @@ Return exactly one verdict:
   may **not** unilaterally dismiss a Critical/High. Caller must NOT open the PR — surface the blocking findings; unattended, the
   caller hands back per its own contract, which owns what an escalation writes to the tracker.
 
+A `PASS` clears the branch to open or push, not to merge. The product repos require a
+`merge-briefing` status on a ready PR, which passes once the description carries a merge
+briefing for the PR's head whose Codex merge-readiness challenge ran — the read of the PR
+as a whole that no pass of this gate gives. `monitor-pr`'s `GREEN` writes it; on a PR
+nobody monitors, run the `merge-briefing` skill. Dependabot PRs and production promotions
+pass without one.
+
 ## Inputs
 
 Set by the caller; unset, the pass is a full review of the whole branch.

@@ -32,9 +32,39 @@ description, and the briefing says so. A caller that hands you the issues, facts
 last line, or the recommendation has already done that part: take them as given.
 
 ```bash
-gh api repos/<OWNER_REPO>/pulls/<PR> --jq '.body, .head.sha'
+gh api repos/<OWNER_REPO>/pulls/<PR> --jq '.body, .head.sha, .base.ref'
 gh api repos/<OWNER_REPO>/pulls/<PR> -H "Accept: application/vnd.github.v3.diff"
 ```
+
+## Challenge the whole PR
+
+Codex's merge-readiness challenge: the one read of the PR as a whole, which no per-push
+reviewer gives it. Every briefing runs it, except the one a caller tells to skip it — a
+head whose only commit since the last briefing is a run log. A caller that owns the PR's
+rounds hands you the judgement rows of its ledger; otherwise read them off the
+`agent-ledger` block, when the description carries one.
+
+It runs from a checkout of the head. When `git rev-parse HEAD` is not the head sha, check
+the head out beside the repo and remove it after:
+
+```bash
+git fetch origin <base ref> "+refs/pull/<PR>/head"
+git worktree add --detach <scratch dir>/pr-<PR> <head sha>   # run from there; `git worktree remove --force` after
+bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh" \
+  origin/<base ref> --challenge-only --challenge "Merge readiness. Is the whole diff warranted by these issues: <each issue, one line>? Judgements to break: <the ledger's judgement rows, one line each>"
+```
+
+Read the file its `codex_challenge=` line names; `cached` reads as `ran`. A finding
+**holds** only when a named caller or sequence reaches it (*Classifying an item* in
+[`../monitor-pr/LEDGER.md`](../monitor-pr/LEDGER.md)).
+
+- **One holds**: write nothing, and return `HELD:` with each holding finding and your
+  reachability read. A caller that owns the rounds opens one on them. Asked directly, put
+  them to the user: fixing first, or briefing with them weighed and not held, is theirs.
+- **None holds**: they go into the last line as weighed and not held.
+- **A `codex_challenge_reason` line**: the challenge did not run. Brief anyway,
+  recommending hold, and name what it would have weighed — the issues and the judgement
+  rows. Re-running the challenge on this head once Codex is back is what turns it.
 
 ## Rate the risk
 
@@ -85,8 +115,16 @@ has settled this; asked directly, print the briefing and offer the write.
 It is a block of its own at the top of the body: a
 `## 🤖 Merge briefing · <head sha, 7 chars>` heading, the eight lines, then the
 recommendation, between `<!-- agent-merge-briefing:start -->` and
-`<!-- agent-merge-briefing:end -->`. Read the body fresh at write time, so an edit made
-meanwhile survives:
+`<!-- agent-merge-briefing:end -->`. Directly under the start marker goes
+
+```
+<!-- merge-briefing head=<full head sha> challenge=<ran|not-run> -->
+```
+
+which the product repos' required `merge-briefing` check reads: it passes a ready PR when
+the challenge ran and `head` is the PR head, or every commit since it merges the base in.
+A briefing whose caller skipped the challenge carries `challenge` over from the block it
+replaces. Read the body fresh at write time, so an edit made meanwhile survives:
 
 ```bash
 gh api repos/<OWNER_REPO>/pulls/<PR> --jq .body > body.md
@@ -94,5 +132,5 @@ gh api repos/<OWNER_REPO>/pulls/<PR> --jq .body > body.md
 gh api -X PATCH repos/<OWNER_REPO>/pulls/<PR> -F body=@body.md
 ```
 
-Done when the body holds one briefing block, its heading names this head, and the rest of
+Done when the body holds one briefing block, its heading and marker name this head, and the rest of
 the description reads as it did. A failed write is reported, never fatal.

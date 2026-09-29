@@ -1,48 +1,38 @@
 # Green
 
 The `GREEN` path of [SKILL.md](SKILL.md)'s Step 5; steps named here are that file's.
-`<GATE_SCRIPT>` and `<SKILL_DIR>` are the paths its Step 1 resolved.
+`<SKILL_DIR>` is the path its Step 1 resolved.
 
 **Green** — a `GREEN` line. Before the merge question, once per head that carries pushes
-since the last one, a run-log push aside (below), challenge the whole PR — the read no
-per-push reviewer gives it. From the PR's worktree, with the ledger's judgement rows —
-the declines, the step-back picks — and the issues the PR closes as the focus. The **issues** are the ones its description
-links (`closes #<n>`, the tracker section); a PR linking none is weighed against its
-description, and the briefing says so:
+since the last one, brief the PR: invoke the `merge-briefing` skill from the PR's worktree,
+as the owner of its rounds. It runs the merge-readiness challenge — the read no per-push
+reviewer gives the PR — and writes the briefing into the description. Hand it the issues
+the PR closes (the ones its description links, `closes #<n>`, the tracker section), the
+ledger's judgement rows — the declines, the step-back picks — as the challenge's focus,
+the recommendation with its reason (below), and on a run-log push (below) that it skips
+the challenge.
 
-```bash
-git fetch origin <DEFAULT_BRANCH>
-bash <GATE_SCRIPT> \
-  origin/<DEFAULT_BRANCH> --challenge-only --challenge "Merge readiness. Is the whole diff warranted by these issues: <each issue, one line>? Judgements to break: <the ledger's judgement rows, one line each>"
-```
-
-Read the file its `codex_challenge=` line names. A finding that **holds** — the ledger
-says when — opens a round rather than a question, the same work a reviewer thread would
-open: under `--subagent` as `ROUND: CHALLENGE head=<sha> findings=<n>` with the findings
-and your reachability read in `GUIDANCE`, inline by working them yourself as the worker
+**`HELD`** — a challenge finding held, and nothing was written. It opens a round rather
+than a question, the same work a reviewer thread would open: under `--subagent` as
+`ROUND: CHALLENGE head=<sha> findings=<n>` with the findings and the reachability read
+`merge-briefing` returned in `GUIDANCE`, inline by working them yourself as the worker
 briefing says. Its push brings the next `GREEN`, and that one carries the merge question.
-The rest go into the tally as weighed and not held. A `codex_challenge_reason` line is
-Step 4's `CODEX DOWN`, and the merge question still goes — but it goes **recommending
-hold**. The one read of the PR as a whole never happened, and
-recommending a merge would be claiming a check that did not run. Say that in the question
-and name what the challenge would have weighed: the ledger's judgement rows. *Merge it*
-stays on the table, and restoring Codex, then
-re-running the challenge on this head, is what turns the recommendation back.
+
+**A briefing marked `challenge=not-run`** is Step 4's `CODEX DOWN`: `merge-briefing`
+has turned the recommendation to hold and named what the challenge would have weighed.
+The merge question still goes, saying so. *Merge it* stays on the table, and restoring
+Codex, then briefing this head again, is what turns the recommendation back. A failed
+write is said in the merge question, which is asked anyway, carrying the briefing's text.
 
 Drop `agent-working` before asking (Step 4): the PR is the user's until they answer.
-When this head is ready on the agent's side — the challenge ran and held nothing, and the
-`GREEN` carries no `pending_gates` — mark the PR ready for review, the hand-off:
+When this head is ready on the agent's side — the briefing ran its challenge and nothing
+held, and the `GREEN` carries no `pending_gates` — mark the PR ready for review, the
+hand-off:
 
 ```bash
 bash <SKILL_DIR>/scripts/pr-labels.sh <OWNER_REPO> <PR> -agent-working
 gh pr ready <PR> --repo <OWNER_REPO>
 ```
-
-**The merge briefing.** Settle the recommendation (below), then invoke the
-`merge-briefing` skill for this PR as the owner of its rounds, handing it the issues the
-challenge weighed, the recommendation with its reason, and the challenge findings weighed
-and not held. It writes the briefing into the PR description; the merge question carries
-the same text. When the write fails, say so in the merge question and ask anyway.
 
 The merge is the user's call, always: ask, and recommend it. No Hoopit repo requires an
 approval, so a `GREEN` waits on nobody's review; three things alone turn the recommendation
@@ -64,8 +54,8 @@ failed run, or one that did something other than expected, is a stop: report it 
 never re-run on your own. A good run writes its **run log** where the repo's convention
 puts it, in one commit touching nothing else, and ticks the box in the description with
 the date and a line of what the run did. Push that commit with no review round: it
-changes no code, so the head it makes needs green checks alone — its `GREEN` skips the
-challenge, rewrites the briefing for the new head with the run's result, and asks the
+changes no code, so the head it makes needs green checks alone — its `GREEN` briefs the
+new head with the challenge skipped and the run's result in the briefing, and asks the
 merge question. Done when every box is ticked and the merge question names the run's
 result.
 
