@@ -33,7 +33,7 @@ pr_meta() {
 
 # pr_checks <owner/repo> <head_sha> — prints "<bucket>\t<name>\t<link>" per check.
 # Reads check runs and commit statuses both: external CI reports as a status, not a
-# run, and on a Hoopit PR the CodeRabbit and codex-review reviewers are statuses.
+# run, and on a Hoopit PR the codex-review reviewer is a status.
 # Buckets carry the same names `gh pr checks --json bucket` used: pass, fail, pending,
 # skipping, cancel.
 #

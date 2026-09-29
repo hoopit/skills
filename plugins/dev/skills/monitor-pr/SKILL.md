@@ -111,10 +111,10 @@ The script polls every 60 s and prints only:
 
 The script runs on until the session `TaskStop`s it when the watch ends.
 
-The gate is `codex-review` alone. CodeRabbit holds a head the way any check does — while
-its status is pending, or a thread of its is unresolved — and its silence holds nothing: a
-rate-limited CodeRabbit never reports. For a repo whose reviewer statuses have other
-names, prefix `GATE_CHECKS=<a>,<b>`. Tune the timeout with `GATE_TIMEOUT=<seconds>`.
+The gate is `codex-review` alone. CodeRabbit posts no check or status, so no gate can
+name it: it holds a head only through a thread of its left unresolved, and its silence
+holds nothing. For a repo whose reviewer statuses have other names, prefix
+`GATE_CHECKS=<a>,<b>`. Tune the timeout with `GATE_TIMEOUT=<seconds>`.
 
 Tell the user in one line that the watch is armed and what opens a round.
 

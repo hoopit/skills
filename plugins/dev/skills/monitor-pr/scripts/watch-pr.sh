@@ -4,9 +4,9 @@
 # Usage: watch-pr.sh <owner/repo> <pr_number> [interval_seconds=60]
 # Env:   GATE_CHECKS     — comma-separated reviewer check names (default "codex-review").
 #                          A head goes GREEN only once all of them have reported on it. A
-#                          reviewer outside the list (CodeRabbit) holds a head the way any check
-#                          does — while its status is pending, or a thread of its is unresolved —
-#                          and its silence holds nothing.
+#                          reviewer that posts no check (CodeRabbit) cannot be listed: it holds
+#                          a head only through a thread of its left unresolved, and its silence
+#                          holds nothing.
 #        GATE_TIMEOUT    — seconds an otherwise-clean head waits for a gate check that never
 #                          reported before going GREEN anyway (default 900 = 15m). A gate check can
 #                          go missing entirely on a head (skipped, rate-limited) rather than just
