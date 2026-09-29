@@ -21,14 +21,10 @@ briefing says. Its push brings the next `GREEN`, and that one carries the merge 
 
 **`CHALLENGE: not-run`** is Step 4's `CODEX DOWN`: `merge-briefing`
 has turned the recommendation to hold and named what the challenge would have weighed.
-
-**A briefing whose `marker=` is not `ran`** — the challenge did not run, a run-log
-briefing carried `not-run` over, or the write failed twice (retry a failed write once
-before asking) — is a head the repo's required `merge-briefing` check fails, so it
-recommends holding. The merge question still goes, saying which and carrying the
-briefing's text, with *Brief this head again* in place of *Merge it*: once Codex is back,
-that re-runs `merge-briefing` on this head, and a `ran` marker brings back the ordinary
-merge question. Bypassing the check is the user's call, as a held verdict's bypass is.
+**`marker=unwritten`** is a failed write: retry it once, and when it fails again the
+merge question says so, recommending hold whatever the briefing's text says. Either way a
+repo that requires the `merge-briefing` check will refuse the merge until this head is
+briefed again with the challenge run, and the question says that too.
 
 Drop `agent-working` before asking (Step 4): the PR is the user's until they answer.
 When this head is ready on the agent's side — `marker=ran`, nothing held, and the `GREEN`
@@ -69,20 +65,37 @@ result.
 On *Merge it*, merge with a method the repo allows. Mark the PR ready first: a question
 that went out recommending hold left it a draft, GitHub refuses to merge one, and `gh pr
 merge` has no guard of its own for it. On a PR already ready the call warns and exits 0.
-Readying is also what makes the required `merge-briefing` check post, and the watch
-never reports that status (`watch-pr.sh` leaves it out), so wait on it yourself: run the poll below in the
-background, and merge when it prints `success`. `failure` is not merged: put the status's
-description to the user, whose call a bypass is. `missing` means its caller workflow
-never ran on this head: say so, and ask.
 
 ```bash
 gh api repos/<OWNER_REPO> --jq '{squash: .allow_squash_merge, merge: .allow_merge_commit, rebase: .allow_rebase_merge}'
 gh pr ready <PR> --repo <OWNER_REPO>
-for i in $(seq 30); do
-  s=$(gh api repos/<OWNER_REPO>/commits/<head sha>/status --jq '[.statuses[] | select(.context == "merge-briefing") | .state][0] // empty')
-  [ -n "$s" ] && [ "$s" != pending ] && break; sleep 10
-done; echo "merge-briefing=${s:-missing}"
-gh pr merge <PR> --repo <OWNER_REPO> --<squash|merge|rebase>   # on success only
+```
+
+Where the base requires the `merge-briefing` status, readying is what makes it post, a
+minute or so later, and the watch leaves that status out (`pr_checks`). So first ask the
+base whether it requires it — branch protection and rulesets, both readable with read
+access — and when it does, wait in the background for the head's status to read
+`success`. Waiting on `success` alone, not on any settled state, is what lets a stale
+`failure` from before the briefing be replaced:
+
+```bash
+s="not required"
+if { gh api repos/<OWNER_REPO>/branches/<base> --jq '.protection.required_status_checks.contexts[]?'
+     gh api repos/<OWNER_REPO>/rules/branches/<base> --jq '.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context'
+   } | grep -qx merge-briefing; then
+  for i in $(seq 30); do
+    s=$(gh api repos/<OWNER_REPO>/commits/<head sha>/status --jq '[.statuses[] | select(.context == "merge-briefing") | .state][0] // empty')
+    [ "$s" = success ] && break; sleep 10
+  done
+fi; echo "merge-briefing=${s:-missing}"
+```
+
+Then merge, never with `--admin`: GitHub's own refusal is what guards a head the check
+fails. A refusal, or a status that never reached `success`, goes to the user with the
+status's description; a bypass is theirs.
+
+```bash
+gh pr merge <PR> --repo <OWNER_REPO> --<squash|merge|rebase>
 ```
 
 Leave the monitor running either way: on a merge it sees `PR_CLOSED state=MERGED` next

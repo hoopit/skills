@@ -186,6 +186,9 @@ the PR to the user with the rounds over — a close holding a verdict, a checkpo
 I'll take it* answer — marks it ready, or it stays unmergeable with its issue parked in `AI
 review` and no event left to move it. A hard fork and an error stop leave it a draft on
 purpose: that work is unfinished, and re-arming the watch picks it up where it stands.
+A PR handed over this way carries no merge briefing for its head, so where the repo
+requires the `merge-briefing` check, the ending says one is owed before merge
+(`/merge-briefing <PR>`).
 
 ```bash
 bash <SKILL_DIR>/scripts/pr-labels.sh <OWNER_REPO> <PR> -monitored -agent-working
@@ -262,7 +265,6 @@ options, because they answer different things:
 | Soft fork | **Answer in chat** (recommended) · **Take all your recommendations** · **Stop monitoring, I'll take it from here** |
 | Hard fork | **Answer in chat** (recommended) · **Take all your recommendations** · **Stop monitoring, I'll take it from here** — the first two re-arm the watch |
 | Green | **Merge it** · **Not yet — keep watching** · **Stop monitoring, I'll take it from here** |
-| Green, `marker=` not `ran` ([GREEN.md](GREEN.md)) | **Brief this head again** · **Not yet — keep watching** · **Stop monitoring, I'll take it from here** |
 | Green, run owed | **Run it** · **I'll run it — output to follow in chat** · **Not yet — keep watching** ([GREEN.md](GREEN.md)) |
 | Closed or checkpointed | **Keep watching** · **Stop, I'll take it** · **Answer in chat** (when questions are outstanding) |
 | Stop | **Re-arm the watch** (a transient stop — go back to Step 2, label included) · **Stop, I'll take it** · **Keep going anyway** (re-arm past a check failing for reasons outside this PR) |

@@ -42,6 +42,10 @@ pr_meta() {
 # with one state, and it has to be the current one: a stale failed re-run left in would pin
 # the PR red forever. A run with no timestamp is one GitHub has only just created, so it
 # sorts newest — better to read a check as pending than as an older run's failure.
+#
+# The `merge-briefing` status is left out. GREEN writes the briefing that passes it, so it is
+# never a round's work: a push onto a ready PR fails it until the next GREEN, and every reader
+# of these checks — the watch, pr-state, a worker's failing-checks pass — has to agree on that.
 pr_checks() {
   local runs statuses
   runs=$(gh api --paginate --slurp "repos/$1/commits/$2/check-runs?per_page=100") || return 1
@@ -53,7 +57,7 @@ pr_checks() {
       elif .conclusion == "neutral" or .conclusion == "skipped" then "skipping"
       elif .conclusion == "cancelled" then "cancel"
       else "fail" end), .name, (.html_url // "")] | @tsv' <<<"$runs"
-  jq -r '[.[].statuses[]] | group_by(.context) | map(max_by(.updated_at // "9999")) | .[]
+  jq -r '[.[].statuses[] | select(.context != "merge-briefing")] | group_by(.context) | map(max_by(.updated_at // "9999")) | .[]
     | [(
       if .state == "pending" then "pending"
       elif .state == "success" then "pass"

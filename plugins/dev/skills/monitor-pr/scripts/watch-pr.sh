@@ -80,9 +80,7 @@ while true; do
       || pending_gates="${pending_gates:+$pending_gates,}$g"
   done
   gate_open=1; [ -n "$pending_gates" ] && gate_open=0
-  # `merge-briefing` is never failing work: GREEN writes the briefing that passes it, so a head
-  # failing it alone still goes GREEN, and a push onto a ready PR, which fails it, opens no round.
-  failing=$(awk -F'\t' '$1=="fail" && $2!="merge-briefing"{print $2}' <<<"$checks" | sort)
+  failing=$(awk -F'\t' '$1=="fail"{print $2}' <<<"$checks" | sort)
   running=$(awk -F'\t' '$1=="pending"{print $2}' <<<"$checks" | grep -c .)
 
   now=$(date +%s)

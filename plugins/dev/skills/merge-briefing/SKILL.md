@@ -46,7 +46,8 @@ head whose only commit since the last briefing is a run log. A caller that owns 
 rounds hands you the judgement rows of its ledger; otherwise read them off the
 `agent-ledger` block, when the description carries one.
 
-It runs from a checkout of the head, against a freshly fetched base. `CHECKOUT` is the
+It runs from a clone of `<OWNER_REPO>` — the current directory, or one you `cd` into —
+at a checkout of the head, against a freshly fetched base. `CHECKOUT` is the
 current checkout when `git rev-parse HEAD` is the head sha; otherwise check the head out
 beside it, and remove that once the challenge has returned:
 
@@ -73,9 +74,11 @@ Read the file its `codex_challenge=` line names; `cached` reads as `ran`. A find
 
 - **One holds**: write nothing, and return `HELD:` with each holding finding and your
   reachability read. A caller that owns the rounds opens one on them. Asked directly, put
-  them to the user: fixing first, or briefing with them weighed and not held, is theirs.
+  them to the user: fixing first, or briefing over them, is theirs. A briefing over them
+  names each in the last line as *held, briefed over by the user*, never as not held.
 - **None holds**: they go into the last line as weighed and not held.
-- **A `codex_challenge_reason` line**: the challenge did not run. Brief anyway,
+- **A `codex_challenge_reason` line, or a fetch or checkout that failed**: the challenge
+  did not run. Brief anyway,
   recommending hold, and name what it would have weighed — the issues and the judgement
   rows. Re-running the challenge on this head once Codex is back is what turns it.
 
@@ -146,7 +149,7 @@ recommendation, between `<!-- agent-merge-briefing:start -->` and
 which the product repos' required `merge-briefing` check reads: it passes a ready PR when
 the challenge ran and `head` is the PR head, or every commit since it merges the base in.
 A briefing whose caller skipped the challenge carries `challenge` over from the block it
-replaces. Read the body fresh at write time, so an edit made meanwhile survives:
+replaces; with no marker there to carry, it runs the challenge instead. Read the body fresh at write time, so an edit made meanwhile survives:
 
 ```bash
 gh api repos/<OWNER_REPO>/pulls/<PR> --jq .body > body.md
