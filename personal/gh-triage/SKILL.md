@@ -7,12 +7,12 @@ disable-model-invocation: true
 
 # Triage the backlog, attended
 
-Board: **LKs agent project** — <https://github.com/orgs/hoopit/projects/2>.
+Board: the board in your `hoopit-board` config — `hoopit-board config` prints it.
 
 `Unattended` is the goal state: the one Autonomy an unattended run can pick up, and what
-`start-backlog-daemon` consumes. This run's whole output is triage — fields set, holds
-lifted, decisions named — written onto the issues themselves, where the agent that
-eventually works them will read it.
+the backlog daemon, where one runs, consumes. This run's whole output is triage — fields
+set, holds lifted, decisions named — written onto the issues themselves, where the agent
+that eventually works them will read it.
 
 Triage starts nothing. The daemon picks from **Ready** alone, and what sits in
 **Backlog** is a proposal — filed there because its worth was the judgement — so it
@@ -51,8 +51,9 @@ hoopit-board triage <repo> <n> --priority P2 --effort M --autonomy Unattended
 Set them from the issue in front of you — the rubric is written down, so this pass asks
 the user nothing. State each value and a one-clause reason, then move on.
 
-**Effort is also the model**, so the rubric prices the hunt along with the fix. This is
-the one pass that reads the issue closely enough to see the hunt — price it here.
+Where a backlog daemon runs with a dispatch ladder configured, **Effort also picks the
+model**; either way the rubric prices the hunt along with the fix. This is the one pass
+that reads the issue closely enough to see the hunt — price it here.
 
 Autonomy is the axis with no default, and the two non-`Unattended` values owe the body a
 section:
@@ -120,9 +121,9 @@ Four things retire an item:
 
 - **The premise is answerable and nobody looked.** An issue claiming something "is not
   answerable from the repo" is often wrong about that. Read the code path end to end.
-  Production is readable through `readonly-db`, Sentry through `sentry-cli`, the ALB logs
-  through `detect-slow-requests` — a decision resting on a measurement is yours to
-  measure.
+  Production is readable through the repo's production-read skill where it has one
+  (see its `AGENTS.md`), Sentry through `sentry-cli` — a decision resting on a
+  measurement is yours to measure.
 - **The blocker shipped.** An issue written against another issue's *proposed* mechanism
   goes stale when that issue merges something else. Read what landed — `git show <sha>
   --stat`, the PR body — rather than what was proposed.
@@ -201,13 +202,11 @@ with each verdict stated, and every survivor names its decision.
   slots --unattended` lists Backlog — the user picks which move to Ready; move none on
   your own.
 - The `Out of reach` count alone, and that `gh-followup` is what works that bucket.
-- Whether anything is draining the queue: `systemctl --user is-active
-  start-backlog.service` plus a `start-backlog-daemon` process check. A queue of
-  `Unattended` items with nothing consuming it is the one way a clean triage run still
-  leaves the backlog stopped. Report the fact; enabling it is the user's call. An active
-  daemon can still be dispatching nothing — `journalctl --user -u start-backlog -n 20`
-  names the hold, and `aws login session is dead` clears with `aws login --profile
-  login-raw`.
+- Whether anything is draining the queue: check where a backlog daemon runs, and whether
+  it is dispatching. A queue of `Unattended` items with nothing consuming it is the one
+  way a clean triage run still leaves the backlog stopped. Report the fact; enabling it
+  is the user's call. An active daemon can still be dispatching nothing — its logs name
+  the hold, and a dead session underneath clears with a re-authenticate.
 
 Flight counts move while the report is being read, so leave them to the daemon.
 
@@ -229,9 +228,10 @@ question format; three things are particular to this use:
   the user answers in the order the questions were asked.
 - **Every recommendation carries its argument against.** A recommendation with no
   downside stated is a nudge, and nudging is how a triage run invents a requirement.
-- **Fire the `AskUserQuestion` ping** at the end of each round, as the bare ping the
-  global `CLAUDE.md` describes. The round lives in the chat text; the ping is what reaches
-  a tab nobody is watching.
+- **Fire the `AskUserQuestion` ping** at the end of each round: a bare ping — "I've
+  asked some questions above", options "Answer in chat (recommended)" and "Take all
+  your recommendations" — so the round surfaces in a tab nobody is watching. The round
+  itself lives in the chat text; the ping is only what reaches the tab.
 
 Facts are yours, decisions are theirs. A frontier question needing a fact from the code,
 prod or Sentry is a fact to go and get — dispatch a subagent for a wide read, and let the

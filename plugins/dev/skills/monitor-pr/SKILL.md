@@ -216,8 +216,10 @@ they alone can settle.
 
 Until the PR is marked ready, ask only what the PR itself needs. A question that does not
 reach its code — a follow-up to file, a finding outside its scope — is settled without
-asking, filed where `create-gh-issue` says it should be, or held for the `GREEN` merge
-question.
+asking: filed through the driver's tracker where it says it should be —
+`github-tracker:create-gh-issue` when installed, otherwise the personal-agent-tracker
+rule in the repo's `docs/agents/issue-tracker.md` (ask which tracker if neither is
+clear, and file nothing until answered) — or held for the `GREEN` merge question.
 
 Five paths reach the user. The first two leave the watch running.
 

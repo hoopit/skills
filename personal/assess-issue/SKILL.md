@@ -61,7 +61,7 @@ describes exist today, in the branch that runs in production?
 A premise written from outside the code is a **guess**, however confident its
 wording. Name what would prove it wrong and go look for *that* — an agent that
 sets out to confirm a premise confirms it. `git merge-base --is-ancestor <sha>
-origin/production` settles "is the fix already out there"; a grep for the
+<production-branch>` settles "is the fix already out there"; a grep for the
 symbol settles "does this path still exist".
 
 Premise false, path gone, already shipped → close (step 5). Otherwise carry on
@@ -97,10 +97,11 @@ not done.
 | **Consequence** | What one hit costs the person on the other end, said concretely: charged twice, lost the attendance, saw a label read `0 kr`, retried and got through. |
 | **Residual** | What happens if nobody ever fixes it — decays, stays flat, or compounds. Whether something already scheduled swallows it. |
 
-Where the figures come from: the `readonly-db` skill for production Postgres
-(counts, date ranges, which clubs), the `sentry-cli` skill for event and user
-counts with their environment split and first/last seen, `git` for what is
-actually promoted. Prefer one counting query over an argument.
+Where the figures come from: the repo's production-read skill where it has one
+(see its `AGENTS.md`) for production Postgres (counts, date ranges, which clubs),
+the `sentry-cli` skill for event and user counts with their environment split
+and first/last seen, `git` for what is actually promoted. Prefer one counting
+query over an argument.
 
 **A figure you could not measure is not zero.** Production unreadable, Sentry
 silent because nothing logs there, a client-side path with no telemetry — each
@@ -150,20 +151,21 @@ Two outcomes are neither, and both end in a question rather than an action:
 - **Nothing to measure until a date passes.** Set `--not-before <YYYY-MM-DD>` and
   say in a comment what happens on it, then release the slot.
 - **The code is not in production yet.** `git merge-base --is-ancestor <sha>
-  origin/production` is the test, and it is the first thing a rollout follow-up runs.
+  <production-branch>` is the test, against the repo's configured production branch
+  (`hoopit-board config` names it), and it is the first thing a rollout follow-up runs.
   Unpromoted: add `Gate: deployed <repo>#<pr>` to the body naming the PR that ships it,
   say so in a comment, and release. The board then holds the issue until promotion
   lands and hands it back by itself — no date to guess and no reminder to keep.
 
   **Promoted is not yet deployed**, and a check run in that gap reads like a failed
-  rollout rather than an early one. Ancestry flips when the workflow pushes
-  `production`; the schema and the running code follow, and they do not arrive
+  rollout rather than an early one. Ancestry flips when the workflow pushes the
+  production branch; the schema and the running code follow, and they do not arrive
   together. So poll for the thing itself instead of concluding from ancestry, and
   know what the thing you polled actually proves — a migration applied before the
-  service rollout says the schema moved while the old code still serves. In
-  `hoopit/api` the **`deploy-status`** skill has the ordering and the figures. Wait it
-  out rather than releasing the slot; a pipeline can be slow for an hour without being
-  broken, so release on a blocked pipeline, not a clock.
+  service rollout says the schema moved while the old code still serves. Where the
+  repo has a skill for the rollout's ordering and figures (see its `AGENTS.md`), that's
+  the one to poll with. Wait it out rather than releasing the slot; a pipeline can be
+  slow for an hour without being broken, so release on a blocked pipeline, not a clock.
 
 Both write the field and the comment **first**, then ask — under `--started`
 the asking may reach nobody, and the board is what survives that.
@@ -217,7 +219,8 @@ The board is how the user sees what is being worked right now; an issue mid-fix
 still reading `Ready` invites a second agent onto it, so this moves first, not
 after the fact. Then invoke the **`hoopit-dev:ship`** skill with:
 
-- `TARGET_REPO` — the issue's repo, at `~/Dev/Hoopit/<name>`;
+- `TARGET_REPO` — the issue's repo, at its checkout under the configured checkouts
+  directory (`hoopit-board config` names it);
 - `WORK_ITEM` — the issue, its URL, tracker GitHub;
 - `BRIEF` — what to change and why, carrying **what you found**, not what the
   issue claimed: the true premise from step 2, and any figure from step 4 that

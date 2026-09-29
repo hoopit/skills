@@ -53,8 +53,11 @@ the command *and* its run in this one PR: the run happens once the PR is green a
 before the merge (`monitor-pr`), and its run log lands on the branch. Decide here whether
 it can. The run needs its own issue only when the command needs this PR live in
 production first — a migration the PR adds, or a writer the PR fixes, whose bad rows would
-keep arriving between the run and the deploy. Then file the run through `create-gh-issue`
-with a `Gate: deployed` line naming this PR, and say why in the PR body.
+keep arriving between the run and the deploy. Then file the run through the driver's
+tracker — `github-tracker:create-gh-issue` when installed, otherwise the
+personal-agent-tracker rule in the repo's `docs/agents/issue-tracker.md` (ask which
+tracker if neither is clear, and file nothing until answered) — with a `Gate: deployed`
+line naming this PR, and say why in the PR body.
 
 ## Step 2 — Create the branch as a worktree
 

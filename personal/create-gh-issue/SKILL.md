@@ -11,7 +11,7 @@ Priority and Effort are what the board sorts on, and Autonomy is what
 the backlog daemon filters on — so a blank one hands the triage
 straight back to a human. Untriaged is unfinished.
 
-Board: **LKs agent project** — <https://github.com/orgs/hoopit/projects/2>.
+Board: the board in your `hoopit-board` config — `hoopit-board config` prints it.
 Whether to file is the gate below; which status to file into is step 5, and the two
 are separate questions.
 
@@ -45,8 +45,7 @@ gh repo view --json nameWithOwner -q .nameWithOwner
 ```
 
 The current repo, unless the request names another. With no repo either way,
-ask whether it belongs in `hoopit/api`, `hoopit/web-admin` or
-`hoopit/flutter-app`.
+ask which of the repos in your `hoopit-board` config it belongs to.
 
 ## 2. Search the board first
 
@@ -87,10 +86,10 @@ with none found.
     it delivers, so an item held open past its merge freezes at `In progress` with nobody
     on it. File the operational half separately, as a `Follow-up` carrying `Gate:
     deployed` (step 5), and let the first close at its merge.
-  - A run that only needs the code **reviewed** stays in one issue. In `hoopit/api`,
-    `manage-prod.py` runs the local checkout against prod, so a repair command runs from
-    its own branch once the PR is green and ready (`monitor-pr` asks for it), and its
-    run log lands in the same PR before merge.
+  - A run that only needs the code **reviewed** stays in one issue. Where the repo has
+    a script that runs the local checkout against prod (see its `AGENTS.md`), a repair
+    command runs from its own branch once the PR is green and ready (`monitor-pr` asks
+    for it), and its run log lands in the same PR before merge.
 - **The decision**, where the issue turns on a question only the author can answer —
   product behaviour, naming, UX, scope. Give it a `## The decision` heading of its own
   and state the question and the shapes it could take, so clearing it costs a sentence
@@ -146,10 +145,10 @@ leave empty.
 Torn between two levels, take the lower — except a production symptom, which
 floors at `P1`.
 
-**Status** — `--ready` puts the issue in the pool `start-backlog-daemon` dispatches
-from, and that pool is for work already **committed** to: the decision is taken and
-only the doing is left. Where filing the issue *is* the decision, it is a **proposal**,
-and it waits in Backlog for the user to promote it.
+**Status** — `--ready` puts the issue in the pool the backlog daemon, where one runs,
+dispatches from, and that pool is for work already **committed** to: the decision is
+taken and only the doing is left. Where filing the issue *is* the decision, it is a
+**proposal**, and it waits in Backlog for the user to promote it.
 
 The test: *if I did not file this, would something already agreed-to be left undone?*
 No — then Backlog.
@@ -174,11 +173,14 @@ dispatched to do something else. That it would otherwise be lost is what makes i
 | `L` | Multi-day, or cross-cutting enough that the approach needs deciding first. |
 | `XL` | Too big for one PR — say so, and offer to split it. |
 
-Price the hunt along with the fix: the `dispatch-ladder` skill maps Effort to the
-model and reasoning effort an unattended start gets, so Effort is all that prices the
-hunt. A cause nobody has found, an approach still to decide, or a change across
-modules, migrations, concurrency or money is `L` even where the eventual diff is small.
-Say when you are pricing the hunt, so a cheap-looking `L` reads as deliberate.
+Price the hunt along with the fix: where a backlog daemon runs with a dispatch ladder
+configured, the `dispatch-ladder` skill maps Effort to the model and reasoning effort
+an unattended start gets, so Effort also picks the model there — but the rubric prices
+the hunt along with the fix either way, and this is the one pass that reads the issue
+closely enough to see it. A cause nobody has found, an approach still to decide, or a
+change across modules, migrations, concurrency or money is `L` even where the eventual
+diff is small. Say when you are pricing the hunt, so a cheap-looking `L` reads as
+deliberate.
 
 **Autonomy** — can an agent take this to a PR ready for review without asking
 its author anything? You are the author, and you are answering now, while the
@@ -193,9 +195,10 @@ reason is in front of you.
 A command to write and run is judged on the writing: its PR asks for the run before it
 merges (step 3), so the run has a PR behind it and the issue can be `Unattended`.
 
-**Production is readable**, through the `readonly-db` skill, so an issue that needs
-live data to settle is reachable and the measuring is the agent's work. An agent
-that finds production unreadable reports that, in place of the answer.
+**Production is readable**, through the repo's production-read skill where it has one
+(see its `AGENTS.md`), so an issue that needs live data to settle is reachable and the
+measuring is the agent's work. An agent that finds production unreadable reports that,
+in place of the answer.
 
 This is the one axis with no default. Torn goes to `Needs decision`: an agent
 that answers a product question invents a requirement, and an unattended run
@@ -224,15 +227,16 @@ is not a date either — it has a gate of its own.
 is live in production:
 
 ```
-Gate: deployed hoopit/api#17271
+Gate: deployed <repo>#<pr>
 ```
 
-The number is the **pull request** that ships it (`#17271` alone means this repo; a
-squash-commit sha also works). `hoopit-board` resolves it the way `AGENTS.md` says to:
-the PR's `merge_commit_sha` — the squash commit on `master`, not the head sha squashing
-throws away — then `git merge-base --is-ancestor <sha> origin/production`. Unmerged, or
-merged but unpromoted, and the issue stays out of `startable` and out of `check` until
-promotion lands. Nothing has to remember it and no date is guessed.
+The number is the **pull request** that ships it (`#<pr>` alone means this repo; a
+squash-commit sha also works). `hoopit-board` resolves it against the repo's configured
+production branch (`hoopit-board config` names it): the PR's `merge_commit_sha` — the
+squash commit on the default branch, not the head sha squashing throws away — then
+`git merge-base --is-ancestor <sha> <production-branch>`. Unmerged, or merged but
+unpromoted, and the issue stays out of `startable` and out of `check` until promotion
+lands. Nothing has to remember it and no date is guessed.
 
 A gate is read wherever it stands on a line, and every one in the body must be live. One
 that names no pull request or sha, such as a placeholder, holds the issue. To mention a
@@ -241,12 +245,12 @@ gate in prose without setting one, put it in backticks: `hoopit-board` does not 
 Write the line while filing, off the PR you just merged. The PR number exists before
 the sha does, so a follow-up filed mid-review can carry the gate already.
 
-Ancestry flips when the workflow pushes `production`, ahead of the ECS rollout and the
-schema it carries — so the agent it releases still confirms the rollout finished, by
-polling for the thing itself rather than re-reading ancestry. In `hoopit/api` the
-`deploy-status` skill gives the gap and what to poll; a gated issue's acceptance is the
-right place to name it. And a repo with no `production` branch
-(`hoopit/flutter-app`) has no such test at all: that work is Autonomy `Out of reach`,
+Ancestry flips when the workflow pushes the production branch, ahead of any rollout and
+the schema it carries — so the agent it releases still confirms the rollout finished, by
+polling for the thing itself rather than re-reading ancestry. Where the repo has a skill
+for the rollout's ordering and figures (see its `AGENTS.md`), that's the one to poll
+with; a gated issue's acceptance is the right place to name it. And a repo configured
+with no production branch has no such test at all: that work is Autonomy `Out of reach`,
 not a gate.
 
 `blockedBy` is worth setting only where the blocker is an issue someone will close —
@@ -264,8 +268,8 @@ from being corrected.
 
 ## Maintaining `hoopit-board`
 
-The script lives in this skill, at `scripts/hoopit-board`, symlinked onto `PATH` from
-`~/.local/bin`; `gh-triage` and `curate-backlog` call it too, so edit it here and mind
-them. The rubrics above are its `PRIORITIES`, `EFFORTS` and `AUTONOMY` lists — a value
-added to one belongs in the other, and a value added to either belongs in the org field
-as well (`updateIssueField`, listed by `organization.issueFields`).
+The script is the plugin's `bin/hoopit-board`, on `PATH` as a bare command; `gh-triage`
+and `curate-backlog` call it too, so edit it there and mind them. The rubrics above are
+its `PRIORITIES`, `EFFORTS` and `AUTONOMY` lists — a value added to one belongs in the
+other, and a value added to either belongs in the org field as well (`updateIssueField`,
+listed by `organization.issueFields`).

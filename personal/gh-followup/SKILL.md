@@ -7,7 +7,7 @@ disable-model-invocation: true
 
 # Work the out-of-reach bucket
 
-Board: **LKs agent project** — <https://github.com/orgs/hoopit/projects/2>.
+Board: the board in your `hoopit-board` config — `hoopit-board config` prints it.
 
 `Out of reach` labels a **blocker**, and a blocker is a condition in the world — a
 promotion that has not happened, a date that has not fallen, a person who has not replied.
@@ -37,17 +37,18 @@ today. The kinds, and the test for each:
 
 | Waits for | Test | Where it belongs once tested |
 |---|---|---|
-| A **deploy** | `deploy-status` on the PR that ships it | `Gate: deployed #<pr>` + `Unattended` — the board releases it on promotion |
+| A **deploy** | the repo's rollout-status skill, where it has one, on the PR that ships it | `Gate: deployed #<pr>` + `Unattended` — the board releases it on promotion |
 | A **date** | the date against today | `--not-before YYYY-MM-DD` + `Unattended` |
 | **Another party** — NIF, a payment processor, a partner | when they were last chased, and by whom | stays here; the next action is a chase, and it is the user's |
 | A **dashboard, credential or app-store step** | nothing — this is the genuine article | stays here; §4 walks it |
-| **Another repo's code** | whether a checkout reaches it (`hoopit/api`, `hoopit/flutter-app` and `hoopit/web-admin` are all checked out) | `Unattended` in that repo, unless it needs a device or a store submission |
+| **Another repo's code** | whether a checkout reaches it (the repos in your config are all checked out under the configured checkouts directory) | `Unattended` in that repo, unless it needs a device or a store submission |
 | A **prod write** — a backfill, a repair, a one-off script | whether it reads or writes | reads convert; writes stay here |
 
 **The read/write line is the one to get right.** Production is *readable* through
-`readonly-db`, so a post-rollout verification — "confirm the constraint is valid",
-"confirm this Sentry issue stops", "count the rows that are still wrong" — is reachable
-work an agent does, and belongs on the board as `Unattended` with a deploy gate. A
+the repo's production-read skill where it has one, so a post-rollout verification —
+"confirm the constraint is valid", "confirm this Sentry issue stops", "count the rows
+that are still wrong" — is reachable work an agent does, and belongs on the board as
+`Unattended` with a deploy gate. A
 backfill, a repair, a row edit or anything that writes stays the user's — unless its
 command is still to write: then it converts to one `Unattended` issue whose PR asks the
 user for the run before it merges (`create-gh-issue`). An item that

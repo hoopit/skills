@@ -1,12 +1,12 @@
 ---
 name: curate-backlog
-description: Clean up LKs agent project — duplicates, merges, stale and invalid issues, missing triage.
+description: Clean up the agent tracker board — duplicates, merges, stale and invalid issues, missing triage.
 disable-model-invocation: true
 ---
 
 # Curate the backlog
 
-Board: **LKs agent project** — <https://github.com/orgs/hoopit/projects/2>.
+Board: the board in your `hoopit-board` config — `hoopit-board config` prints it.
 
 Every open item leaves this run **settled** — closed, absorbed, retriaged — or
 **surfaced** as a doubt. Act on the evidence in front of you; reserve the doubt
@@ -27,12 +27,11 @@ cancels it — an assessment gave that slot up, and the item is ordinary again.
 hoopit-board scan
 ```
 
-`hoopit-board` is the board's mechanical half; `--help` lists it. It lives in
-the `create-gh-issue` skill, at `scripts/hoopit-board`, and reaches `PATH`
-through a symlink. `scan` prints every open item with the signals that nominate it, then
-the pairs of issues it judged to be one piece of work. Code shortlists the pairs — title
-overlap, plus each issue's nearest neighbours by title and body — and TypeSafe's Jev reads
-both bodies of each:
+`hoopit-board` is the board's mechanical half; `--help` lists it. It ships as the
+plugin's `bin/hoopit-board`, on `PATH` as a bare command. `scan` prints every open item
+with the signals that nominate it, then the pairs of issues it judged to be one piece of
+work. Code shortlists the pairs — title overlap, plus each issue's nearest neighbours by
+title and body — and TypeSafe's Jev reads both bodies of each:
 
 - **DUPLICATE / ABSORB** — a nomination, with the bucket it leans to.
 - **DUPLICATE DOUBT** — the judgement landed between its thresholds. These go on the
