@@ -22,16 +22,17 @@ briefing says. Its push brings the next `GREEN`, and that one carries the merge 
 **`CHALLENGE: not-run`** is Step 4's `CODEX DOWN`: `merge-briefing`
 has turned the recommendation to hold and named what the challenge would have weighed.
 
-**Any `marker=` but `ran`** — the challenge did not run, a run-log briefing carried
-`not-run` over, or the write failed — is a head the repo's required `merge-briefing` check
-fails, so it recommends holding. The merge question still goes, saying which and carrying
-the briefing's text, but without *Merge it*: restoring Codex, or retrying the write, then briefing this head again
-is the way to a merge. Bypassing the check is the user's call, as a held verdict's bypass
-is.
+**A briefing whose `marker=` is not `ran`** — the challenge did not run, a run-log
+briefing carried `not-run` over, or the write failed twice (retry a failed write once
+before asking) — is a head the repo's required `merge-briefing` check fails, so it
+recommends holding. The merge question still goes, saying which and carrying the
+briefing's text, with *Brief this head again* in place of *Merge it*: once Codex is back,
+that re-runs `merge-briefing` on this head, and a `ran` marker brings back the ordinary
+merge question. Bypassing the check is the user's call, as a held verdict's bypass is.
 
 Drop `agent-working` before asking (Step 4): the PR is the user's until they answer.
-When this head is ready on the agent's side — the briefing ran its challenge and nothing
-held, and the `GREEN` carries no `pending_gates` — mark the PR ready for review, the
+When this head is ready on the agent's side — `marker=ran`, nothing held, and the `GREEN`
+carries no `pending_gates` — mark the PR ready for review, the
 hand-off:
 
 ```bash
@@ -40,11 +41,12 @@ gh pr ready <PR> --repo <OWNER_REPO>
 ```
 
 The merge is the user's call, always: ask, and recommend it. No Hoopit repo requires an
-approval, so a `GREEN` waits on nobody's review; three things alone turn the recommendation
-to holding. A `GREEN` carrying `pending_gates` went green with a gate that never
+approval, so a `GREEN` waits on nobody's review; these alone turn the recommendation to
+holding. A `GREEN` carrying `pending_gates` went green with a gate that never
 reported on the head: name it and recommend holding until it has. A merge-readiness
 challenge that did not run holds it the same way, for the same reason — a reviewer that
-never reported. And a run still owed (below) holds it until the run is done.
+never reported — and so does a briefing that never reached the description, which the
+required check cannot pass. And a run still owed (below) holds it until the run is done.
 
 **A run owed before merge.** A description whose `## Run before merge` section still has
 an unticked box puts the run question in place of the merge question, once the PR is
@@ -67,17 +69,20 @@ result.
 On *Merge it*, merge with a method the repo allows. Mark the PR ready first: a question
 that went out recommending hold left it a draft, GitHub refuses to merge one, and `gh pr
 merge` has no guard of its own for it. On a PR already ready the call warns and exits 0.
-Readying is also what makes the required `merge-briefing` check post, so merge once the
-head's `merge-briefing` status reads `success`: until it has posted, read it again on the
-watch's next poll rather than merging, and name a status still missing after a few polls
-to the user — its caller workflow never ran. A `failure` is not merged: put its
-description to the user, whose call a bypass is.
+Readying is also what makes the required `merge-briefing` check post, and the watch
+never reports that status (`watch-pr.sh` leaves it out), so wait on it yourself: run the poll below in the
+background, and merge when it prints `success`. `failure` is not merged: put the status's
+description to the user, whose call a bypass is. `missing` means its caller workflow
+never ran on this head: say so, and ask.
 
 ```bash
 gh api repos/<OWNER_REPO> --jq '{squash: .allow_squash_merge, merge: .allow_merge_commit, rebase: .allow_rebase_merge}'
 gh pr ready <PR> --repo <OWNER_REPO>
-gh api repos/<OWNER_REPO>/commits/<head sha>/status --jq '.statuses[] | select(.context == "merge-briefing") | .state'
-gh pr merge <PR> --repo <OWNER_REPO> --<squash|merge|rebase>
+for i in $(seq 30); do
+  s=$(gh api repos/<OWNER_REPO>/commits/<head sha>/status --jq '[.statuses[] | select(.context == "merge-briefing") | .state][0] // empty')
+  [ -n "$s" ] && [ "$s" != pending ] && break; sleep 10
+done; echo "merge-briefing=${s:-missing}"
+gh pr merge <PR> --repo <OWNER_REPO> --<squash|merge|rebase>   # on success only
 ```
 
 Leave the monitor running either way: on a merge it sees `PR_CLOSED state=MERGED` next

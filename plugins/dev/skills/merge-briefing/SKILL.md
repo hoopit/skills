@@ -54,7 +54,7 @@ beside it, and remove that once the challenge has returned:
 git fetch origin <base ref> "+refs/pull/<PR>/head"
 CHECKOUT=$(git rev-parse --show-toplevel)
 # only when HEAD is not the head sha:
-TMP=$(mktemp -d) && CHECKOUT=$TMP/pr-<PR> && git worktree add --detach "$CHECKOUT" <head sha>
+TMP=$(mktemp -d) && CHECKOUT=$TMP/pr-<PR> && git worktree add --detach "$CHECKOUT" <head sha> && echo "$CHECKOUT"
 
 (cd "$CHECKOUT" && bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh" \
   origin/<base ref> --challenge-only --challenge "Merge readiness. Is the whole diff warranted by these issues: <each issue, one line>? Judgements to break: <the ledger's judgement rows, one line each>")
@@ -64,7 +64,8 @@ git worktree remove --force "$CHECKOUT" && rmdir "$TMP"
 ```
 
 Shell state does not outlive one call, so a challenge run in a call of its own takes the
-paths written out rather than the variables.
+printed checkout path rather than the variables, and the clean-up removes that path and
+its parent.
 
 Read the file its `codex_challenge=` line names; `cached` reads as `ran`. A finding
 **holds** only when a named caller or sequence reaches it (*Classifying an item* in
@@ -80,7 +81,8 @@ Read the file its `codex_challenge=` line names; `cached` reads as `ran`. A find
 
 Every outcome returns one line to the caller, beside `HELD:` or the briefing: the
 challenge's score for its ledger tally, and what the marker written for this head says —
-`unwritten` after `HELD:` or a failed write:
+`unwritten` after a failed write, and after `HELD:`, which a caller reads as a round, not a
+briefing:
 
 ```
 CHALLENGE: <ran|not-run|skipped> weighed=<n> held=<n> marker=<ran|not-run|unwritten>
