@@ -93,28 +93,29 @@ Monitor(
 )
 ```
 
+A **gate** is a reviewer check a head must hear from before it goes `GREEN`. The gate is
+`codex-review` alone; for a repo whose reviewer checks have other names, prefix
+`GATE_CHECKS=<a>,<b>`, and tune how long a head waits on a silent gate with
+`GATE_TIMEOUT=<seconds>` (default 900). CodeRabbit posts no check or status, so it is no
+gate: it holds a head only while a thread of its stays unresolved.
+
 The script polls every 60 s and prints only:
 
 - `ROUND head=… unresolved=N new_threads=K failing=<names> conflicting=0|1
   [pending_gates=<names>]` — there is work the previous round did not see: a new or
   newly-replied-to unresolved thread, a red check, or a conflict. The round fires on it
-  immediately; `pending_gates` names the reviewers yet to report on this head, and what
+  immediately; `pending_gates` names the gates yet to report on this head, and what
   they post while the round runs is what its last look collects.
 - `GREEN head=… [pending_gates=<names>]` — this head has nothing left:
   no unresolved thread, no failing check, none still running, no conflict. Fired once per
-  head; the merge decision goes to the user (Step 5). `pending_gates` here means a
-  reviewer never reported at all and `GATE_TIMEOUT` (default 900s) elapsed waiting.
+  head; the merge decision goes to the user (Step 5). `pending_gates` here names a gate
+  that never reported before `GATE_TIMEOUT` elapsed.
 - `PR_CLOSED state=MERGED|CLOSED` — the script exits.
 - `WATCH_ERROR fetch_failures=N last=…` — GitHub could not be reached five polls in a
   row (expired auth, network, deleted PR); the script exits non-zero. The watch is dead:
   go to Step 5.
 
 The script runs on until the session `TaskStop`s it when the watch ends.
-
-The gate is `codex-review` alone. CodeRabbit posts no check or status, so no gate can
-name it: it holds a head only through a thread of its left unresolved, and its silence
-holds nothing. For a repo whose reviewer statuses have other names, prefix
-`GATE_CHECKS=<a>,<b>`. Tune the timeout with `GATE_TIMEOUT=<seconds>`.
 
 Tell the user in one line that the watch is armed and what opens a round.
 

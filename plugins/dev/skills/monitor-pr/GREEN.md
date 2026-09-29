@@ -46,7 +46,7 @@ the same text. When the write fails, say so in the merge question and ask anyway
 
 The merge is the user's call, always: ask, and recommend it. No Hoopit repo requires an
 approval, so a `GREEN` waits on nobody's review; three things alone turn the recommendation
-to holding. A `GREEN` carrying `pending_gates` went green with a reviewer that never
+to holding. A `GREEN` carrying `pending_gates` went green with a gate that never
 reported on the head: name it and recommend holding until it has. A merge-readiness
 challenge that did not run holds it the same way, for the same reason — a reviewer that
 never reported. And a run still owed (below) holds it until the run is done.
