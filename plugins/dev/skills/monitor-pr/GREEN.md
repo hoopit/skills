@@ -21,8 +21,10 @@ briefing says. Its push brings the next `GREEN`, and that one carries the merge 
 
 **`CHALLENGE: not-run`** is Step 4's `CODEX DOWN`: `merge-briefing`
 has turned the recommendation to hold and named what the challenge would have weighed.
-The merge question still goes, saying so. *Merge it* stays on the table, and restoring
-Codex, then briefing this head again, is what turns the recommendation back. A failed
+The merge question still goes, saying so, without *Merge it*: the repo's required
+`merge-briefing` check fails a briefing whose challenge did not run, so restoring Codex,
+then briefing this head again, is the way to a merge. Bypassing the check is the user's
+call, as a held verdict's bypass is. A failed
 write is said in the merge question, which is asked anyway, carrying the briefing's text.
 
 Drop `agent-working` before asking (Step 4): the PR is the user's until they answer.
@@ -63,10 +65,13 @@ result.
 On *Merge it*, merge with a method the repo allows. Mark the PR ready first: a question
 that went out recommending hold left it a draft, GitHub refuses to merge one, and `gh pr
 merge` has no guard of its own for it. On a PR already ready the call warns and exits 0.
+Readying is also what makes the required `merge-briefing` check post, so a PR readied
+here merges only once that status has posted on its head; until then GitHub refuses it.
 
 ```bash
 gh api repos/<OWNER_REPO> --jq '{squash: .allow_squash_merge, merge: .allow_merge_commit, rebase: .allow_rebase_merge}'
 gh pr ready <PR> --repo <OWNER_REPO>
+gh api repos/<OWNER_REPO>/commits/<head sha>/status --jq '.statuses[] | select(.context == "merge-briefing") | .state'
 gh pr merge <PR> --repo <OWNER_REPO> --<squash|merge|rebase>
 ```
 
