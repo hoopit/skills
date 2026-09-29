@@ -61,7 +61,7 @@ describes exist today, in the branch that runs in production?
 A premise written from outside the code is a **guess**, however confident its
 wording. Name what would prove it wrong and go look for *that* — an agent that
 sets out to confirm a premise confirms it. `git merge-base --is-ancestor <sha>
-<production-branch>` settles "is the fix already out there"; a grep for the
+origin/<production-branch>`, after a fetch, settles "is the fix already out there"; a grep for the
 symbol settles "does this path still exist".
 
 Premise false, path gone, already shipped → close (step 5). Otherwise carry on
@@ -151,7 +151,7 @@ Two outcomes are neither, and both end in a question rather than an action:
 - **Nothing to measure until a date passes.** Set `--not-before <YYYY-MM-DD>` and
   say in a comment what happens on it, then release the slot.
 - **The code is not in production yet.** `git merge-base --is-ancestor <sha>
-  <production-branch>` is the test, against the repo's configured production branch
+  origin/<production-branch>`, after a fetch, is the test, against the repo's configured production branch
   (`hoopit-board config` names it), and it is the first thing a rollout follow-up runs.
   Unpromoted: add `Gate: deployed <repo>#<pr>` to the body naming the PR that ships it,
   say so in a comment, and release. The board then holds the issue until promotion

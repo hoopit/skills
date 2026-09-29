@@ -9,9 +9,14 @@ user-invocable: false
 Every unattended start is priced off one table: the board's **Effort** (XS..XL) picks the
 model and the reasoning effort the agent is started on. The table lives in
 [`ladder.json`](ladder.json) beside this file — read it for the current rungs rather than
-copying them. `hoopit-board next` reads it at every tick, `start-backlog-daemon` passes each
-rung to `claude --model <model> --effort <effort>`, and `review-dispatch` is the only
-procedure that moves a rung.
+copying them. `hoopit-board` reads it through the `ladder` path in its config
+(`hoopit-board init --ladder`); `next` prices every candidate off it at every tick,
+`start-backlog-daemon` passes each rung to `claude --model <model> --effort <effort>`, and
+`review-dispatch` is the only procedure that moves a rung.
+
+A config with no ladder leaves `next` pricing nothing — a session can still rank the board
+— and the daemon refuses to start, since every agent it started would inherit the CLI's
+defaults.
 
 - `models` and `efforts` list the axes cheapest first; that order is what "under" means.
 - `rungs` maps each Effort to a `{model, effort}` pair.

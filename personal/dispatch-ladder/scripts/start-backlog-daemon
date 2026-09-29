@@ -289,7 +289,7 @@ dispatch() {
 
   local prompt="Work $repo#$n: $url
 
-Run it with: /assess-issue $url --started
+Run it with: /github-tracker:assess-issue $url --started
 "
   if [[ $ATTENDED == 1 ]]; then
     prompt+="
@@ -442,6 +442,16 @@ PY
 )
   log "filled $count slot(s)"
 }
+
+# The board, the repos' production branches and the ladder all come from hoopit-board's
+# config. Without one every tick would read as a GitHub outage, and without a ladder every
+# start would inherit the CLI's default model and effort, which the dispatch-ladder skill
+# forbids — so both refuse the daemon here, once, with hoopit-board's own reason.
+board_config=$(hoopit-board config) || { log "hoopit-board has no usable config — exiting"; exit 1; }
+if grep -q $'^ladder\tnone$' <<<"$board_config"; then
+  log "no ladder in hoopit-board's config — \`hoopit-board init --force --ladder <path>\` sets one; exiting"
+  exit 1
+fi
 
 log "start-backlog daemon: target=${TARGET:-none} max_active=${MAX_ACTIVE:-none} max_review=${MAX_REVIEW:-none} quiet_after=${QUIET_MINUTES}m interval=${INTERVAL}s dry=$DRY aws_check=$AWS_CHECK repos=$REPOS skip_types=${SKIP_TYPES:-none} attended=$ATTENDED"
 while :; do

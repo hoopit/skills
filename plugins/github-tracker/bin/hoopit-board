@@ -213,7 +213,11 @@ def load_ladder(path):
             spec = json.load(f)
     except (OSError, ValueError) as e:
         sys.exit(f"ladder {path}: {e}")
-    models, efforts, rungs = spec["models"], spec["efforts"], spec["rungs"]
+    try:
+        models, efforts, rungs = spec["models"], spec["efforts"], spec["rungs"]
+        rungs = {tier: dict(r) for tier, r in rungs.items()}
+    except (KeyError, TypeError, AttributeError, ValueError) as e:
+        sys.exit(f"ladder {path}: needs `models`, `efforts` and `rungs` of {{model, effort}}: {e!r}")
     if set(rungs) != set(EFFORTS):
         sys.exit(f"{path}: rungs must be exactly {EFFORTS}, got {sorted(rungs)}")
     ladder, prev = {}, None
@@ -2242,14 +2246,14 @@ def cmd_dispatches(a):
     and one Jev request per PR not judged before, so it is a review you run, never something
     you poll.
 
-    `--repo` defaults to every configured repo. With no ladder configured nothing is
-    dispatched by rung: `ladder` is null, stderr says why, and every PR the daemon started
-    reads unattributed.
+    `--repo` defaults to every configured repo. The rung comes from each claim comment, not
+    from the ladder, so `ladder` only names the file configured now: a dispatch started
+    while none was configured recorded no model, and its PR reads unattributed.
     """
     ladder = config()["ladder"]
     if not ladder:
-        print(f"!! no ladder in {config()['path']}: no dispatch names a rung to group by",
-              file=sys.stderr)
+        print(f"!! no ladder in {config()['path']}: dispatches started now record no model "
+              "and read unattributed", file=sys.stderr)
     rows, truncated = [], []
     for repo in a.repos:
         found, cut_short = dispatch_rows(repo, a.since, a.limit)
@@ -2542,15 +2546,40 @@ VERIFY_QUERY = """query($login:String!,$number:Int!){ organization(login:$login)
     ... on IssueFieldDate{ name } } } } }"""
 
 
+def board_probe(owner, number):
+    """`VERIFY_QUERY`'s data. GitHub answers a missing organization or project with a
+    NOT_FOUND error and a non-zero exit, which `gql` would die on; here it is an answer."""
+    r = subprocess.run(["gh", "api", "graphql", "-f", f"query={VERIFY_QUERY}",
+                        "-f", f"login={owner}", "-F", f"number={number}"],
+                       capture_output=True, text=True, env={**os.environ, "MISE_QUIET": "1"})
+    return probe_answer(r.returncode, r.stdout, r.stderr)
+
+
+def probe_answer(code, out, err):
+    try:
+        d = json.loads(out) if out.strip() else {}
+    except ValueError:
+        d = {}
+    errors = d.get("errors") or []
+    if errors and all(e.get("type") == "NOT_FOUND" for e in errors):
+        return d.get("data") or {}
+    if code != 0 or errors or "data" not in d:
+        sys.exit(f"graphql: {errors or err.strip() or f'gh exited {code}'}")
+    return d["data"]
+
+
 def verify_board(owner, number):
     """What the board lacks of what this script reads: `(project title, [missing])`.
 
     Checked, never created. The Status options are the project's own; Priority, Effort,
     Autonomy and `Start date` are the organization's issue fields, which the board reads
     only once each is added to it as a field — and the three single-selects need every
-    option the rubric tables name."""
-    d = gql(VERIFY_QUERY, login=owner, number=number)
-    org = d.get("organization") or {}
+    option the rubric tables name. A board that does not exist comes back as
+    `(None, [why])`."""
+    d = board_probe(owner, number)
+    org = d.get("organization")
+    if not org:
+        return None, [f"{owner} is no organization this token can see"]
     proj = org.get("projectV2")
     if not proj:
         return None, [f"{owner} has no project {number}"]
@@ -2584,10 +2613,11 @@ def repo_spec(text):
 
 
 def cmd_init(a):
-    """Write the config, then check the board it names. Refuses to replace a config
+    """Check the board, then write the config that names it. Refuses to replace a config
     without `--force`, since the one there may be the only record of a board's number.
 
-    A failed check leaves the file written — it is a list of what the board still needs,
+    A board that does not exist is a typo, and writes nothing. One that exists but lacks
+    a status or field is still written — the check is a list of what the board needs,
     not a reason to forget which board it is."""
     path = config_path()
     if os.path.exists(path) and not a.force:
@@ -2595,7 +2625,10 @@ def cmd_init(a):
     repos = [r["repo"] for r in a.repos]
     if len(set(repos)) != len(repos):
         sys.exit(f"a repo is given twice: {', '.join(repos)}")
-    data = {"board": {"owner": a.owner, "number": a.number}, "checkouts": a.checkouts,
+    # `~` is kept as typed so the file reads the same from any account; anything else is
+    # made absolute, or it would resolve against whichever directory a caller runs from.
+    checkouts = a.checkouts if a.checkouts.startswith("~") else os.path.abspath(a.checkouts)
+    data = {"board": {"owner": a.owner, "number": a.number}, "checkouts": checkouts,
             "repos": a.repos}
     if a.ladder:
         data["ladder"] = os.path.abspath(os.path.expanduser(a.ladder))
@@ -2611,6 +2644,10 @@ def cmd_init(a):
     except ConfigError as e:
         os.remove(path + ".tmp")
         sys.exit(f"not written: {e}")
+    title, missing = (None, []) if a.no_verify else verify_board(a.owner, a.number)
+    if not a.no_verify and title is None:
+        os.remove(path + ".tmp")
+        sys.exit(f"not written: {missing[0]} ({board_url(a.owner, a.number)})")
     os.replace(path + ".tmp", path)
     print(f"WROTE\t{path}")
     for repo in cfg["repos"]:
@@ -2619,7 +2656,6 @@ def cmd_init(a):
                   "empty and its deploy gates hold", file=sys.stderr)
     if a.no_verify:
         return 0
-    title, missing = verify_board(a.owner, a.number)
     if missing:
         print(f"MISSING\t{board_url(a.owner, a.number)}")
         for m in missing:

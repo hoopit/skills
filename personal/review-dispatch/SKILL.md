@@ -17,7 +17,7 @@ not to add a tier. One move per run, or none.
 ## 1. Read the record
 
 ```bash
-hoopit-board dispatches --since <days> --limit 600   # default 14; add --repo owner/name per extra repo
+hoopit-board dispatches --since <days> --limit 600   # default 14; every configured repo, or --repo owner/name
 ```
 
 A non-empty `truncated` means `--limit` ended the walk inside the window and the oldest

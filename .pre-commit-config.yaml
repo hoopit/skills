@@ -15,7 +15,7 @@ repos:
         files: '^(plugins/.*/SKILL\.md|\.claude-plugin/marketplace\.json|scripts/gen-skills-readme\.sh)$'
       - id: test-hoopit-board
         name: Test hoopit-board
-        entry: python3 -B personal/create-gh-issue/scripts/test_hoopit_board.py
+        entry: python3 -B plugins/github-tracker/tests/test_hoopit_board.py
         language: system
         pass_filenames: false
-        files: '^personal/create-gh-issue/scripts/'
+        files: '^(plugins/github-tracker/(bin|tests)/|personal/dispatch-ladder/ladder\.json$)'

@@ -23,8 +23,8 @@ half the board and reports success. Nothing else exercises this path.
 import argparse, contextlib, importlib.machinery, importlib.util, io, json, os, pathlib, re
 import subprocess, sys, tempfile
 
-SCRIPT = pathlib.Path(__file__).with_name("hoopit-board")
-LADDER = SCRIPT.resolve().parent.parent.parent / "dispatch-ladder" / "ladder.json"
+SCRIPT = pathlib.Path(__file__).resolve().parent.parent / "bin" / "hoopit-board"
+LADDER = SCRIPT.parents[3] / "personal" / "dispatch-ladder" / "ladder.json"
 # Every config a test writes lives here, and `HOOPIT_BOARD_CONFIG` points into it: a test
 # must never read or write the developer's own config.
 SCRATCH = tempfile.TemporaryDirectory(prefix="hoopit-board-test-")
@@ -940,7 +940,7 @@ def refusing(config):
     m = load(config, prime=False)
     def boom(*a, **k):
         raise AssertionError("reached GitHub without a config")
-    m.gh = m.gql = m.gql_write = m.board = boom
+    m.gh = m.gql = m.gql_write = m.board = m.board_probe = boom
     return m
 
 
@@ -1037,17 +1037,18 @@ def board_answer(statuses=None, board_fields=None, org_fields=None):
             for f, opts in org.items()]}}}
 
 
-def run_init(answer, name):
+def run_init(answer, name, written=True):
     path = str(TMP / "init" / name / "config.json")
     m = refusing(path)
     asked = []
-    def gql(query, **variables):
-        asked.append(variables)
+    def board_probe(owner, number):
+        asked.append({"login": owner, "number": number})
         return answer
-    m.gql = gql
+    m.board_probe = board_probe
     out, err, code = main(m, *init_args())
     assert asked == [{"login": "acme", "number": 7}], asked
-    assert os.path.exists(path), "a failed check must still leave the file written"
+    assert os.path.exists(path) == written, (path, written)
+    assert not os.path.exists(path + ".tmp"), "left the aside copy behind"
     return out, err, code
 
 
@@ -1069,10 +1070,54 @@ def test_init_lists_what_the_board_is_missing_and_creates_nothing():
                  "acme has no issue field 'Start date'"):
         assert f"  {line}\n" in out, (line, out)
     assert "VERIFIED" not in out and "Nothing was created" in err, (out, err)
-    out, _, code = run_init({"organization": {"projectV2": None, "issueFields": {"nodes": []}}},
-                            "no-board")
-    assert code == 1 and "  acme has no project 7\n" in out, (out, code)
-    print("  a missing status, board field, option and org field each named; exit 1")
+    out, err, code = run_init({"organization": {"projectV2": None, "issueFields": {"nodes": []}}},
+                              "no-board", written=False)
+    assert "not written: acme has no project 7" in str(code), (err, code)
+    out, err, code = run_init({"organization": None}, "no-org", written=False)
+    assert "acme is no organization" in str(code), (err, code)
+    print("  a missing status, board field, option and org field each named; exit 1; "
+          "a board that does not exist writes nothing")
+
+
+def test_probe_answer_reads_not_found_as_absence():
+    m = load(None)
+    nf = json.dumps({"data": {"organization": {"projectV2": None}},
+                     "errors": [{"type": "NOT_FOUND", "message": "Could not resolve"}]})
+    assert m.probe_answer(1, nf, "gh: Could not resolve") == {"organization": {"projectV2": None}}
+    ok = json.dumps({"data": {"organization": {"projectV2": {"title": "B"}}}})
+    assert m.probe_answer(0, ok, "") == {"organization": {"projectV2": {"title": "B"}}}
+    for code, out, err in ((1, "", "HTTP 401"),
+                           (1, json.dumps({"errors": [{"type": "FORBIDDEN"}]}), "")):
+        try:
+            m.probe_answer(code, out, err)
+        except SystemExit:
+            continue
+        raise AssertionError(f"accepted {out or err}")
+    print("  NOT_FOUND reads as an absent board; any other error exits")
+
+
+def test_init_stores_a_relative_checkouts_as_absolute():
+    path = str(TMP / "init" / "relative" / "config.json")
+    m = refusing(path)
+    args = list(init_args())
+    args[args.index("--checkouts") + 1] = "rel/dir"
+    main(m, *args, "--no-verify")
+    stored = json.load(open(path))["checkouts"]
+    assert stored == os.path.abspath("rel/dir"), stored
+    print("  a relative --checkouts is stored absolute")
+
+
+def test_a_ladder_missing_its_keys_exits_cleanly():
+    m = load(None)
+    for body in ({"models": ["a"]}, {"models": [], "efforts": [], "rungs": ["XS"]}):
+        bad = write_raw("keyless-ladder.json", json.dumps(body))
+        try:
+            m.load_ladder(bad)
+        except SystemExit as e:
+            assert "needs `models`" in str(e), e
+            continue
+        raise AssertionError(f"loaded {body}")
+    print("  a ladder missing its keys exits with the file named, not a traceback")
 
 
 def test_config_prints_the_board_repos_and_ladder():

@@ -234,7 +234,7 @@ The number is the **pull request** that ships it (`#<pr>` alone means this repo;
 squash-commit sha also works). `hoopit-board` resolves it against the repo's configured
 production branch (`hoopit-board config` names it): the PR's `merge_commit_sha` — the
 squash commit on the default branch, not the head sha squashing throws away — then
-`git merge-base --is-ancestor <sha> <production-branch>`. Unmerged, or merged but
+`git merge-base --is-ancestor <sha> origin/<production-branch>` after a fetch. Unmerged, or merged but
 unpromoted, and the issue stays out of `startable` and out of `check` until promotion
 lands. Nothing has to remember it and no date is guessed.
 
@@ -268,8 +268,9 @@ from being corrected.
 
 ## Maintaining `hoopit-board`
 
-The script is the plugin's `bin/hoopit-board`, on `PATH` as a bare command; `gh-triage`
-and `curate-backlog` call it too, so edit it there and mind them. The rubrics above are
+The script is the plugin's `bin/hoopit-board`, on `PATH` as a bare command, with its
+tests in the plugin's `tests/`; every skill in the plugin calls it, so edit it there and
+mind them. The rubrics above are
 its `PRIORITIES`, `EFFORTS` and `AUTONOMY` lists — a value added to one belongs in the
 other, and a value added to either belongs in the org field as well (`updateIssueField`,
 listed by `organization.issueFields`).
