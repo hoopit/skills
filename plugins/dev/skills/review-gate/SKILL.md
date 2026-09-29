@@ -278,6 +278,10 @@ Solution:
   blocks the pass exactly as a missing install does — fix the auth and run the gate again. The
   script already retried it once, so `error` is a second failure, not a blip: re-running the
   gate on the spot buys a third attempt at best.
+- **An `error` that outlives its cause is a stale broker.** The codex plugin keeps one broker per
+  worktree, and it holds the credentials and usage-limit verdict it started with: a usage-limit or
+  401 error that persists past the reset or a fresh login is that broker's. SIGTERM the worktree's
+  `app-server-broker.mjs` (match its `--cwd`), then run the gate again.
 - **Stop a Codex run by killing its pid, one at a time.** `TaskStop` on the shell that launched
   the script leaves `codex-companion.mjs` running, so read the pid off `ps` and kill that:
 
