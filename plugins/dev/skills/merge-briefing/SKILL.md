@@ -44,14 +44,21 @@ head whose only commit since the last briefing is a run log. A caller that owns 
 rounds hands you the judgement rows of its ledger; otherwise read them off the
 `agent-ledger` block, when the description carries one.
 
-It runs from a checkout of the head. When `git rev-parse HEAD` is not the head sha, check
-the head out beside the repo and remove it after:
+It runs from a checkout of the head, against a freshly fetched base. `CHECKOUT` is the
+current checkout when `git rev-parse HEAD` is the head sha; otherwise check the head out
+beside it, and remove that once the challenge has returned:
 
 ```bash
 git fetch origin <base ref> "+refs/pull/<PR>/head"
-git worktree add --detach <scratch dir>/pr-<PR> <head sha>   # run from there; `git worktree remove --force` after
-bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh" \
-  origin/<base ref> --challenge-only --challenge "Merge readiness. Is the whole diff warranted by these issues: <each issue, one line>? Judgements to break: <the ledger's judgement rows, one line each>"
+CHECKOUT=$(git rev-parse --show-toplevel)
+# only when HEAD is not the head sha:
+CHECKOUT=$(mktemp -d)/pr-<PR> && git worktree add --detach "$CHECKOUT" <head sha>
+
+(cd "$CHECKOUT" && bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh" \
+  origin/<base ref> --challenge-only --challenge "Merge readiness. Is the whole diff warranted by these issues: <each issue, one line>? Judgements to break: <the ledger's judgement rows, one line each>")
+
+# only when it was added above:
+git worktree remove --force "$CHECKOUT"
 ```
 
 Read the file its `codex_challenge=` line names; `cached` reads as `ran`. A finding
