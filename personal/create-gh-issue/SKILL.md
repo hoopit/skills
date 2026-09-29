@@ -234,6 +234,10 @@ throws away — then `git merge-base --is-ancestor <sha> origin/production`. Unm
 merged but unpromoted, and the issue stays out of `startable` and out of `check` until
 promotion lands. Nothing has to remember it and no date is guessed.
 
+A gate is read wherever it stands on a line, and every one in the body must be live. One
+that names no pull request or sha, such as a placeholder, holds the issue. To mention a
+gate in prose without setting one, put it in backticks: `hoopit-board` does not read those.
+
 Write the line while filing, off the PR you just merged. The PR number exists before
 the sha does, so a follow-up filed mid-review can carry the gate already.
 

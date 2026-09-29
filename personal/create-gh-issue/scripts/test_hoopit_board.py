@@ -819,6 +819,70 @@ def test_dispatches_no_judge_asks_nothing():
     assert report["by_rung"]["opus/medium"]["rework_median"] is None
 
 
+def gated(prs=None, promoted=()):
+    """A module whose gates resolve offline. `prs` maps `repo#n` to whether that pull
+    request is merged, its merge sha being `sha-<n>`; a PR missing from it cannot be read.
+    `promoted` holds the shas `origin/production` already carries."""
+    m = load()
+    def rest_one(path):
+        repo, n = path.removeprefix("repos/").split("/pulls/")
+        merged = (prs or {}).get(f"{repo}#{n}")
+        return None if merged is None else {"merged": merged, "merge_commit_sha": f"sha-{n}"}
+    m.rest_one = rest_one
+    m.promotion_state = lambda repo, sha: "" if sha in promoted else f"{sha} not promoted"
+    return m
+
+
+def check(m, body):
+    """cmd_check on an open, unclaimed, unblocked issue in `x/y` with the given body.
+    Returns its one line of output."""
+    def gh(*a, **k):
+        if a[0] == "issue":
+            return {"state": "OPEN", "comments": [], "closedByPullRequestsReferences": []}
+        return body
+    m.gh = gh
+    m.issue_gates = lambda repo, number: ("", [])
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        m.cmd_check(argparse.Namespace(repo="x/y", number=9))
+    return out.getvalue().strip()
+
+
+def test_a_gate_sharing_its_line_with_prose_still_holds():
+    """hoopit/api#17507: the gate followed a sentence on one line, went unread, and an
+    agent was dispatched against an unpromoted PR."""
+    m = gated({"x/y#2": True})
+    assert check(m, "Follows x/y#1. Gate: deployed x/y#2\n").startswith("SKIP"), "shared line"
+    assert "sha-2 not promoted" in check(m, "Gate: deployed #2. Swap in the PR later.\n")
+
+
+def test_a_gate_on_its_own_line_resolves_as_before():
+    m = gated({"x/y#2": True}, promoted={"sha-2"})
+    assert check(m, "Intro.\n\nGate: deployed x/y#2\n") == "START\tx/y#9"
+    assert "not merged" in gated({"x/y#2": False}).deploy_gate("x/y", "Gate: deployed #2")
+    assert gated(promoted={"abc1234"}).deploy_gate("x/y", "Gate: deployed abc1234") == ""
+
+
+def test_every_gate_in_a_body_must_be_live():
+    m = gated({"x/y#2": True, "x/y#3": True}, promoted={"sha-2"})
+    why = m.deploy_gate("x/y", "Gate: deployed x/y#2\nGate: deployed x/y#3\n")
+    assert why == "sha-3 not promoted", why
+
+
+def test_a_gate_naming_nothing_readable_holds():
+    m = gated()
+    why = m.deploy_gate("x/y", "The client half waits. Gate: deployed <the api PR>\n")
+    assert why.startswith("a gate names no pull request or sha") and "<the api PR>" in why, why
+    # An issue, not a PR, cannot be read off the pulls endpoint: held, not passed over.
+    assert "cannot be read" in m.deploy_gate("x/y", "Gate: deployed x/y#7. Replace it later.")
+
+
+def test_a_gate_in_backticks_is_prose_not_a_gate():
+    m = gated()
+    body = "Once it exists, add a `Gate: deployed <pr>` line here.\n"
+    assert m.deploy_gate("x/y", body) == "" and check(m, body) == "START\tx/y#9"
+    assert m.deploy_gate("x/y", "No gates here, Gate keeper.") == ""
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

@@ -143,13 +143,15 @@ STOPWORDS = set("""a an and are as at be by for from has have in into is it its 
 to with when then than this these those not no its it's if while after before over under""".split())
 CHECKOUTS = os.path.expanduser("~/Dev/Hoopit")
 PRODUCTION = "production"
-# `Gate: deployed hoopit/api#17271` on a line of its own, `#17271` for this repo, or a
-# sha. The PR number is the durable handle: under squash merge a PR's head sha is never
-# on master, while `merge_commit_sha` is the squash commit that is — and the number
-# exists while the PR is still open, which is when a follow-up gets filed.
+# `Gate: deployed hoopit/api#17271`, `#17271` for this repo, or a sha. The PR number is
+# the durable handle: under squash merge a PR's head sha is never on master, while
+# `merge_commit_sha` is the squash commit that is — and the number exists while the PR is
+# still open, which is when a follow-up gets filed. It is found anywhere on a line, so
+# prose sharing the line cannot hide it; the target is optional here so that a gate naming
+# nothing readable is caught and held rather than passed over.
 DEPLOY_GATE = re.compile(
-    r"^\s*Gate:\s*deployed\s+([\w.-]+/[\w.-]+)?\s*(?:#(\d+)|@?\b([0-9a-f]{7,40})\b)\s*$",
-    re.I | re.M)
+    r"\bGate:\s*deployed\b[ \t]*(?:([\w.-]+/[\w.-]+)?[ \t]*(?:#(\d+)|@?\b([0-9a-f]{7,40})\b))?",
+    re.I)
 BACKTICK = re.compile(r"`([^`\n]+)`")
 LINEREF = re.compile(r":\d+(?:-\d+)?$")
 # The files that tell an agent how to work rather than hold the work: `AGENTS.md` and
@@ -1203,12 +1205,20 @@ def promotion_state(repo, sha, _fetched=set()):
 
 
 def deploy_gate(repo, body):
-    """The verdict of a `Gate: deployed ...` line: a reason to hold, or "" when the code
-    is promoted — and "" for the issues that carry no such line, which is most of them."""
-    m = DEPLOY_GATE.search(body or "")
-    if not m:
-        return ""
+    """The verdict of every `Gate: deployed ...` in a body: the reasons to hold, joined, or
+    "" when all the code they name is promoted — and "" for the issues that carry none,
+    which is most of them. A mention in backticks is prose about gates, not a gate."""
+    why = []
+    for line in BACKTICK.sub("", body or "").splitlines():
+        why += [one_gate(repo, m, line) for m in DEPLOY_GATE.finditer(line)]
+    return "; ".join(w for w in why if w)
+
+
+def one_gate(repo, m, line):
+    """One gate's reason to hold, or "" once its code is promoted."""
     target, pr, sha = m.group(1) or repo, m.group(2), m.group(3)
+    if not (pr or sha):
+        return f'a gate names no pull request or sha: "{line.strip()[:100]}"'
     if pr:
         d = rest_one(f"repos/{target}/pulls/{pr}")
         if d is None:
