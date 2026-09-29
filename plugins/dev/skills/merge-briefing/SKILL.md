@@ -57,7 +57,7 @@ beside it, and remove that once the challenge has returned:
 git fetch origin <base ref> "+refs/pull/<PR>/head"
 CHECKOUT=$(git rev-parse --show-toplevel)
 # only when HEAD is not the head sha:
-TMP=$(mktemp -d) && CHECKOUT=$TMP/pr-<PR> && git worktree add --detach "$CHECKOUT" <head sha> && echo "$CHECKOUT"
+TMP=$(mktemp -d) && CHECKOUT=$TMP/pr-<PR> && { git worktree add --detach "$CHECKOUT" <head sha> || { rmdir "$TMP"; false; }; } && echo "$CHECKOUT"
 
 (cd "$CHECKOUT" && bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh" \
   origin/<base ref> --challenge-only --challenge "Merge readiness. Is the whole diff warranted by these issues: <each issue, one line>? Judgements to break: <the ledger's judgement rows, one line each>")

@@ -189,7 +189,7 @@ I'll take it* answer — marks it ready, or it stays unmergeable with its issue 
 review` and no event left to move it. A hard fork and an error stop leave it a draft on
 purpose: that work is unfinished, and re-arming the watch picks it up where it stands.
 A PR these endings ready without a passing briefing for its head — a verdict close, a
-checkpoint, a *Stop, I'll take it* before any `GREEN` or answered to the *no passing
+checkpoint, a *Stop, I'll take it* on a head no `GREEN` briefed or answered to the *no passing
 briefing* question — owes one where its base requires the `merge-briefing` check
 ([GREEN.md](GREEN.md)'s probe answers that), and the ending says so
 (`/merge-briefing <PR>`).

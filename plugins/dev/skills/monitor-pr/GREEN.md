@@ -46,8 +46,10 @@ merge question asked as usual.
 
 **No passing briefing** — with `REQUIRED=yes`, a head whose challenge did not run or whose
 write failed twice, and on any repo a challenge round that declined every held finding.
-The merge would be refused, so ask this in place of the merge question, saying why and
-recommending hold. Options: **Brief this head again** · **Not yet — keep watching** ·
+No briefing stands behind this head — and with `REQUIRED=yes` the check refuses the
+merge — so ask this in place of the merge question, saying which and recommending hold.
+Options: **Brief this head again** · **Not yet — keep watching** (nothing brings this
+question back on its own: the user asks for the re-brief, or a push moves the head) ·
 **Stop monitoring, I'll take it from here**. *Brief this head again* re-runs
 `merge-briefing` on this head with the challenge — never skipped, and with any round's
 declines among the judgement rows — and carries on from the top of this file with what
@@ -70,7 +72,7 @@ holding. A `GREEN` carrying `pending_gates` went green with a gate that never
 reported on the head: name it and recommend holding until it has. A merge-readiness
 challenge that did not run holds it the same way, for the same reason — a reviewer that
 never reported — and, with `REQUIRED=yes`, so does a briefing that never reached the
-description, which the check cannot pass. And a run still owed (below) holds it until the run is done.
+description, which the check will not pass on a head it does not already cover. And a run still owed (below) holds it until the run is done.
 
 **A run owed before merge.** A description whose `## Run before merge` section still has
 an unticked box puts the run question in place of the merge question, once the PR is
