@@ -10,7 +10,8 @@ reviewer gives the PR — and writes the briefing into the description. Hand it 
 the PR closes (the ones its description links, `closes #<n>`, the tracker section), the
 ledger's judgement rows — the declines, the step-back picks — as the challenge's focus,
 the recommendation with its reason (below), and on a run-log push (below) that it skips
-the challenge.
+the challenge. Its `CHALLENGE:` line is the challenge's score: it goes into the ledger
+tally as **challenge findings weighed** and **held**, and it is what the paths below read.
 
 **`HELD`** — a challenge finding held, and nothing was written. It opens a round rather
 than a question, the same work a reviewer thread would open: under `--subagent` as
@@ -18,7 +19,7 @@ than a question, the same work a reviewer thread would open: under `--subagent` 
 `merge-briefing` returned in `GUIDANCE`, inline by working them yourself as the worker
 briefing says. Its push brings the next `GREEN`, and that one carries the merge question.
 
-**A briefing marked `challenge=not-run`** is Step 4's `CODEX DOWN`: `merge-briefing`
+**`CHALLENGE: not-run`** is Step 4's `CODEX DOWN`: `merge-briefing`
 has turned the recommendation to hold and named what the challenge would have weighed.
 The merge question still goes, saying so. *Merge it* stays on the table, and restoring
 Codex, then briefing this head again, is what turns the recommendation back. A failed

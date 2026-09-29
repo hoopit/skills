@@ -29,7 +29,9 @@ Then the **recommendation** — merge or hold — with its reason.
 The description, the whole diff, and the **issues** it closes — the ones its description
 links (`closes #<n>`, the tracker section). A PR linking none is weighed against its
 description, and the briefing says so. A caller that hands you the issues, facts for the
-last line, or the recommendation has already done that part: take them as given.
+last line, or the recommendation has already done that part: take them as given — save
+that a challenge which did not run turns a handed recommendation to merge into hold
+(below).
 
 ```bash
 gh api repos/<OWNER_REPO>/pulls/<PR> --jq '.body, .head.sha, .base.ref'
@@ -72,6 +74,13 @@ Read the file its `codex_challenge=` line names; `cached` reads as `ran`. A find
 - **A `codex_challenge_reason` line**: the challenge did not run. Brief anyway,
   recommending hold, and name what it would have weighed — the issues and the judgement
   rows. Re-running the challenge on this head once Codex is back is what turns it.
+
+Every outcome returns one line to the caller, beside `HELD:` or the briefing, whether or
+not the write succeeds — the challenge's score for its ledger tally:
+
+```
+CHALLENGE: <ran|not-run|skipped> weighed=<n> held=<n>
+```
 
 ## Rate the risk
 
