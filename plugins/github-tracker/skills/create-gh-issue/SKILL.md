@@ -86,6 +86,11 @@ with none found.
     it delivers, so an item held open past its merge freezes at `In progress` with nobody
     on it. File the operational half separately, as a `Follow-up` carrying `Gate:
     deployed` (step 5), and let the first close at its merge.
+  - An acceptance line that only needs the Sentry issue to go **quiet** resolves it
+    directly, no follow-up: `sentry issue resolve <ID>` once the fix reaches the branch
+    the event comes from. A resolved issue reopens itself on the next matching event —
+    that regression is the verification a follow-up would otherwise spend a day's
+    traffic window to re-derive.
   - A run that only needs the code **reviewed** stays in one issue. Where the repo has
     a script that runs the local checkout against prod (see its `AGENTS.md`), a repair
     command runs from its own branch once the PR is green and ready (`monitor-pr` asks
