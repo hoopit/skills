@@ -173,7 +173,9 @@ severity of what the reviewers still find.
   is: stop. A real doubt is the user's to settle.
 
 A report reading `CLOSED verdict held: …`, or a checkpoint that stops, `TaskStop`s the
-monitor and takes its path in Step 5. Otherwise idle until the next `ROUND` or `GREEN` —
+monitor and takes its path in Step 5. A `CLOSED` from a `ROUND: CHALLENGE` gets no new
+`GREEN` — the head already had its one — so it goes back to [GREEN.md](GREEN.md)'s *no
+passing briefing* question. Otherwise idle until the next `ROUND` or `GREEN` —
 after a plain `CLOSED` and after `APPEALED` too: the head answers as a `GREEN` or as the
 next `ROUND`.
 
@@ -186,9 +188,11 @@ the PR to the user with the rounds over — a close holding a verdict, a checkpo
 I'll take it* answer — marks it ready, or it stays unmergeable with its issue parked in `AI
 review` and no event left to move it. A hard fork and an error stop leave it a draft on
 purpose: that work is unfinished, and re-arming the watch picks it up where it stands.
-A PR handed over without a briefing for its head — every one of these endings but a
-*Stop* answered to a `GREEN` question — owes one where its base requires the
-`merge-briefing` check, and the ending says so (`/merge-briefing <PR>`).
+A PR these endings ready without a passing briefing for its head — a verdict close, a
+checkpoint, a *Stop, I'll take it* before any `GREEN` or answered to the *no passing
+briefing* question — owes one where its base requires the `merge-briefing` check
+([GREEN.md](GREEN.md)'s probe answers that), and the ending says so
+(`/merge-briefing <PR>`).
 
 ```bash
 bash <SKILL_DIR>/scripts/pr-labels.sh <OWNER_REPO> <PR> -monitored -agent-working
@@ -265,6 +269,7 @@ options, because they answer different things:
 | Soft fork | **Answer in chat** (recommended) · **Take all your recommendations** · **Stop monitoring, I'll take it from here** |
 | Hard fork | **Answer in chat** (recommended) · **Take all your recommendations** · **Stop monitoring, I'll take it from here** — the first two re-arm the watch |
 | Green | **Merge it** · **Not yet — keep watching** · **Stop monitoring, I'll take it from here** |
+| Green, no passing briefing ([GREEN.md](GREEN.md)) | **Brief this head again** · **Not yet — keep watching** · **Stop monitoring, I'll take it from here** |
 | Green, run owed | **Run it** · **I'll run it — output to follow in chat** · **Not yet — keep watching** ([GREEN.md](GREEN.md)) |
 | Closed or checkpointed | **Keep watching** · **Stop, I'll take it** · **Answer in chat** (when questions are outstanding) |
 | Stop | **Re-arm the watch** (a transient stop — go back to Step 2, label included) · **Stop, I'll take it** · **Keep going anyway** (re-arm past a check failing for reasons outside this PR) |

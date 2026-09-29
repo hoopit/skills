@@ -34,7 +34,7 @@ A `PASS` clears the branch to open or push, not to merge. The product repos requ
 briefing for the PR's head whose Codex merge-readiness challenge ran — the read of the PR
 as a whole that no pass of this gate gives. `monitor-pr`'s `GREEN` writes it; on a PR
 nobody monitors, run the `merge-briefing` skill. Only PRs into the default branch are
-judged, and Dependabot's pass without a briefing.
+judged, and a bot's pass without a briefing.
 
 ## Inputs
 

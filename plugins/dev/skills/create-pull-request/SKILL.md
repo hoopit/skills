@@ -121,7 +121,8 @@ and link that copy.
 hand-off — the only one a workflow can trigger on, since a resolved review thread raises
 no event. A PR handed straight to humans on creation, with no watch to follow, omits
 `--draft`: nothing would ever mark it ready, and it would sit unmergeable with its issue
-in `AI review`. Where its base requires the `merge-briefing` check, that PR still owes a
+in `AI review`. Where its base requires the `merge-briefing` check (the probe in `monitor-pr`'s
+`GREEN.md` answers that), that PR still owes a
 merge briefing before it can merge: say so when handing it over (`/merge-briefing <PR>`).
 
 *Born*, never opened-then-converted: the board automation fires on `opened`, so a PR ready

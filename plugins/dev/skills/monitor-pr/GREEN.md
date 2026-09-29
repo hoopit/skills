@@ -6,12 +6,15 @@ The `GREEN` path of [SKILL.md](SKILL.md)'s Step 5; steps named here are that fil
 
 **Does the base require the check?** Ask once, first: whether `<base>` requires the
 `merge-briefing` status decides what a briefing that did not pass costs below. Branch
-protection and rulesets are both readable with read access:
+protection and rulesets are both readable with read access. A read that fails answers
+`yes`: guessing `no` would ready a head the merge is then refused on, and a wrong `yes`
+costs only a hold:
 
 ```bash
-{ gh api repos/<OWNER_REPO>/branches/<base> --jq '.protection.required_status_checks.contexts[]?'
-  gh api repos/<OWNER_REPO>/rules/branches/<base> --jq '.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context'
-} | grep -qx merge-briefing && echo REQUIRED=yes || echo REQUIRED=no
+if p=$(gh api repos/<OWNER_REPO>/branches/<base> --jq '.protection.required_status_checks.contexts[]?') &&
+   r=$(gh api repos/<OWNER_REPO>/rules/branches/<base> --jq '.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context'); then
+  printf '%s\n' "$p" "$r" | grep -qx merge-briefing && echo REQUIRED=yes || echo REQUIRED=no
+else echo REQUIRED=yes; fi
 ```
 
 **Green** — a `GREEN` line. Before the merge question, once per head that carries pushes
@@ -22,8 +25,9 @@ the PR closes (the ones its description links, `closes #<n>`, the tracker sectio
 ledger's judgement rows — the declines, the step-back picks — as the challenge's focus,
 the recommendation with its reason (below), and on a run-log push (below) that it skips
 the challenge. Its `CHALLENGE:` line is the challenge's score: write it into the ledger's
-tally in the description as **challenge findings weighed** and **held** — no round will —
-and it is what the paths below read.
+tally in the description as **challenge findings weighed** and **held** — no round will;
+a head briefed again replaces its own earlier count rather than adding to it — and it is
+what the paths below read.
 
 **`HELD`** — a challenge finding held, and nothing was written. It opens a round rather
 than a question, the same work a reviewer thread would open: under `--subagent` as
@@ -31,18 +35,23 @@ than a question, the same work a reviewer thread would open: under `--subagent` 
 `merge-briefing` returned in `GUIDANCE`, inline by working them yourself as the worker
 briefing says. Its push brings the next `GREEN`, and that one carries the merge question.
 A round that commits nothing — every held finding declined on a second read — brings no
-new head and so no `GREEN`: brief this head again at once, with those declines among the
-judgement rows.
+new head and so no `GREEN`: come back here and ask the **no passing briefing** question
+below, naming the held findings and the round's declines.
 
 **`CHALLENGE: not-run`** is Step 4's `CODEX DOWN`: `merge-briefing`
 has turned the recommendation to hold and named what the challenge would have weighed.
-**`marker=unwritten`** with no `HELD:` is a failed write: re-send the write once, and when
-it fails again the merge question says so. With `REQUIRED=yes`, either leaves a head the
-merge is refused on until it is briefed again with the challenge run: the question
-recommends hold whatever the briefing's text says, and offers **Brief this head again**
-beside the usual options, which re-runs `merge-briefing` on this head with the challenge
-— never skipped — and then asks the merge question again. With `REQUIRED=no` the briefing
-gates nothing: a failed write is reported and the question asked as usual.
+**`marker=unwritten`** with no `HELD:` is a failed write: re-send the write once. With
+`REQUIRED=no` the briefing gates nothing: a write that fails again is reported, and the
+merge question asked as usual.
+
+**No passing briefing** — with `REQUIRED=yes`, a head whose challenge did not run or whose
+write failed twice, and on any repo a challenge round that declined every held finding.
+The merge would be refused, so ask this in place of the merge question, saying why and
+recommending hold. Options: **Brief this head again** · **Not yet — keep watching** ·
+**Stop monitoring, I'll take it from here**. *Brief this head again* re-runs
+`merge-briefing` on this head with the challenge — never skipped, and with any round's
+declines among the judgement rows — and carries on from the top of this file with what
+it returns. Nothing re-briefs a head on its own: the watch fires `GREEN` once per head.
 
 Drop `agent-working` before asking (Step 4): the PR is the user's until they answer.
 When this head is ready on the agent's side — the challenge ran (or was carried as `ran`)
