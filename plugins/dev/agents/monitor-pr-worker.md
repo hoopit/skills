@@ -211,8 +211,8 @@ questioned rather than patched.
    An appeal, and any other round that committed **nothing** with no hard fork open,
    leaves the reviewers nothing new to look at: start the next review round yourself and
    note it in the report. An `open` thread is no reason to hold the re-review back; only a hard fork is.
-   Skip the kick when the `ROUND` line names `pending_gates` — those reviewers are
-   already working this head, and a second run would only duplicate them:
+   Skip the kick when the `ROUND` line's `pending_gates` names `codex-review` — it is
+   already working this head, and a second run would only duplicate it:
 
    ```bash
    gh workflow run codex-review-manual.yml -f pr=<PR> --repo <OWNER_REPO>

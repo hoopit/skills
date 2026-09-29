@@ -93,11 +93,12 @@ Monitor(
 )
 ```
 
-A **gate** is a reviewer check a head must hear from before it goes `GREEN`. The gate is
-`codex-review` alone; for a repo whose reviewer checks have other names, prefix
-`GATE_CHECKS=<a>,<b>`, and tune how long a head waits on a silent gate with
-`GATE_TIMEOUT=<seconds>` (default 900). CodeRabbit posts no check or status, so it is no
-gate: it holds a head only while a thread of its stays unresolved.
+A **gate** is a reviewer a head must hear from before it goes `GREEN`: `codex-review`,
+read as a check, and `CodeRabbit`, which posts no check and is read from its summary
+comment instead. A CodeRabbit that has said it will not review the head — rate-limited,
+paused, or skipped — counts as reported. For a repo whose reviewer checks have other
+names, prefix `GATE_CHECKS=<a>,<b>`, and tune how long a head waits on a silent gate with
+`GATE_TIMEOUT=<seconds>` (default 900).
 
 The script polls every 60 s and prints only:
 

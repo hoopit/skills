@@ -2,11 +2,12 @@
 # Print one ROUND line the moment the PR has work the previous round did not see, and one GREEN
 # line the first time a head has nothing left to do; exit when the PR leaves OPEN.
 # Usage: watch-pr.sh <owner/repo> <pr_number> [interval_seconds=60]
-# Env:   GATE_CHECKS     — comma-separated reviewer check names (default "codex-review").
-#                          A head goes GREEN only once all of them have reported on it. A
-#                          reviewer that posts no check (CodeRabbit) cannot be listed: it holds
-#                          a head only through a thread of its left unresolved, and its silence
-#                          holds nothing.
+# Env:   GATE_CHECKS     — comma-separated reviewer gates (default "codex-review,CodeRabbit").
+#                          A head goes GREEN only once all of them have reported on it. Each is
+#                          a check name, except `CodeRabbit`, which posts no check: it reports
+#                          through its summary comment (`pr_coderabbit`), and a CodeRabbit that
+#                          has said it will not review the head (rate-limited, paused, skipped)
+#                          counts as reported.
 #        GATE_TIMEOUT    — seconds an otherwise-clean head waits for a gate check that never
 #                          reported before going GREEN anyway (default 900 = 15m). A gate check can
 #                          go missing entirely on a head (skipped, rate-limited) rather than just
@@ -33,7 +34,7 @@
 # firing mid-round, while the session is still working threads it has seen.
 set -u
 REPO=$1; PR=$2; INTERVAL=${3:-60}
-GATE_CHECKS=${GATE_CHECKS:-codex-review}
+GATE_CHECKS=${GATE_CHECKS:-codex-review,CodeRabbit}
 GATE_TIMEOUT=${GATE_TIMEOUT:-900}
 MAX_FETCH_FAILS=${MAX_FETCH_FAILS:-5}
 REVIEW_MAX_AGE=${REVIEW_MAX_AGE:-600}
@@ -69,6 +70,12 @@ while true; do
   IFS=, read -ra gates <<<"$GATE_CHECKS"
   pending_gates=""
   for g in "${gates[@]}"; do
+    if [ "$g" = CodeRabbit ]; then
+      # A failed read holds the gate like a silent CodeRabbit, and GATE_TIMEOUT bounds both.
+      rabbit=$(pr_coderabbit "$REPO" "$PR" "$head" 2>/dev/null) || rabbit=pending
+      [ "$rabbit" = pending ] && pending_gates="${pending_gates:+$pending_gates,}$g"
+      continue
+    fi
     awk -F'\t' -v n="$g" '$2==n && $1!="pending"{found=1} END{exit !found}' <<<"$checks" \
       || pending_gates="${pending_gates:+$pending_gates,}$g"
   done

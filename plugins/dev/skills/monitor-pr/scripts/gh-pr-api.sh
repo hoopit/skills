@@ -60,6 +60,29 @@ pr_checks() {
       else "fail" end), .context, (.target_url // "")] | @tsv' <<<"$statuses"
 }
 
+# pr_coderabbit <owner/repo> <pr> <head_sha> — prints CodeRabbit's standing on the head:
+#   reported      its summary comment records a review covering the head
+#   silent:<why>  it has said it will not review this head — rate-limited, paused,
+#                 skipped, or the author has no review seat — so waiting on it is pointless
+#   pending       neither yet
+# CodeRabbit posts no check or status, and a review with no findings posts no PR review
+# either. Its one reliable signal is the summary comment it edits in place: a
+# `final_review_risk_coverage` marker whose coveredCommitId is the last commit it
+# reviewed, and one HTML marker per reason it has stopped reviewing.
+pr_coderabbit() {
+  local body
+  body=$(gh api "repos/$1/issues/$2/comments?per_page=100" --jq '
+    [.[] | select(.user.login == "coderabbitai[bot]")
+         | select(.body | contains("summarize by coderabbit.ai"))] | last | .body // ""') || return 1
+  if grep -q "\"coveredCommitId\":\"$3\"" <<<"$body"; then echo reported
+  elif grep -q 'rate limited by coderabbit.ai' <<<"$body"; then echo silent:rate-limited
+  elif grep -q 'review paused by coderabbit.ai' <<<"$body"; then echo silent:paused
+  elif grep -q 'skip review by coderabbit.ai' <<<"$body"; then echo silent:skipped
+  elif grep -q 'coderabbit-seat-request-start' <<<"$body"; then echo silent:no-seat
+  else echo pending
+  fi
+}
+
 # pr_open_threads <owner/repo> <pr> — the one GraphQL call. Prints one
 # `<thread_id>:<comment_count>` line per unresolved thread, sorted. The comment count is
 # what makes a reply to an already-seen thread a change.
