@@ -187,7 +187,7 @@ def next_module(items, owners=None, per_pr=None, bodies=None, paths=(), apps=())
     a body's prose and its backticked paths are told apart."""
     m = load()
     m.board = lambda: items
-    m.footprints = lambda repos: (m.defaultdict(list, owners or {}), dict(per_pr or {}))
+    m.footprints = lambda repos, only=None: (m.defaultdict(list, owners or {}), dict(per_pr or {}))
     m.migration_apps = lambda repo: list(apps)
     m.deploy_gate = lambda repo, body: ""
     m.repo_files = lambda repo, _c={}: (set(paths or ()), {}, True)
@@ -208,7 +208,8 @@ def run_next(m, target=15, no_judge=False):
         code = m.cmd_next(argparse.Namespace(target=target, exclude=[], scope=None,
                                              no_judge=no_judge, max_active=None,
                                              max_review=None, live_agents=None,
-                                             idle_agents=None, skip_type=[]))
+                                             idle_agents=None, skip_type=[],
+                                             allow_out_of_reach=False))
     return json.loads(out.getvalue()), code
 
 
