@@ -109,6 +109,7 @@ An agent work tracker on a GitHub project board: file triaged issues, triage and
 | `curate-backlog` | Manual | Clean up the agent tracker board — duplicates, merges, stale and invalid issues, missing triage. |
 | `gh-followup` | Manual | Work the board's Out of reach bucket — re-test each blocker, convert what the board can hold itself, walk what only you can do, and summarise what the rest waits for. |
 | `gh-triage` | Manual | Triage the backlog with the user — fill missing fields, collapse the false decisions, grill the real ones, until every item is Unattended. |
+| `setup-gh-tracker` | Manual | Set up your GitHub tracker board and config. |
 <!-- END generated skills -->
 
 The onboarding skills clone their project repo as a **sibling** of wherever you run
@@ -128,40 +129,21 @@ Every skill that leans on one falls back gracefully when it isn't installed.
 
 `github-tracker` runs your **personal agent tracker** (see `docs/agents/issue-tracker.md` in
 each product repo) on a GitHub project board of your own. One board spans every repo you
-work in, so install the plugin at **user** scope rather than per project:
+work in, so install the plugin at **user** scope, then run its setup in Claude Code:
 
 ```bash
 claude plugin install github-tracker@hoopit-skills --scope user
 ```
 
-Its skills call `hoopit-board`, which the plugin puts on the Bash tool's `PATH`. It also
-leans on `hoopit-dev` (`assess-issue` ships through `ship`) and on
-`mattpocock-skills` (`grilling`, `wizard`).
+```
+/setup-gh-tracker
+```
 
-1. **Create a project board** under the `hoopit` org. The issue fields are org-level, so a
-   user-owned project cannot carry them.
-2. **Give its Status field these options**: `Backlog`, `Ready`, `In progress`, `AI review`,
-   `Human review`, `Done`. The names are the contract: the org's shared `board-status`
-   workflow (`hoopit/workflows`) moves an issue between `AI review` and `Human review` by
-   its PR's draft state on any board that carries them.
-3. **Add the org issue fields** Priority, Effort, Autonomy and `Start date` to the board.
-4. **Turn on the board's built-in workflows**: *Item closed* → `Done`, and *Pull request
-   linked to issue* → `AI review`.
-5. **Write your config** — `~/.config/github-tracker/config.json` — and let it verify the
-   board:
-
-   ```bash
-   hoopit-board init --owner hoopit --number <n> --checkouts ~/Dev/Hoopit \
-     --repo hoopit/api:production --repo hoopit/web-admin:production --repo hoopit/flutter-app
-   ```
-
-   `--repo <owner/name>:<branch>` names the branch whose ancestry says a merge is live in
-   production, for the `Gate: deployed` line; a bare `--repo` has none. `init` lists
-   whatever the board is missing and creates nothing; `hoopit-board config` prints what
-   it resolved. Without a config every other command refuses.
-
-`TYPESAFE_API_KEY` in the environment turns on the judged duplicate and collision checks;
-without it they fall back to title and path matching.
+It authorises `gh` for projects, reuses your board or creates one (from the org's template
+board, where there is one), adds the statuses and org fields the skills read, walks you
+through the workflows no API can switch on, writes `~/.config/github-tracker/config.json`,
+and declares the tracker in your `~/.claude/CLAUDE.md`. Re-run it any time; it only fixes
+what is missing.
 
 ## How it works
 

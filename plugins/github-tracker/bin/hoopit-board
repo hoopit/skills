@@ -204,7 +204,8 @@ def config():
             _CONFIG.append(read_config(path))
         except ConfigError as e:
             sys.exit(f"hoopit-board: {path}: {e}\n"
-                     "Write it with `hoopit-board init` (see `hoopit-board init --help`).")
+                     "Set it up with `/setup-gh-tracker` in Claude Code, or write it with "
+                     "`hoopit-board init` (see `hoopit-board init --help`).")
     return _CONFIG[0]
 
 
