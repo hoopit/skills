@@ -1,8 +1,9 @@
-# Keeps README.md's "Skills by plugin" block in sync with the source of truth before
-# each commit. Enable once per clone with:  pre-commit install
+# Keeps README.md's "Skills by plugin" block in sync with the source of truth, and
+# runs hoopit-board's tests whenever the script or its tests change, before each
+# commit. Enable once per clone with:  pre-commit install
 #
-# This hook is OFFLINE — it regenerates the block from marketplace.json and the local
-# SKILL.md files. It does NOT hit the network.
+# Both hooks are OFFLINE: the README block is regenerated from marketplace.json and the
+# local SKILL.md files, and the tests stub every network call.
 repos:
   - repo: local
     hooks:
@@ -12,3 +13,9 @@ repos:
         language: system
         pass_filenames: false
         files: '^(plugins/.*/SKILL\.md|\.claude-plugin/marketplace\.json|scripts/gen-skills-readme\.sh)$'
+      - id: test-hoopit-board
+        name: Test hoopit-board
+        entry: python3 -B personal/create-gh-issue/scripts/test_hoopit_board.py
+        language: system
+        pass_filenames: false
+        files: '^personal/create-gh-issue/scripts/'
