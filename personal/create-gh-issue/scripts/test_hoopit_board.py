@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Pins `hoopit-board batch`'s write loop, `next`'s collision judgement, `decisions`'
-naming judgement and `scan`'s duplicate judgement. Run it by hand after editing any of them:
+naming judgement, `scan`'s duplicate judgement, the deploy gate and the per-user config
+(`init`, `config`, and the refusal without one). Run it by hand after editing any of them:
 
     python3 scripts/test_hoopit_board.py
 
@@ -19,18 +20,46 @@ one. So the guard fires rarely and unpredictably, ordinary use never reaches the
 that handles it, and the failure it prevents is the expensive kind: a sweep that writes
 half the board and reports success. Nothing else exercises this path.
 """
-import argparse, contextlib, importlib.machinery, importlib.util, io, json, pathlib, re, sys
-import tempfile
+import argparse, contextlib, importlib.machinery, importlib.util, io, json, os, pathlib, re
+import subprocess, sys, tempfile
 
 SCRIPT = pathlib.Path(__file__).with_name("hoopit-board")
+LADDER = SCRIPT.resolve().parent.parent.parent / "dispatch-ladder" / "ladder.json"
+# Every config a test writes lives here, and `HOOPIT_BOARD_CONFIG` points into it: a test
+# must never read or write the developer's own config.
+SCRATCH = tempfile.TemporaryDirectory(prefix="hoopit-board-test-")
+TMP = pathlib.Path(SCRATCH.name)
 
 
-def load():
-    """A fresh module with the network stubbed out. `hoopit-board` has no `.py`
-    suffix, so it needs its loader named explicitly."""
+def write_config(name="config.json", **over):
+    """A config file under TMP, from a default that every earlier test assumes — the
+    repos it names, a production branch that is deliberately not called `production`, and
+    the shipped ladder — with `over` replacing top-level keys (None drops one)."""
+    data = {"board": {"owner": "acme", "number": 7}, "checkouts": str(TMP / "checkouts"),
+            "repos": [{"repo": r, "production_branch": "live"}
+                      for r in ("hoopit/api", "hoopit/web-admin", "x/y")],
+            "ladder": str(LADDER)}
+    data.update(over)
+    return write_raw(name, json.dumps({k: v for k, v in data.items() if v is not None}))
+
+
+def write_raw(name, text):
+    path = TMP / name
+    path.write_text(text)
+    return str(path)
+
+
+def load(config=None, prime=True):
+    """A fresh module with the network stubbed out, reading `config` (the default config
+    when None). `hoopit-board` has no `.py` suffix, so it needs its loader named
+    explicitly. `prime` reads the config now, so a module keeps its own whatever a later
+    test points the environment at."""
+    os.environ["HOOPIT_BOARD_CONFIG"] = config or write_config()
     spec = importlib.util.spec_from_loader("hb", importlib.machinery.SourceFileLoader("hb", str(SCRIPT)))
     m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m)          # __name__ is "hb", so main() does not run
+    if prime:
+        m.config()
     m.board = lambda: [{"repo": "hoopit/api", "n": i, "item_id": f"I{i}",
                         "content_id": f"C{i}", "type": "Issue"} for i in range(1, 61)]
     # The date field's BATCH_FIELDS entry is None — it has no options to enumerate.
@@ -179,17 +208,20 @@ def item(n, status="Ready", effort="M", repo="hoopit/api", prs=(), title=None):
             "pr_updated": {}, "item_id": f"I{n}"}
 
 
-def next_module(items, owners=None, per_pr=None, bodies=None, paths=(), apps=()):
+def next_module(items, owners=None, per_pr=None, bodies=None, paths=(), apps=(), config=None,
+                real_gate=False):
     """A `next` with the whole network stubbed: the board, the open-PR sweep, the issue
     body reads and the checkout. Only the judgement is left to the test.
 
     `paths` is what the checkout holds, so `body_footprint` runs for real — which is where
-    a body's prose and its backticked paths are told apart."""
-    m = load()
+    a body's prose and its backticked paths are told apart. `real_gate` leaves the deploy
+    gate to run, for a test to stub what it reads."""
+    m = load(config)
     m.board = lambda: items
     m.footprints = lambda repos, only=None: (m.defaultdict(list, owners or {}), dict(per_pr or {}))
     m.migration_apps = lambda repo: list(apps)
-    m.deploy_gate = lambda repo, body: ""
+    if not real_gate:
+        m.deploy_gate = lambda repo, body: ""
     m.repo_files = lambda repo, _c={}: (set(paths or ()), {}, True)
     # The body cache is the user's own file: a test must neither read nor overwrite it.
     m.body_cache_load = lambda: {}
@@ -882,6 +914,297 @@ def test_a_gate_in_backticks_is_prose_not_a_gate():
     body = "Once it exists, add a `Gate: deployed <pr>` line here.\n"
     assert m.deploy_gate("x/y", body) == "" and check(m, body) == "START\tx/y#9"
     assert m.deploy_gate("x/y", "No gates here, Gate keeper.") == ""
+
+
+# --- the per-user config ---------------------------------------------------------------
+
+def main(m, *argv):
+    """`hoopit-board <argv>` through main(). Returns (stdout, stderr, exit code) — the code
+    being the message where main() exits with one."""
+    out, err = io.StringIO(), io.StringIO()
+    saved, sys.argv = sys.argv, ["hoopit-board", *argv]
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            try:
+                m.main()
+                code = 0
+            except SystemExit as e:
+                code = e.code
+    finally:
+        sys.argv = saved
+    return out.getvalue(), err.getvalue(), code
+
+
+def refusing(config):
+    """A module reading `config` whose network raises: a refusal must come before it."""
+    m = load(config, prime=False)
+    def boom(*a, **k):
+        raise AssertionError("reached GitHub without a config")
+    m.gh = m.gql = m.gql_write = m.board = boom
+    return m
+
+
+SUBCOMMANDS = [["open"], ["next"], ["config"], ["check", "x/y", "1"],
+               ["triage", "x/y", "1"], ["dispatches", "--no-judge"]]
+
+
+def test_no_config_refuses_every_subcommand_and_names_init():
+    path = str(TMP / "nowhere" / "config.json")
+    for argv in SUBCOMMANDS:
+        _, _, code = main(refusing(path), *argv)
+        assert isinstance(code, str) and path in code and "hoopit-board init" in code, (argv, code)
+    print(f"  {len(SUBCOMMANDS)} subcommands refuse, naming the file and `init`")
+
+
+def test_an_invalid_config_refuses():
+    cases = {
+        "not JSON": write_raw("bad.json", "{"),
+        "`board.owner`": write_config("b1.json", board={"number": 7}),
+        "`board.number`": write_config("b2.json", board={"owner": "acme", "number": "7"}),
+        "`repos` must list": write_config("b3.json", repos=[]),
+        "no <owner>/<name>": write_config("b4.json", repos=[{"repo": "api",
+                                                            "production_branch": None}]),
+        "`production_branch`": write_config("b5.json", repos=[{"repo": "a/b"}]),
+        "listed twice": write_config("b6.json", repos=[{"repo": "a/b", "production_branch": None}] * 2),
+        "`checkouts`": write_config("b7.json", checkouts=""),
+    }
+    for expect, path in cases.items():
+        _, _, code = main(refusing(path), "open")
+        assert isinstance(code, str) and path in code and "hoopit-board init" in code, (expect, code)
+        assert expect in code or expect == "not JSON" and "unreadable" in code, (expect, code)
+    print(f"  {len(cases)} broken configs refused, each saying what is wrong")
+
+
+def test_help_and_init_help_need_no_config():
+    path = str(TMP / "nowhere" / "config.json")
+    for argv in (["--help"], ["init", "--help"]):
+        out, _, code = main(refusing(path), *argv)
+        assert code == 0 and "usage: hoopit-board" in out, (argv, code)
+    assert "--owner" in main(refusing(path), "init", "--help")[0]
+
+
+def init_args(*extra):
+    return ["init", "--owner", "acme", "--number", "7", "--checkouts", "~/src",
+            "--repo", "acme/api:live", "--repo", "acme/app", *extra]
+
+
+def test_init_writes_the_config_and_will_not_overwrite_it():
+    path = str(TMP / "init" / "a" / "config.json")
+    out, _, code = main(refusing(path), *init_args("--no-verify"))
+    assert code == 0 and f"WROTE\t{path}" in out, (out, code)
+    written = json.loads(pathlib.Path(path).read_text())
+    assert written == {"board": {"owner": "acme", "number": 7}, "checkouts": "~/src",
+                       "repos": [{"repo": "acme/api", "production_branch": "live"},
+                                 {"repo": "acme/app", "production_branch": None}]}, written
+
+    _, _, code = main(refusing(path), *init_args("--no-verify", "--ladder", str(LADDER)))
+    assert isinstance(code, str) and "exists" in code and "--force" in code, code
+    assert "ladder" not in json.loads(pathlib.Path(path).read_text()), "overwrote without --force"
+
+    _, _, code = main(refusing(path), *init_args("--no-verify", "--force", "--ladder", str(LADDER)))
+    assert code == 0 and json.loads(pathlib.Path(path).read_text())["ladder"] == str(LADDER)
+    print("  writes it, refuses a second write, replaces it under --force")
+
+
+def test_init_refuses_a_bad_repo_or_ladder_before_writing():
+    path = str(TMP / "init" / "b" / "config.json")
+    _, err, code = main(refusing(path), *init_args("--no-verify", "--repo", "acme/web:"))
+    assert code == 2 and "acme/web:" in err, (code, err)
+    broken = write_raw("broken-ladder.json", json.dumps({
+        "models": ["a", "b"], "efforts": ["low", "high"],
+        "rungs": {"XS": {"model": "b", "effort": "high"}, "S": {"model": "a", "effort": "low"},
+                  "M": {"model": "b", "effort": "high"}, "L": {"model": "b", "effort": "high"},
+                  "XL": {"model": "b", "effort": "high"}}}))
+    _, _, code = main(refusing(path), *init_args("--no-verify", "--ladder", broken))
+    assert "priced under" in str(code), code
+    assert not os.path.exists(path), "wrote a config around a broken ladder"
+
+
+def board_answer(statuses=None, board_fields=None, org_fields=None):
+    """A VERIFY_QUERY answer. The defaults are a board carrying everything."""
+    statuses = ["Backlog", "Ready", "In progress", "AI review", "Human review", "Done"] \
+        if statuses is None else statuses
+    org = {"Priority": ["P0", "P1", "P2", "P3"], "Effort": ["XS", "S", "M", "L", "XL"],
+           "Autonomy": ["Unattended", "Needs decision", "Out of reach"], "Start date": None}
+    org = org if org_fields is None else org_fields
+    on_board = list(org) if board_fields is None else board_fields
+    return {"organization": {
+        "projectV2": {"title": "Agent board", "fields": {"nodes": [
+            {"name": "Title"}, {"name": "Status", "options": [{"name": s} for s in statuses]},
+            *[{"name": f, "options": []} for f in on_board]]}},
+        "issueFields": {"nodes": [
+            {"name": f, **({"options": [{"name": o} for o in opts]} if opts else {})}
+            for f, opts in org.items()]}}}
+
+
+def run_init(answer, name):
+    path = str(TMP / "init" / name / "config.json")
+    m = refusing(path)
+    asked = []
+    def gql(query, **variables):
+        asked.append(variables)
+        return answer
+    m.gql = gql
+    out, err, code = main(m, *init_args())
+    assert asked == [{"login": "acme", "number": 7}], asked
+    assert os.path.exists(path), "a failed check must still leave the file written"
+    return out, err, code
+
+
+def test_init_verifies_a_complete_board():
+    out, _, code = run_init(board_answer(), "ok")
+    assert code == 0 and "VERIFIED\thttps://github.com/orgs/acme/projects/7\tAgent board" in out, out
+
+
+def test_init_lists_what_the_board_is_missing_and_creates_nothing():
+    org = {"Priority": ["P0", "P1", "P2", "P3"], "Effort": ["XS", "S", "M", "L", "XL"],
+           "Autonomy": ["Unattended", "Needs decision"]}
+    out, err, code = run_init(board_answer(
+        statuses=["Backlog", "Ready", "In progress", "AI review", "Done"],
+        board_fields=["Priority", "Autonomy"], org_fields=org), "missing")
+    assert code == 1, (out, code)
+    for line in ("Status has no option 'Human review'",
+                 "issue field 'Effort' is not added to the board",
+                 "Autonomy has no option 'Out of reach'",
+                 "acme has no issue field 'Start date'"):
+        assert f"  {line}\n" in out, (line, out)
+    assert "VERIFIED" not in out and "Nothing was created" in err, (out, err)
+    out, _, code = run_init({"organization": {"projectV2": None, "issueFields": {"nodes": []}}},
+                            "no-board")
+    assert code == 1 and "  acme has no project 7\n" in out, (out, code)
+    print("  a missing status, board field, option and org field each named; exit 1")
+
+
+def test_config_prints_the_board_repos_and_ladder():
+    checkouts = TMP / "cfg-checkouts"
+    (checkouts / "api").mkdir(parents=True, exist_ok=True)
+    path = write_config("printed.json", checkouts=str(checkouts),
+                        repos=[{"repo": "acme/api", "production_branch": "live"},
+                               {"repo": "acme/app", "production_branch": None}])
+    out, _, code = main(load(path), "config")
+    assert code == 0, code
+    assert out.splitlines() == [
+        f"config\t{path}",
+        "board\thttps://github.com/orgs/acme/projects/7",
+        f"checkouts\t{checkouts}",
+        f"repo\tacme/api\tproduction_branch=live\tcheckout={checkouts / 'api'}",
+        "repo\tacme/app\tproduction_branch=none\tcheckout=missing",
+        f"ladder\t{LADDER}"], out
+    out, _, _ = main(load(write_config("no-ladder.json", ladder=None)), "config")
+    assert out.splitlines()[-1] == "ladder\tnone", out
+
+
+def test_next_without_a_ladder_still_picks_and_names_no_model():
+    m = next_module([item(1, effort="L")], bodies={1: "touch `a.py`"}, paths=["a.py"])
+    d, code = run_next(m, no_judge=True)
+    assert d["startable"][0]["model"] == "fable" and d["ladder"] == str(LADDER), d
+
+    m = next_module([item(1, effort="L"), item(2, effort="XS")], bodies={1: "a", 2: "b"},
+                    config=write_config("next-no-ladder.json", ladder=None))
+    d, code = run_next(m, no_judge=True)
+    assert code == 0 and only(d, "startable") == ["hoopit/api#2", "hoopit/api#1"], d
+    assert all(e["model"] is None and e["reasoning_effort"] is None for e in d["startable"]), d
+    assert d["ladder"] is None
+    print("  ranks and picks as before, with model and reasoning_effort null")
+
+
+def test_a_ladder_priced_out_of_order_refuses_the_tick():
+    broken = json.loads(LADDER.read_text())
+    broken["rungs"]["XS"], broken["rungs"]["XL"] = broken["rungs"]["XL"], broken["rungs"]["XS"]
+    ladder = write_raw("upside-down.json", json.dumps(broken))
+    m = next_module([item(1)], config=write_config("upside.json", ladder=ladder))
+    try:
+        run_next(m, no_judge=True)
+    except SystemExit as e:
+        assert "priced under" in str(e.code), e.code
+    else:
+        raise AssertionError("dispatched off a ladder that breaks its rule")
+
+
+def test_dispatches_says_there_is_no_ladder():
+    m = load(write_config("dispatch-no-ladder.json", ladder=None))
+    report, err, _ = dispatches(m, [pr_row(1, None, 1)], None, no_judge=True)
+    assert report["ladder"] is None and "no ladder" in err, (report, err)
+
+
+@contextlib.contextmanager
+def outside_any_repo():
+    """A git hook sets GIT_DIR and GIT_INDEX_FILE, which would point the temp repo's git
+    at the repository being committed to."""
+    saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("GIT_")}
+    try:
+        yield
+    finally:
+        os.environ.update(saved)
+
+
+def git_checkout(where):
+    """A repo at `where` whose `origin/live` holds its first commit and not its second.
+    Returns (promoted sha, unpromoted sha)."""
+    def git(*args):
+        return subprocess.run(["git", "-C", str(where), "-c", "user.name=t",
+                               "-c", "user.email=t@t", *args],
+                              capture_output=True, text=True, check=True).stdout.strip()
+    where.mkdir(parents=True, exist_ok=True)
+    git("init", "-q")
+    git("commit", "-q", "--allow-empty", "-m", "one")
+    first = git("rev-parse", "HEAD")
+    git("update-ref", "refs/remotes/origin/live", first)
+    git("commit", "-q", "--allow-empty", "-m", "two")
+    return first, git("rev-parse", "HEAD")
+
+
+def test_the_deploy_gate_reads_the_production_branch_from_the_config():
+    checkouts = TMP / "gate-checkouts"
+    with outside_any_repo():
+        promoted, pending = git_checkout(checkouts / "api")
+        git_checkout(checkouts / "app")
+        path = write_config("gate.json", checkouts=str(checkouts), repos=[
+            {"repo": "acme/api", "production_branch": "live"},
+            {"repo": "acme/app", "production_branch": None}])
+        m = load(path)
+        assert m.promotion_state("acme/api", promoted) == ""
+        assert m.promotion_state("acme/api", pending) == \
+            f"merged as {pending[:10]}, not promoted to live yet"
+        # A null branch holds, even with a branch of the conventional name sitting there.
+        assert "acme/app has no production branch" in m.promotion_state("acme/app", promoted)
+        # A repo the config leaves out holds too, and says which repo and which file.
+        why = m.promotion_state("acme/web", promoted)
+        assert "acme/web is not a configured repo" in why and path in why, why
+    print("  branch from the config; null and unconfigured both hold")
+
+
+def test_check_and_next_name_an_unconfigured_repo():
+    m = load(write_config("unconfigured.json"))
+    m.rest_one = lambda path: {"merged": True, "merge_commit_sha": "abc1234"}
+    line = check(m, "Gate: deployed other/repo#5\n")
+    assert line.startswith("SKIP") and "other/repo is not a configured repo" in line, line
+
+    m = next_module([item(1)], bodies={1: "Gate: deployed other/repo#5"}, real_gate=True)
+    m.rest_one = lambda path: {"merged": True, "merge_commit_sha": "abc1234"}
+    d, code = run_next(m, no_judge=True)
+    assert code == 1 and only(d, "awaiting_deploy") == ["hoopit/api#1"], d
+    assert "other/repo is not a configured repo" in d["awaiting_deploy"][0]["gate"], d
+
+
+def test_the_typesafe_key_comes_from_the_environment_only():
+    m = load()
+    home = TMP / "home"
+    (home / ".claude").mkdir(parents=True, exist_ok=True)
+    (home / ".claude" / "settings.json").write_text(
+        json.dumps({"env": {"TYPESAFE_API_KEY": "from-a-file"}}))
+    saved = {k: os.environ.pop(k, None) for k in ("TYPESAFE_API_KEY", "HOME")}
+    os.environ["HOME"] = str(home)
+    try:
+        assert m.typesafe_key() == "" and "TYPESAFE_API_KEY" in m.judgement_unavailable()
+        os.environ["TYPESAFE_API_KEY"] = "from-env"
+        assert m.typesafe_key() == "from-env" and m.judgement_unavailable() is None
+    finally:
+        for k, v in saved.items():
+            os.environ.pop(k, None)
+            if v is not None:
+                os.environ[k] = v
+
 
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

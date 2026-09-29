@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mechanical half of the LKs agent project board (github.com/orgs/hoopit/projects/2).
+"""Mechanical half of an agent work board: a GitHub Projects v2 board in an organization.
 
 Fetching, filtering, ranking, freshness gates and bulk writes live here so the
 skills that use it spend their tokens on judgement instead. Every subcommand is
@@ -39,12 +39,28 @@ challenge broke a decline — the findings that never became a fix commit. It fa
 the fix-commit count, and the thresholds that read its answers live here.
 
 Called as a bare command by `start-backlog-daemon` and by the `create-gh-issue`,
-`gh-triage` and `curate-backlog` skills, off a `~/.local/bin` symlink. PRIORITIES, EFFORTS and
+`gh-triage` and `curate-backlog` skills, so it has to be on PATH. PRIORITIES, EFFORTS and
 AUTONOMY below are the rubric tables in `create-gh-issue`: change the two
 together or the skill teaches a value this rejects.
 
+Which board, and everything else that differs per developer, comes from one file:
+`${XDG_CONFIG_HOME:-~/.config}/github-tracker/config.json`, or the path in
+`HOOPIT_BOARD_CONFIG`. `hoopit-board init` writes it and `hoopit-board config` prints it.
+
+  {"board": {"owner": "<org>", "number": <n>},
+   "checkouts": "~/src",
+   "repos": [{"repo": "<org>/api", "production_branch": "main"},
+             {"repo": "<org>/app", "production_branch": null}],
+   "ladder": "/abs/path/to/ladder.json"}
+
+`checkouts` holds one clone per repo, named after it; footprints and deploy gates read
+them. `repos` is every repo the board spans, each with the branch whose ancestry says its
+code is live, or null where nothing does. `ladder` is optional: without one `next` still
+ranks and picks, and names no model. With no file every subcommand but `init` refuses —
+there is no default board to fall back to.
+
 Priority, Effort, Autonomy and the `Start date` are org-wide issue fields
-(`organization.issueFields` on `hoopit`), not fields of this project: the value lives on
+(`organization.issueFields` on the board's owner), not fields of this project: the value lives on
 the issue and the board only reads through to it. So a write goes to the issue with
 `setIssueFieldValue` while Status, which is the project's own field, keeps going to the
 project item — and a PullRequest item can carry Status but none of the four.
@@ -84,28 +100,119 @@ a release, and the issue that ships the code closes at merge, days before promot
   batch                          the same, for many items, from stdin
   add <repo> <n>                 put an issue on the board; prints its item id
   archive-done [--older-than N] [--apply]  (default 7 days)
+  init --owner O --number N --checkouts DIR --repo R[:BRANCH]... [--ladder PATH]
+       [--force] [--no-verify]   write the config, then check the board carries what this reads
+  config                         the config as resolved
 """
 import argparse, hashlib, json, math, os, re, subprocess, sys, textwrap, time, urllib.error, urllib.request
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 
-PROJECT, OWNER = "2", "hoopit"
 PRIORITIES = ["P0", "P1", "P2", "P3"]
 EFFORTS = ["XS", "S", "M", "L", "XL"]
 AUTONOMY = ["Unattended", "Needs decision", "Out of reach"]
-# The dispatch ladder is the `dispatch-ladder` skill's `ladder.json`, which states the rule.
-LADDER_FILE = os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                           "..", "..", "dispatch-ladder", "ladder.json")
+# Every Status this script reads or writes. `init` checks the board carries them all.
+STATUSES = ["Backlog", "Ready", "In progress", "AI review", "Human review", "Done"]
+CONFIG_ENV = "HOOPIT_BOARD_CONFIG"
+REPO_NAME = re.compile(r"[\w.-]+/[\w.-]+")
 
 
-def load_ladder(path=LADDER_FILE):
+class ConfigError(Exception):
+    pass
+
+
+def config_path():
+    if os.environ.get(CONFIG_ENV):
+        return os.environ[CONFIG_ENV]
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    return os.path.join(base, "github-tracker", "config.json")
+
+
+def read_config(path):
+    """The config file, checked and resolved: `owner`, `number`, `checkouts` (expanded),
+    `repos` ({repo: production branch or None}, in file order), `ladder` (a path or None)
+    and `path`. Raises ConfigError naming the first thing wrong.
+
+    `production_branch` has to be present on every repo, null or a name: a missing one is a
+    repo nobody has said anything about, and a gate on it must not pass on a guess. A
+    relative `ladder` is read against the config file's directory."""
+    try:
+        with open(path) as fh:
+            raw = json.load(fh)
+    except FileNotFoundError:
+        raise ConfigError("no such file")
+    except (OSError, ValueError) as e:
+        raise ConfigError(f"unreadable: {e}")
+    if not isinstance(raw, dict):
+        raise ConfigError("not a JSON object")
+    b = raw.get("board")
+    if not isinstance(b, dict) or not isinstance(b.get("owner"), str) or not b["owner"]:
+        raise ConfigError("`board.owner` must name the organization that owns the board")
+    if type(b.get("number")) is not int or b["number"] < 1:
+        raise ConfigError("`board.number` must be the project's number")
+    if not isinstance(raw.get("checkouts"), str) or not raw["checkouts"]:
+        raise ConfigError("`checkouts` must be the directory holding a clone of each repo")
+    if not isinstance(raw.get("repos"), list) or not raw["repos"]:
+        raise ConfigError("`repos` must list every repo the board spans")
+    repos = {}
+    for r in raw["repos"]:
+        if not isinstance(r, dict) or not REPO_NAME.fullmatch(str(r.get("repo"))):
+            raise ConfigError(f"`repos` entry {r!r} names no <owner>/<name>")
+        branch = r.get("production_branch", "")
+        if branch is not None and (not isinstance(branch, str) or not branch):
+            raise ConfigError(f'{r["repo"]}: `production_branch` must be a branch name, or '
+                              "null where the repo has none")
+        if r["repo"] in repos:
+            raise ConfigError(f'{r["repo"]} is listed twice')
+        repos[r["repo"]] = branch
+    ladder = raw.get("ladder")
+    if ladder is not None and (not isinstance(ladder, str) or not ladder):
+        raise ConfigError("`ladder` must be the path to a ladder file, or left out")
+    if ladder:
+        ladder = os.path.join(os.path.dirname(os.path.abspath(path)), os.path.expanduser(ladder))
+    return {"owner": b["owner"], "number": b["number"],
+            "checkouts": os.path.expanduser(raw["checkouts"]), "repos": repos,
+            "ladder": ladder, "path": path}
+
+
+_CONFIG = []
+
+
+def config():
+    """The config, read once per run. Nothing is defaulted: a board this fell back to
+    would be somebody else's."""
+    if not _CONFIG:
+        path = config_path()
+        try:
+            _CONFIG.append(read_config(path))
+        except ConfigError as e:
+            sys.exit(f"hoopit-board: {path}: {e}\n"
+                     "Write it with `hoopit-board init` (see `hoopit-board init --help`).")
+    return _CONFIG[0]
+
+
+def checkout(repo):
+    """Where the repo's clone sits: under `checkouts`, named after the repo."""
+    return os.path.join(config()["checkouts"], repo.split("/", 1)[-1])
+
+
+def board_url(owner, number):
+    return f"https://github.com/orgs/{owner}/projects/{number}"
+
+
+def load_ladder(path):
     """(model, reasoning effort) per Effort, refused if any tier is priced under a smaller
     one. Every effort must be explicit: an unset one would inherit `effortLevel`.
     `claim` records what each dispatch got, which is the only durable join from a merged PR
-    back to the model that wrote it — and the only way the step down is observable at all."""
-    with open(path) as f:
-        spec = json.load(f)
+    back to the model that wrote it — and the only way the step down is observable at all.
+
+    The `dispatch-ladder` skill ships one beside its SKILL.md, and states the rule."""
+    try:
+        with open(path) as f:
+            spec = json.load(f)
+    except (OSError, ValueError) as e:
+        sys.exit(f"ladder {path}: {e}")
     models, efforts, rungs = spec["models"], spec["efforts"], spec["rungs"]
     if set(rungs) != set(EFFORTS):
         sys.exit(f"{path}: rungs must be exactly {EFFORTS}, got {sorted(rungs)}")
@@ -122,7 +229,18 @@ def load_ladder(path=LADDER_FILE):
     return ladder
 
 
-DISPATCH_MODEL = load_ladder()
+_LADDER = []
+
+
+def dispatch_model():
+    """The configured ladder, or None where there is none: then `next` names no model and
+    the caller starts its agent on its own default."""
+    if not _LADDER:
+        path = config()["ladder"]
+        _LADDER.append(load_ladder(path) if path else None)
+    return _LADDER[0]
+
+
 # GitHub's built-in date field, read as "not before": see the module docstring.
 DATE_FIELD = "Start date"
 # The two review statuses are the vocabulary `board-status.yml` writes: a draft PR is
@@ -141,10 +259,8 @@ CLAIM_RE = re.compile(r"started (?:as (?:herdr )?agent|in a claude code session)
 RELEASE_RE = re.compile(r"handed back to the backlog", re.I)
 STOPWORDS = set("""a an and are as at be by for from has have in into is it its of on or that the
 to with when then than this these those not no its it's if while after before over under""".split())
-CHECKOUTS = os.path.expanduser("~/Dev/Hoopit")
-PRODUCTION = "production"
 # `Gate: deployed hoopit/api#17271`, `#17271` for this repo, or a sha. The PR number is
-# the durable handle: under squash merge a PR's head sha is never on master, while
+# the durable handle: under squash merge a PR's head sha is never on the default branch, while
 # `merge_commit_sha` is the squash commit that is — and the number exists while the PR is
 # still open, which is when a follow-up gets filed. It is found anywhere on a line, so
 # prose sharing the line cannot hide it; the target is optional here so that a gate naming
@@ -185,10 +301,8 @@ MIGRATION_ANY = f"{MIGRATION_TOKEN}:*"
 # Every call here fails open. No key, a timeout, a 429, a malformed answer — `next`
 # returns what it returned before and says so in its `judgement` field. An outage must
 # degrade the daemon, never stall it.
-# The key comes from the environment, else from `~/.claude/settings.json`, which is where
-# this machine keeps its API keys. One copy reaches every caller: a plain shell, a systemd
-# unit whose environment carries nothing, and a Claude Code session alike.
-TYPESAFE_SETTINGS = "~/.claude/settings.json"
+# The key is `TYPESAFE_API_KEY` in the environment and nowhere else, so a caller whose
+# environment carries nothing — a systemd unit, say — judges nothing until it is handed one.
 TYPESAFE_URL = "https://api.typesafe.ai/v1/systemone"
 TYPESAFE_MODEL = "jev-latest"
 TYPESAFE_TIMEOUT = 30
@@ -431,7 +545,7 @@ def board(bodies=False):
     query = BOARD_QUERY.replace("BODY", "body" if bodies else "")
     out, after = [], None
     while True:
-        page = gql(query, login=OWNER, number=int(PROJECT), after=after)
+        page = gql(query, login=config()["owner"], number=config()["number"], after=after)
         items = page["organization"]["projectV2"]["items"]
         for i in items["nodes"]:
             c = i.get("content") or {}
@@ -474,7 +588,7 @@ def locate(repo, number):
     """The project, its fields and the issue's item on it, in one 1-point request.
     Returns (project_id, fields, resource, item_id); item_id is None off the board."""
     url = f"https://github.com/{repo}/issues/{number}"
-    d = gql(LOCATE_QUERY, login=OWNER, number=int(PROJECT), url=url)
+    d = gql(LOCATE_QUERY, login=config()["owner"], number=config()["number"], url=url)
     proj, res = d["organization"]["projectV2"], d.get("resource")
     if not res:
         sys.exit(f"not found: {url}")
@@ -504,7 +618,8 @@ def issue_fields():
     """The org's single-select and date issue fields by name, looked up once per run."""
     global _ISSUE_FIELDS
     if _ISSUE_FIELDS is None:
-        nodes = gql(ISSUE_FIELDS_QUERY, login=OWNER)["organization"]["issueFields"]["nodes"]
+        nodes = gql(ISSUE_FIELDS_QUERY,
+                    login=config()["owner"])["organization"]["issueFields"]["nodes"]
         _ISSUE_FIELDS = {f["name"]: f for f in nodes if f.get("name")}
     return _ISSUE_FIELDS
 
@@ -1002,19 +1117,10 @@ def footprints(repos, only=None):
     return owners, per_pr
 
 
-def typesafe_key(_cache=[]):
-    """The API key, read once. An unreadable or keyless settings file is not an error
-    here — it is one of the ways the judgement fails open."""
-    if not _cache:
-        key = os.environ.get("TYPESAFE_API_KEY", "")
-        if not key:
-            try:
-                with open(os.path.expanduser(TYPESAFE_SETTINGS)) as fh:
-                    key = (json.load(fh).get("env") or {}).get("TYPESAFE_API_KEY", "")
-            except Exception:
-                key = ""
-        _cache.append(key)
-    return _cache[0]
+def typesafe_key():
+    """The API key, or "". A missing one is not an error here — it is one of the ways the
+    judgement fails open."""
+    return os.environ.get("TYPESAFE_API_KEY", "")
 
 
 def judgement_unavailable():
@@ -1022,7 +1128,7 @@ def judgement_unavailable():
     so a keyless tick decides its footprints the fail-open way from the start rather than
     finding out at its first candidate."""
     if not typesafe_key():
-        return f"no TYPESAFE_API_KEY, in the environment or in {TYPESAFE_SETTINGS}"
+        return "no TYPESAFE_API_KEY in the environment"
     return None
 
 
@@ -1177,30 +1283,41 @@ def rest_one(path, _cache={}):
 def promotion_state(repo, sha, _fetched=set()):
     """Why `sha` is not live yet, or "" once it is.
 
-    The test is the repo's own, from `AGENTS.md`: ancestry of `origin/production`. It
-    survives squash merge because the sha it takes is the squash commit GitHub writes on
-    master, not the PR head that squashing throws away, and promotion fast-forwards
-    master wholesale rather than merging it.
+    The test is ancestry of `origin/<production branch>`, the branch the config names for
+    the repo. It survives squash merge because the sha it takes is the squash commit GitHub
+    writes on the default branch, not the PR head that squashing throws away, and promotion
+    fast-forwards the default branch wholesale rather than merging it.
 
-    Ancestry flips when the promotion workflow pushes `production`, ahead of the ECS
-    rollout — so this says promoted, not running. The agent it releases still checks."""
-    d = os.path.join(CHECKOUTS, repo.split("/", 1)[-1])
+    Ancestry flips when the promotion pushes the production branch, ahead of any rollout —
+    so this says promoted, not running. The agent it releases still checks.
+
+    A repo the config leaves out, or gives no production branch, holds: nothing here can
+    say its code is live, and a branch name guessed at would pass a gate on the guess."""
+    repos = config()["repos"]
+    if repo not in repos:
+        return (f"{repo} is not a configured repo, so nothing says which branch is its "
+                f"production — add it to `repos` in {config()['path']}")
+    production = repos[repo]
+    if production is None:
+        return (f"{repo} has no production branch — nothing here can say whether its code "
+                "is live, which is what Autonomy `Out of reach` is for")
+    d = checkout(repo)
     if not os.path.isdir(d):
-        return f"no checkout of {repo} here, so promotion cannot be tested"
+        return f"no checkout of {repo} at {d}, so promotion cannot be tested"
 
     def git(*args):
         return subprocess.run(["git", "-C", d, *args], capture_output=True, text=True)
 
     if repo not in _fetched:
-        git("fetch", "-q", "origin")  # master carries the sha, production the answer
+        git("fetch", "-q", "origin")  # the default branch carries the sha, production the answer
         _fetched.add(repo)
-    if git("rev-parse", "--verify", "-q", f"origin/{PRODUCTION}").returncode != 0:
-        return (f"{repo} has no origin/{PRODUCTION} branch — nothing here can say whether "
-                "its code is live, which is what Autonomy `Out of reach` is for")
+    if git("rev-parse", "--verify", "-q", f"origin/{production}").returncode != 0:
+        return (f"{repo} has no origin/{production} branch, which the config names as its "
+                "production branch — nothing here can say whether its code is live")
     if git("cat-file", "-e", f"{sha}^{{commit}}").returncode != 0:
         return f"{sha[:10]} is not a commit in the {repo} checkout — check the gate line"
-    if git("merge-base", "--is-ancestor", sha, f"origin/{PRODUCTION}").returncode != 0:
-        return f"merged as {sha[:10]}, not promoted to {PRODUCTION} yet"
+    if git("merge-base", "--is-ancestor", sha, f"origin/{production}").returncode != 0:
+        return f"merged as {sha[:10]}, not promoted to {production} yet"
     return ""
 
 
@@ -1234,7 +1351,7 @@ def repo_files(repo, _cache={}):
     issue names can be confirmed to exist. A missing checkout yields nothing, which makes
     every footprint in that repo empty — said out loud by `next`, not silently ignored."""
     if repo not in _cache:
-        d = os.path.join(CHECKOUTS, repo.split("/", 1)[-1])
+        d = checkout(repo)
         if not os.path.isdir(d):
             _cache[repo] = (set(), {}, False)
         else:
@@ -1346,11 +1463,16 @@ def cmd_next(a):
     candidates come back under `attended`. It bounds nothing and releases nothing — the
     items keep their place in Ready and `check` still passes them.
 
+    Each `startable` entry carries the `model` and `reasoning_effort` its Effort's rung
+    names, both null when the config names no ladder; `ladder` says which file priced them.
+
     Exit 1 means there is nothing to dispatch, which is the loop's resting state. The
     JSON prints either way, so a caller can tell a full board from a starved one: free
     slots with an empty `startable` and a non-zero `untriaged` is waiting on triage, and
     with `ready` at zero and `backlog` above it, waiting on the user's promotion.
     """
+    # Read before the board: a ladder that breaks its rule refuses the tick outright.
+    ladder = dispatch_model()
     exclude = {e.strip() for e in a.exclude}
     items = board()
     flight = [i for i in items if i["status"] in IN_FLIGHT
@@ -1430,6 +1552,7 @@ def cmd_next(a):
         "candidates_total": len(candidates), "unexamined": len(candidates),
         "startable": [], "blocked": [], "needs_judgement": [], "awaiting_deploy": [],
         "no_checkout": [], "open_prs": {},
+        "ladder": config()["ladder"],
     }
     if deficit <= 0 or not candidates:
         print(json.dumps(out, indent=2))
@@ -1575,8 +1698,10 @@ def cmd_next(a):
 
         entry = brief(i, "priority", "effort", "autonomy")
         # Effort prices the hunt along with the fix: unattended, it is the only price there is.
-        # `effort` here is the board axis (XS..XL); `reasoning_effort` is the model's.
-        entry["model"], entry["reasoning_effort"] = DISPATCH_MODEL[i["effort"]]
+        # `effort` here is the board axis (XS..XL); `reasoning_effort` is the model's. With
+        # no ladder both are null, and the caller starts the agent on its own default.
+        entry["model"], entry["reasoning_effort"] = (ladder[i["effort"]] if ladder
+                                                     else (None, None))
         entry["footprint"] = fp
         out["startable"].append(entry)
         # Later picks in this same tick must not tread on this one.
@@ -2116,7 +2241,15 @@ def cmd_dispatches(a):
     Costs about two REST calls per merged PR in the window (its commits, its issue's comments)
     and one Jev request per PR not judged before, so it is a review you run, never something
     you poll.
+
+    `--repo` defaults to every configured repo. With no ladder configured nothing is
+    dispatched by rung: `ladder` is null, stderr says why, and every PR the daemon started
+    reads unattributed.
     """
+    ladder = config()["ladder"]
+    if not ladder:
+        print(f"!! no ladder in {config()['path']}: no dispatch names a rung to group by",
+              file=sys.stderr)
     rows, truncated = [], []
     for repo in a.repos:
         found, cut_short = dispatch_rows(repo, a.since, a.limit)
@@ -2155,6 +2288,7 @@ def cmd_dispatches(a):
     print(json.dumps({
         "since_days": a.since,
         "repos": a.repos,
+        "ladder": ladder,
         "merged_prs": len(rows),
         "attributed": attributed,
         "unattributed": len(rows) - attributed,
@@ -2378,7 +2512,7 @@ def cmd_add(a):
 
 def project_id():
     return gql("query($login:String!,$number:Int!){ organization(login:$login){ projectV2(number:$number){ id } } }",
-               login=OWNER, number=int(PROJECT))["organization"]["projectV2"]["id"]
+               login=config()["owner"], number=config()["number"])["organization"]["projectV2"]["id"]
 
 
 def cmd_archive_done(a):
@@ -2398,10 +2532,141 @@ def cmd_archive_done(a):
     print(f'\n{len(stale)} Done items idle >= {a.older_than}d' + ("" if a.apply else " — rerun with --apply"))
 
 
+VERIFY_QUERY = """query($login:String!,$number:Int!){ organization(login:$login){
+  projectV2(number:$number){ title
+    fields(first:50){ nodes{
+      ... on ProjectV2FieldCommon{ name }
+      ... on ProjectV2SingleSelectField{ options{ name } } } } }
+  issueFields(first:50){ nodes{
+    ... on IssueFieldSingleSelect{ name options{ name } }
+    ... on IssueFieldDate{ name } } } } }"""
+
+
+def verify_board(owner, number):
+    """What the board lacks of what this script reads: `(project title, [missing])`.
+
+    Checked, never created. The Status options are the project's own; Priority, Effort,
+    Autonomy and `Start date` are the organization's issue fields, which the board reads
+    only once each is added to it as a field — and the three single-selects need every
+    option the rubric tables name."""
+    d = gql(VERIFY_QUERY, login=owner, number=number)
+    org = d.get("organization") or {}
+    proj = org.get("projectV2")
+    if not proj:
+        return None, [f"{owner} has no project {number}"]
+    on_board = {f["name"]: f for f in proj["fields"]["nodes"] if f.get("name")}
+    org_fields = {f["name"]: f for f in org["issueFields"]["nodes"] if f.get("name")}
+    missing = []
+    if "Status" not in on_board:
+        missing.append("the board has no Status field")
+    else:
+        have = {o["name"] for o in on_board["Status"].get("options") or []}
+        missing += [f"Status has no option {s!r}" for s in STATUSES if s not in have]
+    for field, options in (("Priority", PRIORITIES), ("Effort", EFFORTS),
+                           ("Autonomy", AUTONOMY), (DATE_FIELD, None)):
+        if field not in org_fields:
+            missing.append(f"{owner} has no issue field {field!r}")
+            continue
+        if field not in on_board:
+            missing.append(f"issue field {field!r} is not added to the board")
+        if options:
+            have = {o["name"] for o in org_fields[field].get("options") or []}
+            missing += [f"{field} has no option {o!r}" for o in options if o not in have]
+    return proj.get("title"), missing
+
+
+def repo_spec(text):
+    """`<owner>/<name>` or `<owner>/<name>:<production branch>`."""
+    repo, sep, branch = text.partition(":")
+    if not REPO_NAME.fullmatch(repo) or (sep and not branch):
+        raise argparse.ArgumentTypeError(f"not <owner>/<name>[:<branch>]: {text!r}")
+    return {"repo": repo, "production_branch": branch or None}
+
+
+def cmd_init(a):
+    """Write the config, then check the board it names. Refuses to replace a config
+    without `--force`, since the one there may be the only record of a board's number.
+
+    A failed check leaves the file written — it is a list of what the board still needs,
+    not a reason to forget which board it is."""
+    path = config_path()
+    if os.path.exists(path) and not a.force:
+        sys.exit(f"{path} exists; `hoopit-board config` shows it, `--force` replaces it")
+    repos = [r["repo"] for r in a.repos]
+    if len(set(repos)) != len(repos):
+        sys.exit(f"a repo is given twice: {', '.join(repos)}")
+    data = {"board": {"owner": a.owner, "number": a.number}, "checkouts": a.checkouts,
+            "repos": a.repos}
+    if a.ladder:
+        data["ladder"] = os.path.abspath(os.path.expanduser(a.ladder))
+        load_ladder(data["ladder"])
+    # Written aside and read back the way every other subcommand will read it, so a value
+    # the reader refuses never replaces a config that works.
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path + ".tmp", "w") as fh:
+        json.dump(data, fh, indent=2)
+        fh.write("\n")
+    try:
+        cfg = read_config(path + ".tmp")
+    except ConfigError as e:
+        os.remove(path + ".tmp")
+        sys.exit(f"not written: {e}")
+    os.replace(path + ".tmp", path)
+    print(f"WROTE\t{path}")
+    for repo in cfg["repos"]:
+        if not os.path.isdir(os.path.join(cfg["checkouts"], repo.split("/", 1)[-1])):
+            print(f"!! no checkout of {repo} under {cfg['checkouts']}: its footprints are "
+                  "empty and its deploy gates hold", file=sys.stderr)
+    if a.no_verify:
+        return 0
+    title, missing = verify_board(a.owner, a.number)
+    if missing:
+        print(f"MISSING\t{board_url(a.owner, a.number)}")
+        for m in missing:
+            print(f"  {m}")
+        print("Nothing was created. Add these on GitHub, then `hoopit-board init --force` "
+              "again, or `--no-verify` to skip the check.", file=sys.stderr)
+        return 1
+    print(f"VERIFIED\t{board_url(a.owner, a.number)}\t{title}")
+    return 0
+
+
+def cmd_config(a):
+    """The config as this script reads it. A configured ladder is loaded too, so a broken
+    one is found here and not on the daemon's next tick."""
+    cfg = config()
+    print(f"config\t{cfg['path']}")
+    print(f"board\t{board_url(cfg['owner'], cfg['number'])}")
+    print(f"checkouts\t{cfg['checkouts']}")
+    for repo, branch in cfg["repos"].items():
+        where = checkout(repo)
+        print(f"repo\t{repo}\tproduction_branch={branch or 'none'}\t"
+              f"checkout={where if os.path.isdir(where) else 'missing'}")
+    if cfg["ladder"]:
+        dispatch_model()
+    print(f"ladder\t{cfg['ladder'] or 'none'}")
+
+
 def main():
     p = argparse.ArgumentParser(prog="hoopit-board", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("init", description=cmd_init.__doc__,
+                       help="write the config, then check the board")
+    s.add_argument("--owner", required=True, help="the organization that owns the board")
+    s.add_argument("--number", required=True, type=int, help="the project's number")
+    s.add_argument("--checkouts", required=True, metavar="DIR",
+                   help="the directory holding one clone per repo, named after it")
+    s.add_argument("--repo", required=True, action="append", dest="repos", type=repo_spec,
+                   metavar="OWNER/NAME[:BRANCH]",
+                   help="a repo the board spans, with the branch whose ancestry says its code "
+                        "is live; without one the repo has none. Once per repo")
+    s.add_argument("--ladder", metavar="PATH", help="the dispatch ladder; none when omitted")
+    s.add_argument("--force", action="store_true", help="replace an existing config")
+    s.add_argument("--no-verify", action="store_true", dest="no_verify",
+                   help="write the file without checking the board")
+    s.set_defaults(fn=cmd_init)
+    s = sub.add_parser("config"); s.set_defaults(fn=cmd_config)
     s = sub.add_parser("slots"); s.add_argument("target", nargs="?", type=int, default=15)
     s.add_argument("--unattended", action="store_true"); s.set_defaults(fn=cmd_slots)
     s = sub.add_parser("open"); s.set_defaults(fn=cmd_open)
@@ -2461,7 +2726,8 @@ def main():
     s = sub.add_parser("dispatches")
     s.add_argument("--since", type=int, default=14, metavar="DAYS")
     s.add_argument("--limit", type=int, default=200, help="newest closed PRs to scan per repo")
-    s.add_argument("--repo", action="append", dest="repos", default=None, metavar="OWNER/NAME")
+    s.add_argument("--repo", action="append", dest="repos", default=None, metavar="OWNER/NAME",
+                   help="once per repo; every configured repo when omitted")
     s.add_argument("--no-judge", action="store_true",
                    help="skip the gate-notes judgement; fix commits only")
     s.set_defaults(fn=cmd_dispatches)
@@ -2480,8 +2746,10 @@ def main():
     s = sub.add_parser("archive-done"); s.add_argument("--older-than", type=int, default=7)
     s.add_argument("--apply", action="store_true"); s.set_defaults(fn=cmd_archive_done)
     a = p.parse_args()
-    if getattr(a, "repos", "unset") is None:
-        a.repos = ["hoopit/api"]
+    if a.cmd != "init":
+        config()
+    if a.cmd == "dispatches" and a.repos is None:
+        a.repos = list(config()["repos"])
     sys.exit(a.fn(a) or 0)
 
 
