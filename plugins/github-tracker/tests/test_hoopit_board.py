@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Pins `hoopit-board batch`'s write loop, `next`'s collision judgement, `decisions`'
-naming judgement, `scan`'s duplicate judgement, the deploy gate and the per-user config
-(`init`, `config`, and the refusal without one). Run it by hand after editing any of them:
+naming judgement, `scan`'s duplicate judgement, the deploy gate, the per-user config
+(`init`, `config`, and the refusal without one) and what `provision` writes to a board.
+Run it by hand after editing any of them:
 
     python3 scripts/test_hoopit_board.py
 
-No network and no pytest — `gql_write`, `board` and `locate` are stubbed, so the whole
+No network and no pytest — `gql_write`, `board`, `board_probe` and `locate` are stubbed, so the whole
 file runs offline in well under a second.
 
 `next` is here for a second reason: it decides with no model in the loop, so a wrong
@@ -1020,8 +1021,23 @@ def test_init_refuses_a_bad_repo_or_ladder_before_writing():
     assert not os.path.exists(path), "wrote a config around a broken ladder"
 
 
-def board_answer(statuses=None, board_fields=None, org_fields=None):
-    """A VERIFY_QUERY answer. The defaults are a board carrying everything."""
+REQUIRED_WORKFLOWS = ["Item added to project", "Item closed", "Pull request linked to issue"]
+
+
+def status(name, oid=None, color="GRAY", description=""):
+    return {"id": oid or f"opt-{name}", "name": name, "color": color, "description": description}
+
+
+# The Status options GitHub gives a new board.
+GITHUB_DEFAULTS = [status("Todo", "todo-id", "GREEN", "This item hasn't been started"),
+                   status("In Progress", "wip-id", "YELLOW", "This is actively being worked on"),
+                   status("Done", "done-id", "PURPLE", "This has been completed")]
+
+
+def board_answer(statuses=None, board_fields=None, org_fields=None, items=3, disabled=(),
+                 own_fields=()):
+    """A VERIFY_QUERY answer. The defaults are a board carrying everything. `statuses`
+    are names or `status()` dicts; `own_fields` are board fields of the project's own."""
     statuses = ["Backlog", "Ready", "In progress", "AI review", "Human review", "Done"] \
         if statuses is None else statuses
     org = {"Priority": ["P0", "P1", "P2", "P3"], "Effort": ["XS", "S", "M", "L", "XL"],
@@ -1029,11 +1045,20 @@ def board_answer(statuses=None, board_fields=None, org_fields=None):
     org = org if org_fields is None else org_fields
     on_board = list(org) if board_fields is None else board_fields
     return {"organization": {
-        "projectV2": {"title": "Agent board", "fields": {"nodes": [
-            {"name": "Title"}, {"name": "Status", "options": [{"name": s} for s in statuses]},
-            *[{"name": f, "options": []} for f in on_board]]}},
+        "projectV2": {"id": "PVT_7", "title": "Agent board", "items": {"totalCount": items},
+            "workflows": {"nodes": [{"name": w, "enabled": w not in disabled}
+                                    for w in [*REQUIRED_WORKFLOWS, "Pull request merged"]]},
+            "fields": {"nodes": [
+                {"id": "F_title", "name": "Title", "isIssueField": False},
+                {"id": "F_status", "name": "Status", "isIssueField": False,
+                 "options": [s if isinstance(s, dict) else status(s) for s in statuses]},
+                *[{"id": f"F_{f}", "name": f, "isIssueField": True, "options": []}
+                  for f in on_board],
+                *[{"id": f"F_own_{f}", "name": f, "isIssueField": False, "options": []}
+                  for f in own_fields]]}},
         "issueFields": {"nodes": [
-            {"name": f, **({"options": [{"name": o} for o in opts]} if opts else {})}
+            {"id": f"IF_{f}", "name": f,
+             **({"options": [{"name": o} for o in opts]} if opts else {})}
             for f, opts in org.items()]}}}
 
 
@@ -1077,6 +1102,146 @@ def test_init_lists_what_the_board_is_missing_and_creates_nothing():
     assert "acme is no organization" in str(code), (err, code)
     print("  a missing status, board field, option and org field each named; exit 1; "
           "a board that does not exist writes nothing")
+
+
+def test_init_names_a_disabled_workflow_and_a_shadowing_field():
+    out, _, code = run_init(board_answer(disabled=["Item added to project"],
+                                         board_fields=["Effort", "Autonomy", "Start date"],
+                                         own_fields=["Priority"]), "workflow")
+    assert code == 1, (out, code)
+    assert "  workflow 'Item added to project' is not enabled (it must set Status to " \
+           "'Backlog')\n" in out, out
+    assert "  the board's own field 'Priority' shadows the issue field\n" in out, out
+    print("  a disabled required workflow and a same-named project field are both missing")
+
+
+# --- provision ---------------------------------------------------------------------------
+
+def run_provision(answer, *extra, fail=None):
+    """`hoopit-board provision` against `answer`, with no config anywhere. Returns
+    (stdout lines, stderr, exit code, the mutations it sent); `fail` is the error every
+    mutation answers with."""
+    m = refusing(str(TMP / "nowhere" / "config.json"))
+    writes = []
+    m.board_probe = lambda owner, number: answer
+    def gql_write(q):
+        writes.append(q)
+        return fail
+    m.gql_write = gql_write
+    out, err, code = main(m, "provision", "--owner", "acme", "--number", "7", *extra)
+    return out.splitlines(), err, code, writes
+
+
+def sent_options(query):
+    """The (id, name, color) of each option an updateProjectV2Field mutation sends."""
+    assert query.count("updateProjectV2Field") == 1, query
+    return re.findall(r'\{(?:id:"([^"]*)", )?name:"([^"]*)", color:(\w+), description:"', query)
+
+
+def test_provision_status_tables_agree():
+    m = load()
+    assert list(m.STATUS_STYLE) == m.STATUSES
+    assert [w for w, _ in m.REQUIRED_WORKFLOWS] == REQUIRED_WORKFLOWS
+
+
+def test_provision_a_fresh_board_renames_appends_and_drops_the_unused_todo():
+    answer = board_answer(statuses=GITHUB_DEFAULTS, items=0)
+    lines, _, code, writes = run_provision(answer)
+    assert writes == [] and code == 1 and lines[-1] == \
+        "NOT READY\thttps://github.com/orgs/acme/projects/7", (writes, code, lines)
+    for line in ("OK\t0 items on the board, archived included",
+                 "MISSING\tStatus option 'Backlog'",
+                 "MISSING\tStatus option 'In progress', renamed from 'In Progress' with its items",
+                 "OK\tStatus option 'Done'",
+                 "MISSING\tStatus option 'Todo' removed: GitHub's default, and the board has no items"):
+        assert line in lines, (line, lines)
+
+    lines, _, code, writes = run_provision(answer, "--apply")
+    assert code == 0 and lines[-1] == "READY\thttps://github.com/orgs/acme/projects/7", lines
+    assert len(writes) == 1 and 'fieldId:"F_status"' in writes[0], writes
+    assert sent_options(writes[0]) == [
+        ("", "Backlog", "GREEN"), ("", "Ready", "BLUE"), ("wip-id", "In progress", "YELLOW"),
+        ("", "AI review", "PURPLE"), ("", "Human review", "PINK"), ("done-id", "Done", "PURPLE")]
+    assert 'description:"This item hasn\'t been started"' in writes[0], writes[0]
+    assert "ADDED\tStatus option 'In progress', renamed from 'In Progress' with its items" in lines
+    assert not any(l.startswith(("MISSING", "MANUAL")) for l in lines), lines
+    print("  Todo dropped, In Progress renamed on its id, four appended, one mutation")
+
+
+def test_provision_keeps_todo_on_a_board_with_items():
+    lines, _, code, writes = run_provision(board_answer(statuses=GITHUB_DEFAULTS, items=4),
+                                           "--apply")
+    assert code == 0 and len(writes) == 1, (code, writes)
+    sent = sent_options(writes[0])
+    assert [n for _, n, _ in sent] == [
+        "Backlog", "Ready", "In progress", "AI review", "Human review", "Done", "Todo"], sent
+    assert sent[-1] == ("todo-id", "Todo", "GREEN"), sent
+    assert "OK\tStatus option 'Todo' kept: GitHub's default, and the board's items may hold it" \
+        in lines, lines
+
+
+def test_provision_a_complete_board_writes_nothing_and_is_ready():
+    lines, err, code, writes = run_provision(board_answer(statuses=[
+        *(status(s) for s in ["Backlog", "Ready", "In progress", "AI review", "Human review",
+                              "Done"]), status("Parked")]), "--apply")
+    assert writes == [] and code == 0 and err == "", (writes, code, err)
+    assert lines[-1] == "READY\thttps://github.com/orgs/acme/projects/7", lines
+    assert all(l.startswith("OK\t") for l in lines[:-1]), lines
+    assert "OK\tStatus option 'Parked' kept: this script never sets it" in lines, lines
+    assert "OK\tworkflow 'Item closed' enabled: it must set Status to 'Done'" in lines, lines
+    print("  every line OK, no mutation even under --apply, exit 0")
+
+
+def test_provision_leaves_the_org_fields_to_an_admin():
+    org = {"Priority": ["P0", "P1", "P2", "P3"], "Effort": ["XS", "S", "M", "L"],
+           "Start date": None}
+    lines, _, code, writes = run_provision(
+        board_answer(org_fields=org, board_fields=["Priority", "Effort", "Start date"]),
+        "--apply")
+    assert writes == [] and code == 1, (writes, code)
+    assert "MANUAL\torg issue field 'Autonomy'\tan org admin adds it to acme's issue fields, " \
+           "with the options Unattended, Needs decision, Out of reach" in lines, lines
+    assert "MANUAL\torg issue field 'Effort' option 'XL'\tan org admin adds it to acme's " \
+           "issue field" in lines, lines
+    assert lines[-1].startswith("NOT READY\t"), lines
+
+
+def test_provision_adds_an_org_field_the_board_lacks():
+    answer = board_answer(board_fields=["Priority", "Effort", "Autonomy"])
+    lines, _, code, writes = run_provision(answer)
+    assert writes == [] and code == 1 and "MISSING\tissue field 'Start date' on the board" \
+        in lines, (writes, lines)
+    lines, _, code, writes = run_provision(answer, "--apply")
+    assert writes == ['mutation{ createProjectV2IssueField(input:{projectId:"PVT_7", '
+                      'issueFieldId:"IF_Start date"}){ clientMutationId } }'], writes
+    assert code == 0 and "ADDED\tissue field 'Start date' on the board" in lines, lines
+
+    lines, err, code, writes = run_provision(answer, "--apply", fail="FORBIDDEN")
+    assert code == 1 and "MISSING\tissue field 'Start date' on the board" in lines, lines
+    assert "FORBIDDEN" in err, err
+    print("  added with createProjectV2IssueField; a refused write stays MISSING")
+
+
+def test_provision_names_a_disabled_workflow_and_a_shadowing_field():
+    lines, _, code, writes = run_provision(board_answer(
+        disabled=["Pull request linked to issue"],
+        board_fields=["Effort", "Autonomy", "Start date"], own_fields=["Priority"]), "--apply")
+    assert writes == [] and code == 1, (writes, code)
+    assert "MANUAL\tworkflow 'Pull request linked to issue'\tenable it at " \
+           "https://github.com/orgs/acme/projects/7/workflows, setting Status to 'AI review'" \
+           in lines, lines
+    assert any(l.startswith("MANUAL\tissue field 'Priority' on the board\tthe board has a "
+                            "field of its own") for l in lines), lines
+
+
+def test_provision_refuses_a_board_that_is_not_there():
+    for answer, why in (({"organization": {"projectV2": None, "issueFields": {"nodes": []}}},
+                         "acme has no project 7"),
+                        ({"organization": None}, "acme is no organization")):
+        _, _, code, writes = run_provision(answer, "--apply")
+        assert writes == [] and why in str(code), (code, writes)
+    out, _, code = main(refusing(str(TMP / "nowhere" / "config.json")), "provision", "--help")
+    assert code == 0 and "--apply" in out, (code, out)
 
 
 def test_probe_answer_reads_not_found_as_absence():
