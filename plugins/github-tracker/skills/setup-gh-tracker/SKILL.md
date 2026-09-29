@@ -75,9 +75,9 @@ fields and configured workflows, all but the auto-add ones, and none of its item
 template board is how a new board starts with rules somebody has already tuned:
 
 ```bash
-gh api graphql -f query='query($o:String!){ organization(login:$o){ projectsV2(first:100){
-  nodes{ number title template closed } } } }' -f o=<org> \
-  --jq '.data.organization.projectsV2.nodes[] | select(.template and (.closed|not)) | "\(.number)\t\(.title)"'
+gh api graphql -f query='query($o:String!){ organization(login:$o){
+  projectsV2(first:20, query:"is:template is:open"){ nodes{ number title } } } }' -f o=<org> \
+  --jq '.data.organization.projectsV2.nodes[] | "\(.number)\t\(.title)"'
 gh project copy <template> --source-owner <org> --target-owner <org> \
   --title "<login> agent board" --format json --jq .number
 ```
