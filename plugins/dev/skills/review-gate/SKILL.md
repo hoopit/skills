@@ -129,7 +129,7 @@ that policy.
    | Scope   | `MODEL`                        | `EFFORT`                   |
    |---------|--------------------------------|----------------------------|
    | `full`  | `${CODEX_MODEL:-gpt-6.1-sol}`  | `${CODEX_EFFORT:-high}`    |
-   | `light` | `${CODEX_MODEL:-gpt-6-luna}`   | `${CODEX_EFFORT:-medium}`  |
+   | `light` | `${CODEX_MODEL:-gpt-5.6-terra}` | `${CODEX_EFFORT:-medium}`  |
 
    The gate names both so a local `~/.codex/config.toml` never decides how hard a branch is read.
    `light` runs lighter because it reviews only the previous pass's fix commits, behind a `full`
