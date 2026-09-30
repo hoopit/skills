@@ -17,14 +17,14 @@
 # can hold back a second set by issue type: work an agent could finish, kept for a session
 # with somebody in it. Those keep their place in Ready.
 #
-# --max-active caps what an agent is still working — flight with no PR yet or a draft one
-# — and frees a slot when a PR goes ready, an assessment closes its issue, or an agent
-# hands it back, so agents start in waves as the earlier ones settle rather than all at
-# once. --max-review holds every start while that many ready PRs wait on a human, so the
-# daemon idles until something merges; work active when it closes still lands, and the
-# queue can reach --max-review + --max-active - 1. <target> caps all of flight, ready PRs
-# included, for a review queue that must never pass a number. One tick fills every slot
-# the caps leave free.
+# --max-active caps the agent's turn — flight with no PR yet or a draft one — and frees a
+# slot when a PR goes ready, an assessment closes its issue, or an agent hands it back, so
+# agents start in waves as the earlier ones settle rather than all at once. --max-review
+# holds every start while that many ready PRs are a human's turn, so the daemon idles
+# until something merges; work active when it closes still lands, and the queue can reach
+# --max-review + --max-active - 1. <target> caps all of flight, ready PRs included, for a
+# review queue that must never pass a number. One tick fills every slot the caps leave
+# free.
 #
 # A PR that links an issue already closed pulls it back into review. `next` holds
 # no slot for it and lists it under `unsettled`, and only then does a tick run

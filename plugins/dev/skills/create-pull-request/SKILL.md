@@ -121,12 +121,12 @@ and link that copy.
 hand-off — the only one a workflow can trigger on, since a resolved review thread raises
 no event. A PR handed straight to humans on creation, with no watch to follow, omits
 `--draft`: nothing would ever mark it ready, and it would sit unmergeable, its issue
-counted as an agent's work in flight. Where its base requires the `merge-briefing`
+still the agent's turn on the board. Where its base requires the `merge-briefing`
 check (the probe in `monitor-pr`'s `GREEN.md` answers that), that PR still owes a
 merge briefing before it can merge: say so when handing it over (`/merge-briefing <PR>`).
 
-*Born*, never opened-then-converted: a PR ready for even an instant reads as a human's turn,
-and one opened ready never emits `ready_for_review`, the event the hand-off is.
+*Born*, never opened-then-converted: a PR ready for even an instant is a human's turn on the
+board, and one opened ready never emits `ready_for_review` — the hand-off event.
 
 Open the PR with the GitHub CLI, from inside the worktree:
 

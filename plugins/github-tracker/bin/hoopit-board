@@ -99,7 +99,7 @@ a release, and the issue that ships the code closes at merge, days before promot
          [--not-before YYYY-MM-DD|none] [--ready]   (--ready is refused on a P3)
   batch                          the same, for many items, from stdin
   add <repo> <n>                 put an issue on the board; prints its item id
-  settle [--apply]               In review items whose issue is closed -> Done
+  settle [--apply]               closed issues in review -> Done
   archive-done [--older-than N] [--apply]  (default 7 days)
   init --owner O --number N --checkouts DIR --repo R[:BRANCH]... [--ladder PATH]
        [--force] [--no-verify]   write the config, then check the board carries what this reads
@@ -613,21 +613,21 @@ def open_prs(i):
 
 
 def closed_in_review(i):
-    """An issue In review that is already closed: a PR linked it after it closed, and
-    GitHub's built-in workflow moved it into review whatever its state. It is no longer
-    flight, and `settle` moves it to Done."""
+    """Whether an item is a closed issue in review. GitHub's built-in *Pull request linked
+    to issue* workflow moves an issue into review whatever its state, so a PR that links
+    an issue already closed pulls it back, and no close event follows to move it out. It
+    is not flight; `settle` moves it to Done."""
     return (i["status"] in REVIEW_STATUSES and i["type"] == "Issue"
             and i["state"] not in ("", "OPEN"))
 
 
 def awaits_human(i):
-    """Whether an item in flight is a human's turn: it has an open PR and none of its open
-    PRs is a draft. The board has one review status, and a PR's draft state is what says
-    whose turn it is — a draft is the agent's review rounds, a ready PR waits on a human,
-    holds a slot and spends nothing. An item with no open PR is still an agent's: its work
-    has not reached a PR, or the PR merged and the board has not caught up. Nor is an item
-    with more linked PRs than the board query reads: a draft among the unread ones would
-    make it the agent's, so it counts as the agent's."""
+    """Whether an item in flight is a human's turn: it has open PRs, the board query read
+    all of its PRs, and none of the open ones is a draft. The board has one review status,
+    so the draft state says whose turn it is — a draft is the agent's review rounds, and a
+    ready PR waits on a human, holding a slot and spending nothing. Every other item is
+    the agent's turn: no open PR means the work has not reached one, or it merged and the
+    board lags, and an unread PR may be a draft."""
     prs = open_prs(i)
     return (bool(prs) and i.get("prs_complete", True)
             and not any(i["pr_draft"].get(u) for u in prs))
@@ -1490,11 +1490,11 @@ def cmd_next(a):
     place in flight, and `settle --apply` moves them to Done.
 
     Three caps, each optional, and the tightest sets the deficit. The target caps all of
-    flight. `--max-active` caps the part an agent is still working — everything in flight
-    but what `awaits_human` — so a slot frees when a PR goes ready, and the agents started
-    at once are bounded however empty the board is. `--max-review` is a gate and not a
-    count of slots: nothing starts while that many items await a human, and below it the
-    other caps decide alone. So work already active when the gate closes still lands, and the
+    flight. `--max-active` caps the agent's turn — flight that `awaits_human` leaves out —
+    so a slot frees when a PR goes ready, and the agents started at once are bounded
+    however empty the board is. `--max-review` is a gate and not a count of slots: nothing
+    starts while that many items are a human's turn, and below it the other caps decide
+    alone. So work already active when the gate closes still lands, and the
     review queue can reach `--max-review` + `--max-active` - 1. It bounds no starts by
     itself, so it needs one of the other two beside it. With no cap given the target
     is 15.
@@ -2600,13 +2600,9 @@ def cmd_archive_done(a):
 
 
 def cmd_settle(a):
-    """Move an item In review whose issue is closed to Done.
-
-    GitHub's built-in *Pull request linked to issue* workflow moves an issue into review
-    whatever its state, so a PR that links an issue already closed pulls it back into
-    review, and no close event follows to move it out. `next` already holds no slot for
-    it; this takes it off the review column and out of `slots`. An open issue is never
-    touched, whatever its PRs say.
+    """Move every closed issue in review to Done (`closed_in_review` says how one gets
+    there). `next` already holds no slot for it; this clears it off the review column.
+    An open issue stays where it is, whatever its PRs say.
 
     Prints SETTLED (applied) or WOULD-SETTLE per item; writes only with `--apply`."""
     closed = [i for i in board() if closed_in_review(i)]
@@ -2998,9 +2994,9 @@ def main():
     s = sub.add_parser("next"); s.add_argument("target", nargs="?", type=int, default=None)
     s.add_argument("--exclude", action="append", default=[], metavar="REPO#N")
     s.add_argument("--max-active", type=int, default=None, metavar="N",
-                   help="cap flight not awaiting a human at N")
+                   help="cap flight on the agent's turn at N")
     s.add_argument("--max-review", type=int, default=None, metavar="M",
-                   help="start nothing while M or more items await a human")
+                   help="start nothing while M or more items are a human's turn")
     s.add_argument("--live-agents", default=None, metavar="A,B",
                    help="agents known to be at work; an active item claimed by any other "
                         "holds no place under --max-active. May be empty")
@@ -3026,7 +3022,7 @@ def main():
     s = sub.add_parser("stale"); s.add_argument("--older-than", type=float, default=6)
     s.set_defaults(fn=cmd_stale)
     s = sub.add_parser("settle", description=cmd_settle.__doc__,
-                       help="move In review items whose issue is closed to Done")
+                       help="move closed issues in review to Done")
     s.add_argument("--apply", action="store_true", help="write; without it, a dry run")
     s.set_defaults(fn=cmd_settle)
     s = sub.add_parser("dispatches")
