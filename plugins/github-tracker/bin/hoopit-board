@@ -99,6 +99,7 @@ a release, and the issue that ships the code closes at merge, days before promot
          [--not-before YYYY-MM-DD|none] [--ready]   (--ready is refused on a P3)
   batch                          the same, for many items, from stdin
   add <repo> <n>                 put an issue on the board; prints its item id
+  settle [--apply]               In review items whose issue is closed -> Done
   archive-done [--older-than N] [--apply]  (default 7 days)
   init --owner O --number N --checkouts DIR --repo R[:BRANCH]... [--ladder PATH]
        [--force] [--no-verify]   write the config, then check the board carries what this reads
@@ -117,19 +118,21 @@ EFFORTS = ["XS", "S", "M", "L", "XL"]
 AUTONOMY = ["Unattended", "Needs decision", "Out of reach"]
 # Every Status this script reads or writes. `init` checks the board carries them all, and
 # `provision` adds the ones it lacks with the color and description beside each here.
-STATUSES = ["Backlog", "Ready", "In progress", "AI review", "Human review", "Done"]
+STATUSES = ["Backlog", "Ready", "In progress", "In review", "Done"]
 STATUS_STYLE = {"Backlog": ("GREEN", "This item hasn't been started"),
                 "Ready": ("BLUE", "This is ready to be picked up"),
                 "In progress": ("YELLOW", "This is actively being worked on"),
-                "AI review": ("PURPLE", "This item is in review by AI"),
-                "Human review": ("PINK", "Ready for human review"),
+                "In review": ("PURPLE", "A pull request for this is open"),
                 "Done": ("ORANGE", "This has been completed")}
 # The board's built-in workflows this script leans on, each with the Status it must set:
 # `triage` and `ready` expect the add-workflow's Backlog (see `make_ready`), a closed issue
 # has to leave flight, and a linked PR is what moves work into review. No API enables a
 # workflow or reads which Status it sets, so these are checked for `enabled` only.
 REQUIRED_WORKFLOWS = (("Item added to project", "Backlog"), ("Item closed", "Done"),
-                      ("Pull request linked to issue", "AI review"))
+                      ("Pull request linked to issue", "In review"))
+# A Status an older board carries under another name. `provision` renames it in place, so
+# the option keeps its id, its items and the built-in workflow that sets it.
+STATUS_PREDECESSORS = {"In review": "AI review"}
 CONFIG_ENV = "HOOPIT_BOARD_CONFIG"
 REPO_NAME = re.compile(r"[\w.-]+/[\w.-]+")
 
@@ -264,12 +267,8 @@ def dispatch_model():
 
 # GitHub's built-in date field, read as "not before": see the module docstring.
 DATE_FIELD = "Start date"
-# The two review statuses are the vocabulary `board-status.yml` writes: a draft PR is
-# the agent's rounds, a ready one is a human's. Both are flight.
-IN_FLIGHT = ("In progress", "AI review", "Human review")
-# The part of flight an agent is still working, and so still spending quota on. A ready
-# PR waits on a human: it holds a slot and costs nothing.
-ACTIVE = ("In progress", "AI review")
+IN_FLIGHT = ("In progress", "In review")
+REVIEW = "In review"
 # Where dispatch picks from. `Ready` is work already committed to; anything whose
 # decision the issue itself would be is a proposal, and lands in `Backlog` to wait,
 # triaged or not, for the user to promote it — `create-gh-issue` draws the line, and
@@ -522,7 +521,7 @@ BOARD_QUERY = """query($login:String!,$number:Int!,$after:String){
       pageInfo{ hasNextPage endCursor }
       nodes{ id
         content{ __typename
-          ... on Issue{ id number title url updatedAt issueType{name} repository{nameWithOwner} BODY
+          ... on Issue{ id number title url state updatedAt issueType{name} repository{nameWithOwner} BODY
             blockedBy(first:20){ nodes{ number state repository{ nameWithOwner } } } }
           ... on PullRequest{ number title url updatedAt repository{nameWithOwner} } }
         status: fieldValueByName(name:"Status"){ ... on ProjectV2ItemFieldSingleSelectValue{name} }
@@ -531,7 +530,7 @@ BOARD_QUERY = """query($login:String!,$number:Int!,$after:String){
         autonomy: fieldValueByName(name:"Autonomy"){ ...axis }
         not_before: fieldValueByName(name:"Start date"){ ...day }
         prs: fieldValueByName(name:"Linked pull requests"){
-          ... on ProjectV2ItemFieldPullRequestValue{ pullRequests(first:10){ nodes{ url state updatedAt } } } }
+          ... on ProjectV2ItemFieldPullRequestValue{ pullRequests(first:10){ nodes{ url state isDraft updatedAt } } } }
       } } } } }
 fragment axis on ProjectV2ItemIssueFieldValue{
   issueFieldValue{ ... on IssueFieldSingleSelectValue{ name } } }
@@ -576,6 +575,7 @@ def board(bodies=False):
             out.append({
                 "n": c["number"], "repo": c["repository"]["nameWithOwner"], "url": c["url"],
                 "title": c.get("title", ""), "type": c["__typename"],
+                "state": c.get("state") or "",
                 "issue_type": (c.get("issueType") or {}).get("name") or "",
                 "updated": c.get("updatedAt"),
                 "status": (i.get("status") or {}).get("name", ""),
@@ -588,6 +588,7 @@ def board(bodies=False):
                 "prs": [p["url"] for p in prs],
                 "pr_state": {p["url"]: p["state"] for p in prs},
                 "pr_updated": {p["url"]: p["updatedAt"] for p in prs},
+                "pr_draft": {p["url"]: p["isDraft"] for p in prs},
                 "item_id": i["id"],
             })
         if not items["pageInfo"]["hasNextPage"]:
@@ -595,7 +596,17 @@ def board(bodies=False):
         after = items["pageInfo"]["endCursor"]
 
 
-LOCATE_QUERY = """query($login:String!,$number:Int!,$url:URI!){
+def awaits_human(i):
+    """Whether an item in flight is a human's turn: it has an open PR and none of its open
+    PRs is a draft. The board has one review status, and a PR's draft state is what says
+    whose turn it is — a draft is the agent's review rounds, a ready PR waits on a human,
+    holds a slot and spends nothing. An item with no open PR is still an agent's: its work
+    has not reached a PR, or the PR merged and the board has not caught up."""
+    open_prs = [u for u in i["prs"] if i["pr_state"][u] == "OPEN"]
+    return bool(open_prs) and not any(i["pr_draft"].get(u) for u in open_prs)
+
+
+LOCATE_QUERY ="""query($login:String!,$number:Int!,$url:URI!){
   organization(login:$login){ projectV2(number:$number){ id
     fields(first:50){ nodes{
       ... on ProjectV2FieldCommon{ id name }
@@ -1449,11 +1460,11 @@ def cmd_next(a):
     candidates the walk never reached.
 
     Three caps, each optional, and the tightest sets the deficit. The target caps all of
-    flight. `--max-active` caps the part an agent is still working — `In progress` and
-    `AI review` — so a slot frees when a PR goes ready, and the agents started at once
-    are bounded however empty the board is. `--max-review` is a gate and not a count of
-    slots: nothing starts while `Human review` holds that many, and below it the other
-    caps decide alone. So work already active when the gate closes still lands, and the
+    flight. `--max-active` caps the part an agent is still working — everything in flight
+    but what `awaits_human` — so a slot frees when a PR goes ready, and the agents started
+    at once are bounded however empty the board is. `--max-review` is a gate and not a
+    count of slots: nothing starts while that many items await a human, and below it the
+    other caps decide alone. So work already active when the gate closes still lands, and the
     review queue can reach `--max-review` + `--max-active` - 1. It bounds no starts by
     itself, so it needs one of the other two beside it. With no cap given the target
     is 15.
@@ -1498,8 +1509,8 @@ def cmd_next(a):
     items = board()
     flight = [i for i in items if i["status"] in IN_FLIGHT
               and (not a.scope or i["repo"] in a.scope)]
-    active = [i for i in flight if i["status"] in ACTIVE]
-    review = [i for i in flight if i["status"] == "Human review"]
+    review = [i for i in flight if awaits_human(i)]
+    active = [i for i in flight if not awaits_human(i)]
     quiet = []
     if a.live_agents is not None:
         live_agents = {n for n in a.live_agents.split(",") if n}
@@ -2345,8 +2356,8 @@ def cmd_stale(a):
                 item to Backlog invites a second agent onto it. Report it and let a human
                 or an agent pick the PR back up.
 
-    `Human review` is never stale: a ready PR waits on a human, and quiet is what that
-    looks like.
+    An item that `awaits_human` is never stale: a ready PR waits on a human, and quiet is
+    what that looks like.
 
     Says nothing about whether the agent is alive — that is the caller's half, and the
     only half that can tell abandoned from slow. An item whose claim marker is missing
@@ -2358,7 +2369,8 @@ def cmd_stale(a):
     is the right way round for something whose output frees a slot.
     """
     now = datetime.now(timezone.utc)
-    for i in sorted([i for i in board() if i["status"] in ACTIVE], key=rank_key):
+    flight = [i for i in board() if i["status"] in IN_FLIGHT and not awaits_human(i)]
+    for i in sorted(flight, key=rank_key):
         agent, since = claim_of(i)
         open_prs = [u for u in i["prs"] if i["pr_state"][u] == "OPEN"]
         if open_prs:
@@ -2367,8 +2379,8 @@ def cmd_stale(a):
             if quiet >= a.older_than:
                 print(f'{i["repo"]}#{i["n"]}\t{agent}\t{quiet:.1f}h\tpr-quiet\t{i["url"]}')
             continue
-        # `AI review` with no open PR is a merged PR the board has not caught up with, not
-        # an abandoned run. Without a claim marker, a human moved it rather than a run.
+        # In review with no open PR is a merged PR the board has not caught up with, not an
+        # abandoned run. Without a claim marker, a human moved it rather than a run.
         if i["status"] != "In progress" or not since:
             continue
         hours = hours_since(since, now)
@@ -2553,6 +2565,25 @@ def cmd_archive_done(a):
     print(f'\n{len(stale)} Done items idle >= {a.older_than}d' + ("" if a.apply else " — rerun with --apply"))
 
 
+def cmd_settle(a):
+    """Move an item In review whose issue is closed to Done.
+
+    GitHub's built-in *Pull request linked to issue* workflow moves an issue into review
+    whatever its state, so a PR that links an issue already closed pulls it back into
+    flight, and no close event follows to move it out. Left there it holds a slot under
+    every cap. An open issue is never touched, whatever its PRs say.
+
+    Prints SETTLED (applied) or WOULD-SETTLE per item; writes only with `--apply`."""
+    closed = [i for i in board() if i["status"] == REVIEW and i["type"] == "Issue"
+              and i["state"] not in ("", "OPEN")]
+    if a.apply and closed:
+        project_id, fields, _, _ = locate(closed[0]["repo"], closed[0]["n"])
+    for i in closed:
+        if a.apply:
+            set_status(project_id, fields, i["item_id"], "Done")
+        print(f'{"SETTLED" if a.apply else "WOULD-SETTLE"}\t{i["repo"]}#{i["n"]}\t{i["url"]}')
+
+
 # What `init` checks and `provision` reads before it writes. Archived items are counted
 # too: they still hold a Status value, which dropping its option would lose.
 VERIFY_QUERY = """query($login:String!,$number:Int!){ organization(login:$login){
@@ -2651,8 +2682,8 @@ def status_plan(field, items):
     id, name, color and description, and the id is what keeps each item's value. The
     STATUSES come first in their order, then every other option already there.
 
-    An option naming a STATUSES entry in another case (GitHub's default `In Progress`) is
-    renamed in place. GitHub's default `Todo` is dropped from a board with no items, where
+    An option naming a STATUSES entry in another case (GitHub's default `In Progress`), or
+    naming its entry in STATUS_PREDECESSORS, is renamed in place. GitHub's default `Todo` is dropped from a board with no items, where
     nothing can hold it; on a board with items it stays with the other extras, since
     dropping it would clear the Status of whatever does. `lines` are `(kind, what)`, kind
     being OK or FIX."""
@@ -2667,7 +2698,9 @@ def status_plan(field, items):
         if s in chosen:
             continue
         o = next((o for o in existing
-                  if o["id"] not in taken and o["name"].lower() == s.lower()), None)
+                  if o["id"] not in taken and o["name"].lower() == s.lower()), None) \
+            or next((o for o in existing
+                     if o["id"] not in taken and o["name"] == STATUS_PREDECESSORS.get(s)), None)
         if o:
             chosen[s] = ({**o, "name": s}, "FIX",
                          f"Status option {s!r}, renamed from {o['name']!r} with its items")
@@ -2923,9 +2956,9 @@ def main():
     s = sub.add_parser("next"); s.add_argument("target", nargs="?", type=int, default=None)
     s.add_argument("--exclude", action="append", default=[], metavar="REPO#N")
     s.add_argument("--max-active", type=int, default=None, metavar="N",
-                   help="cap In progress + AI review at N")
+                   help="cap flight not awaiting a human at N")
     s.add_argument("--max-review", type=int, default=None, metavar="M",
-                   help="start nothing while Human review holds M or more")
+                   help="start nothing while M or more items await a human")
     s.add_argument("--live-agents", default=None, metavar="A,B",
                    help="agents known to be at work; an active item claimed by any other "
                         "holds no place under --max-active. May be empty")
@@ -2950,6 +2983,10 @@ def main():
     s.set_defaults(fn=cmd_decisions)
     s = sub.add_parser("stale"); s.add_argument("--older-than", type=float, default=6)
     s.set_defaults(fn=cmd_stale)
+    s = sub.add_parser("settle", description=cmd_settle.__doc__,
+                       help="move In review items whose issue is closed to Done")
+    s.add_argument("--apply", action="store_true", help="write; without it, a dry run")
+    s.set_defaults(fn=cmd_settle)
     s = sub.add_parser("dispatches")
     s.add_argument("--since", type=int, default=14, metavar="DAYS")
     s.add_argument("--limit", type=int, default=200, help="newest closed PRs to scan per repo")

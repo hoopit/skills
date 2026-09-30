@@ -17,12 +17,12 @@ reviewer can jump to its source of truth:
 
 - **GitHub issue** — `closes #<id>` in the body, one line per issue it resolves.
   A closing keyword is the only thing GitHub puts in the PR's
-  `closingIssuesReferences`, and that list is the sole input to the board automation
-  (`board-status.yml`), which never reads the body. So the keyword buys more than the
-  close at merge: it is what moves the item to `AI review` when the PR opens and to
-  `Human review` when it is marked ready. `refs #<id>`, `part of #<id>` or a bare link
-  leave the item frozen wherever it stands with no event left to move it, and the
-  workflow records that as a notice on a green run — nothing anywhere turns red.
+  `closingIssuesReferences`, and that list is the sole input to the board's built-in
+  *Pull request linked to issue* workflow, which never reads the body. So the keyword
+  buys more than the close at merge: it is what moves the item to `In review` when the
+  PR opens, and what links the PR whose draft state `hoopit-board` reads to tell an
+  agent's turn from a human's. `refs #<id>`, `part of #<id>` or a bare link leave the item
+  frozen wherever it stands with no event left to move it — nothing anywhere turns red.
 
   **Merging will not finish the issue?** That is two phases in one item, not a reason
   to weaken the link. `closes` the phase this PR delivers and file the remainder as its
@@ -120,13 +120,13 @@ and link that copy.
 `monitor-pr` path. Draft says the rounds are still the agent's, and `gh pr ready` is the
 hand-off — the only one a workflow can trigger on, since a resolved review thread raises
 no event. A PR handed straight to humans on creation, with no watch to follow, omits
-`--draft`: nothing would ever mark it ready, and it would sit unmergeable with its issue
-in `AI review`. Where its base requires the `merge-briefing` check (the probe in `monitor-pr`'s
+`--draft`: nothing would ever mark it ready, and it would sit unmergeable, its issue
+counted as an agent's work in flight. Where its base requires the `merge-briefing` check (the probe in `monitor-pr`'s
 `GREEN.md` answers that), that PR still owes a
 merge briefing before it can merge: say so when handing it over (`/merge-briefing <PR>`).
 
-*Born*, never opened-then-converted: the board automation fires on `opened`, so a PR ready
-for even an instant sets a board status that must then be corrected.
+*Born*, never opened-then-converted: a PR ready for even an instant reads as a human's turn,
+and one opened ready never emits `ready_for_review`, the event the hand-off is.
 
 Open the PR with the GitHub CLI, from inside the worktree:
 

@@ -17,14 +17,17 @@
 # can hold back a second set by issue type: work an agent could finish, kept for a session
 # with somebody in it. Those keep their place in Ready.
 #
-# --max-active caps what an agent is still working — `In progress` and `AI review` — and
-# frees a slot when a PR goes ready, an assessment closes its issue, or an agent hands it
-# back, so agents start in waves as the earlier ones settle rather than all at once.
-# --max-review holds every start while `Human review` is that full, so the daemon idles
-# until something merges; work active when it closes still lands, and the queue can reach
-# --max-review + --max-active - 1. <target> caps all of flight, `Human review` included,
-# for a review queue that must never pass a number. One tick fills every slot the caps
-# leave free.
+# --max-active caps what an agent is still working — flight with no PR yet or a draft one
+# — and frees a slot when a PR goes ready, an assessment closes its issue, or an agent
+# hands it back, so agents start in waves as the earlier ones settle rather than all at
+# once. --max-review holds every start while that many ready PRs wait on a human, so the
+# daemon idles until something merges; work active when it closes still lands, and the
+# queue can reach --max-review + --max-active - 1. <target> caps all of flight, ready PRs
+# included, for a review queue that must never pass a number. One tick fills every slot
+# the caps leave free.
+#
+# Each tick first runs `hoopit-board settle`: a PR that links an issue already closed
+# pulls it back into `In review`, where it would hold a slot under every cap.
 #
 # Owning work and working it are separate facts. The board status is the ownership: an
 # item in flight is never offered again, and its open PR holds its files. Its place
@@ -183,6 +186,16 @@ cooloff_excludes() {
 prune_dispatched() {
   local cutoff=$(( $(date +%s) - COOLOFF_HOURS * 3600 ))
   awk -v c="$cutoff" -F'\t' '$2 >= c' "$DISPATCHED" > "$DISPATCHED.new" && mv "$DISPATCHED.new" "$DISPATCHED"
+}
+
+# Move the closed issues a linked PR pulled back into review out to Done, so they free
+# their slots before the caps are counted.
+settle() {
+  local verdict item url apply=--apply
+  (( DRY )) && apply=
+  while IFS=$'\t' read -r verdict item url; do
+    [[ -n "${item:-}" ]] && log "settle $url: issue closed, In review -> Done (${verdict,,})"
+  done < <(hoopit-board settle $apply 2>/dev/null)
 }
 
 # Release the slots held by agents that are gone. An item claimed by `hoopit-board
@@ -393,7 +406,7 @@ for q in d["quiet"]:
     print(f'  quiet {q["url"]} ({q["status"]}): {how} — holds no active slot: '
           + (", ".join(q["prs"]) or "no open PR"))
 if d["max_review"] is not None and d["review"] >= d["max_review"]:
-    print(f'  HOLDING: Human review is at {d["review"]}/{d["max_review"]} — nothing starts '
+    print(f'  HOLDING: {d["review"]}/{d["max_review"]} ready PRs await a human — nothing starts '
           f'until something there merges or closes')
 if d["deficit"] > 0 and not d["startable"]:
     # Every Ready item lands in exactly one of these, so the lines add up to `ready` —
@@ -465,6 +478,7 @@ while :; do
     # rather than double-claiming an issue or double-releasing a reaped one.
     exec {lockfd}>"$LOCK"
     if flock -n "$lockfd"; then
+      settle
       reap
       tick
       flock -u "$lockfd"

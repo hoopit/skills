@@ -198,15 +198,18 @@ def test_bad_input_is_refused_before_any_write():
 
 # --- `next`'s collision judgement -------------------------------------------------------
 
-def item(n, status="Ready", effort="M", repo="hoopit/api", prs=(), title=None):
+def item(n, status="Ready", effort="M", repo="hoopit/api", prs=(), title=None, drafts=(),
+         state="OPEN"):
+    """A board item; `drafts` are the ones of its `prs` that are drafts."""
     return {"n": n, "repo": repo, "url": f"https://github.com/{repo}/issues/{n}",
             "title": title or f"issue {n}", "type": "Issue", "issue_type": "",
-            "updated": None,
+            "updated": None, "state": state,
             "status": status, "priority": "P2", "effort": effort,
             "autonomy": "Unattended", "not_before": "", "blockers": [], "body": "",
             "content_id": f"C{n}",
             "prs": list(prs), "pr_state": {u: "OPEN" for u in prs},
-            "pr_updated": {}, "item_id": f"I{n}"}
+            "pr_updated": {}, "pr_draft": {u: u in drafts for u in prs},
+            "item_id": f"I{n}"}
 
 
 def next_module(items, owners=None, per_pr=None, bodies=None, paths=(), apps=(), config=None,
@@ -235,12 +238,12 @@ def next_module(items, owners=None, per_pr=None, bodies=None, paths=(), apps=(),
     return m
 
 
-def run_next(m, target=15, no_judge=False):
+def run_next(m, target=15, no_judge=False, max_active=None, max_review=None):
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
         code = m.cmd_next(argparse.Namespace(target=target, exclude=[], scope=None,
-                                             no_judge=no_judge, max_active=None,
-                                             max_review=None, live_agents=None,
+                                             no_judge=no_judge, max_active=max_active,
+                                             max_review=max_review, live_agents=None,
                                              idle_agents=None, skip_type=[],
                                              allow_out_of_reach=False))
     return json.loads(out.getvalue()), code
@@ -1038,7 +1041,7 @@ def board_answer(statuses=None, board_fields=None, org_fields=None, items=3, dis
                  own_fields=()):
     """A VERIFY_QUERY answer. The defaults are a board carrying everything. `statuses`
     are names or `status()` dicts; `own_fields` are board fields of the project's own."""
-    statuses = ["Backlog", "Ready", "In progress", "AI review", "Human review", "Done"] \
+    statuses = ["Backlog", "Ready", "In progress", "In review", "Done"] \
         if statuses is None else statuses
     org = {"Priority": ["P0", "P1", "P2", "P3"], "Effort": ["XS", "S", "M", "L", "XL"],
            "Autonomy": ["Unattended", "Needs decision", "Out of reach"], "Start date": None}
@@ -1086,10 +1089,10 @@ def test_init_lists_what_the_board_is_missing_and_creates_nothing():
     org = {"Priority": ["P0", "P1", "P2", "P3"], "Effort": ["XS", "S", "M", "L", "XL"],
            "Autonomy": ["Unattended", "Needs decision"]}
     out, err, code = run_init(board_answer(
-        statuses=["Backlog", "Ready", "In progress", "AI review", "Done"],
+        statuses=["Backlog", "Ready", "In progress", "Done"],
         board_fields=["Priority", "Autonomy"], org_fields=org), "missing")
     assert code == 1, (out, code)
-    for line in ("Status has no option 'Human review'",
+    for line in ("Status has no option 'In review'",
                  "issue field 'Effort' is not added to the board",
                  "Autonomy has no option 'Out of reach'",
                  "acme has no issue field 'Start date'"):
@@ -1114,6 +1117,70 @@ def test_init_names_a_disabled_workflow_and_a_shadowing_field():
     assert "  the board's own field 'Priority' shadows the issue field\n" in out, out
     print("  a disabled required workflow and a same-named project field are both missing")
 
+
+
+# --- whose turn: caps, the stale check and settle read a PR's draft state ----------------
+
+PR = "https://github.com/hoopit/api/pull/"
+
+
+def review_board():
+    """Flight: 1 has no PR yet, 2 a draft, 3 a ready PR, 4 one of each — three an agent
+    works and one a human waits on. 5 is a closed issue a PR pulled back into review."""
+    return [item(1, "In progress"),
+            item(2, "In review", prs=[PR + "2"], drafts=[PR + "2"]),
+            item(3, "In review", prs=[PR + "3"]),
+            item(4, "In review", prs=[PR + "4", PR + "40"], drafts=[PR + "40"]),
+            item(5, "In review", prs=[PR + "5"], state="CLOSED"),
+            item(9)]
+
+
+def test_the_caps_split_flight_by_draft_state():
+    board = review_board()[:4] + review_board()[5:]
+    d, _ = run_next(next_module(board), target=None, max_active=4, no_judge=True)
+    assert (d["in_flight"], d["active"], d["review"]) == (4, 3, 1), d
+    assert d["deficit"] == 1 and only(d, "startable") == ["hoopit/api#9"], d
+    d, code = run_next(next_module(board), target=None, max_active=3, no_judge=True)
+    assert d["deficit"] == 0 and code == 1, d
+    d, code = run_next(next_module(board), target=None, max_active=4, max_review=1,
+                       no_judge=True)
+    assert d["review"] == 1 and d["deficit"] == 0 and code == 1, d
+    d, _ = run_next(next_module(board), target=None, max_active=4, max_review=2, no_judge=True)
+    assert d["deficit"] == 1, d
+    print("  no PR, a draft and a mixed pair are active; only the all-ready PR awaits a human")
+
+
+def test_a_ready_pr_is_never_stale_and_a_quiet_draft_is():
+    m = load()
+    items = review_board()[:4]
+    for i in items:
+        i["pr_updated"] = {u: "2026-01-01T00:00:00Z" for u in i["prs"]}
+    m.board = lambda: items
+    m.claim_of = lambda i: ("gh1", "2026-01-01T00:00:00Z")
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        m.cmd_stale(argparse.Namespace(older_than=6))
+    rows = sorted((r.split("\t")[0], r.split("\t")[3]) for r in out.getvalue().splitlines())
+    assert rows == [("hoopit/api#1", "no-pr"), ("hoopit/api#2", "pr-quiet"),
+                    ("hoopit/api#4", "pr-quiet")], rows
+    print("  a quiet draft is pr-quiet, a quiet ready PR is a human's and never stale")
+
+
+def test_settle_moves_only_a_closed_issue_out_of_review():
+    m = load()
+    m.board = review_board
+    fields = {"Status": {"id": "F_status", "options": []}}
+    m.locate = lambda repo, n: ("PVT_7", fields, None, None)
+    moved = []
+    m.set_status = lambda pid, f, item_id, value: moved.append((pid, item_id, value))
+    for apply, verb in ((False, "WOULD-SETTLE"), (True, "SETTLED")):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            m.cmd_settle(argparse.Namespace(apply=apply))
+        assert out.getvalue() == f"{verb}\thoopit/api#5\thttps://github.com/hoopit/api/issues/5\n", \
+            out.getvalue()
+    assert moved == [("PVT_7", "I5", "Done")], moved
+    print("  the closed issue goes to Done under --apply, the open ones stay, a dry run writes nothing")
 
 # --- provision ---------------------------------------------------------------------------
 
@@ -1161,11 +1228,11 @@ def test_provision_a_fresh_board_renames_appends_and_drops_the_unused_todo():
     assert len(writes) == 1 and 'fieldId:"F_status"' in writes[0], writes
     assert sent_options(writes[0]) == [
         ("", "Backlog", "GREEN"), ("", "Ready", "BLUE"), ("wip-id", "In progress", "YELLOW"),
-        ("", "AI review", "PURPLE"), ("", "Human review", "PINK"), ("done-id", "Done", "PURPLE")]
+        ("", "In review", "PURPLE"), ("done-id", "Done", "PURPLE")]
     assert 'description:"This item hasn\'t been started"' in writes[0], writes[0]
     assert "ADDED\tStatus option 'In progress', renamed from 'In Progress' with its items" in lines
     assert not any(l.startswith(("MISSING", "MANUAL")) for l in lines), lines
-    print("  Todo dropped, In Progress renamed on its id, four appended, one mutation")
+    print("  Todo dropped, In Progress renamed on its id, three appended, one mutation")
 
 
 def test_provision_keeps_todo_on_a_board_with_items():
@@ -1174,7 +1241,7 @@ def test_provision_keeps_todo_on_a_board_with_items():
     assert code == 0 and len(writes) == 1, (code, writes)
     sent = sent_options(writes[0])
     assert [n for _, n, _ in sent] == [
-        "Backlog", "Ready", "In progress", "AI review", "Human review", "Done", "Todo"], sent
+        "Backlog", "Ready", "In progress", "In review", "Done", "Todo"], sent
     assert sent[-1] == ("todo-id", "Todo", "GREEN"), sent
     assert "OK\tStatus option 'Todo' kept: GitHub's default, and the board's items may hold it" \
         in lines, lines
@@ -1182,8 +1249,8 @@ def test_provision_keeps_todo_on_a_board_with_items():
 
 def test_provision_a_complete_board_writes_nothing_and_is_ready():
     lines, err, code, writes = run_provision(board_answer(statuses=[
-        *(status(s) for s in ["Backlog", "Ready", "In progress", "AI review", "Human review",
-                              "Done"]), status("Parked")]), "--apply")
+        *(status(s) for s in ["Backlog", "Ready", "In progress", "In review", "Done"]),
+        status("Parked")]), "--apply")
     assert writes == [] and code == 0 and err == "", (writes, code, err)
     assert lines[-1] == "READY\thttps://github.com/orgs/acme/projects/7", lines
     assert all(l.startswith("OK\t") for l in lines[:-1]), lines
@@ -1228,11 +1295,24 @@ def test_provision_names_a_disabled_workflow_and_a_shadowing_field():
         board_fields=["Effort", "Autonomy", "Start date"], own_fields=["Priority"]), "--apply")
     assert writes == [] and code == 1, (writes, code)
     assert "MANUAL\tworkflow 'Pull request linked to issue'\tenable it at " \
-           "https://github.com/orgs/acme/projects/7/workflows, setting Status to 'AI review'" \
+           "https://github.com/orgs/acme/projects/7/workflows, setting Status to 'In review'" \
            in lines, lines
     assert any(l.startswith("MANUAL\tissue field 'Priority' on the board\tthe board has a "
                             "field of its own") for l in lines), lines
 
+
+
+def test_provision_renames_ai_review_on_its_id_and_keeps_human_review():
+    lines, _, code, writes = run_provision(board_answer(statuses=[
+        "Backlog", "Ready", "In progress", status("AI review", "ai-id", "PURPLE"),
+        status("Human review", "human-id", "PINK"), "Done"]), "--apply")
+    assert code == 0 and len(writes) == 1, (code, writes)
+    sent = sent_options(writes[0])
+    assert ("ai-id", "In review", "PURPLE") in sent, sent
+    assert sent[-1] == ("human-id", "Human review", "PINK"), sent
+    assert "ADDED\tStatus option 'In review', renamed from 'AI review' with its items" in lines
+    assert "OK\tStatus option 'Human review' kept: this script never sets it" in lines, lines
+    print("  AI review becomes In review on its own id; Human review is left for a person")
 
 def test_provision_refuses_a_board_that_is_not_there():
     for answer, why in (({"organization": {"projectV2": None, "issueFields": {"nodes": []}}},

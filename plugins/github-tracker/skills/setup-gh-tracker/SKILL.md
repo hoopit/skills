@@ -100,8 +100,8 @@ hoopit-board provision --owner <org> --number <n> --apply
 ```
 
 The dry run lists what `--apply` would change. On a board already in use, say what that
-means before applying: missing statuses are added and a differently-cased one renamed,
-every existing option keeps its id — so no item loses its status — and nothing is
+means before applying: missing statuses are added, and a differently-cased one — or
+`AI review`, which `In review` takes over — renamed; every existing option keeps its id — so no item loses its status — and nothing is
 deleted except GitHub's default `Todo` on an empty board.
 
 Then re-run the dry run and work every `MANUAL` line:
@@ -110,7 +110,7 @@ Then re-run the dry run and work every `MANUAL` line:
   the line and the status each one must set:
   - *Item added to project* → `Backlog`
   - *Item closed* → `Done`
-  - *Pull request linked to issue* → `AI review`
+  - *Pull request linked to issue* → `In review`
 
   Where the org has a template board, its workflows page is the reference for every other
   rule worth copying by hand. Wait for the developer to say it is done, then run the dry

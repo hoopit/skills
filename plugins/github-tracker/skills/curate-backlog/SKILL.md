@@ -14,7 +14,7 @@ list for the calls that genuinely turn on judgement. A backlog curated into a
 second backlog of approvals has moved the work, not done it. Done items get a
 sweep of their own at the end.
 
-Items that are **In progress**, **AI review** or **Human review** are never closed or absorbed
+Items that are **In progress** or **In review** are never closed or absorbed
 here — an agent may be inside one right now. They can be retriaged, and
 anything that looks abandoned goes on the doubt list. An item started by
 `start-backlog-daemon` or `gh-triage` carries a comment naming its agent; that is how you
