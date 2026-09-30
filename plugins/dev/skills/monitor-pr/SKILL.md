@@ -202,7 +202,7 @@ gh pr ready <PR> --repo <OWNER_REPO>   # verdict-held close, checkpoint, or "Sto
 ## Step 4a — Land the merge
 
 On `PR_CLOSED state=MERGED`, or a merge no monitor was left to report — the Green path's
-own, or one the user wakes an unattended session for — read [LANDING.md](LANDING.md) and follow it: the tally, what is left open,
+own — read [LANDING.md](LANDING.md) and follow it: the tally, what is left open,
 then the clean-up, last.
 
 ## Step 5 — Ask in rounds
