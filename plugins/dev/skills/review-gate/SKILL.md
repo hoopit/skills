@@ -67,7 +67,7 @@ Set by the caller; unset, the pass is a full review of the whole branch.
   catches a shape that arrives in ten commits none of which moves it alone.
 - `CODEX_MODEL` *(optional)* — the Codex model for Codex's **standard review**, overriding what the
   scope would pick (step 2). The challenge is not steerable at all: questioning an approach is
-  what a strong model buys, so it always runs on the model `~/.codex/config.toml` names.
+  what a strong model buys, so the script always runs it on `gpt-6-sol`.
   Reasoning effort is **not** an input either: `codex-companion` takes `--effort` on `task` alone,
   and the standard review goes through `review/start`, which carries no effort field — both reviews
   read `model_reasoning_effort` from `~/.codex/config.toml`, so that file is where effort changes.

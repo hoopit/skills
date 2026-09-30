@@ -15,9 +15,9 @@
 # --challenge-only skips the standard review, for a caller that wants the challenge alone.
 # --model names the Codex model for the standard review, and the standard review refuses to run
 # without one: which model reads the branch is the caller's decision, never a local config default
-# it happens to inherit. The challenge is deliberately not steerable, and runs on the model
-# ~/.codex/config.toml names: questioning an approach is what a strong model buys, so downgrading
-# it is never a side effect of downgrading the defect hunt. Reasoning effort has no equivalent for either: codex-companion
+# it happens to inherit. The challenge is deliberately not steerable: it always runs on
+# CHALLENGE_MODEL below, whichever caller asks, because questioning an approach is what a strong
+# model buys, so downgrading it is never a side effect of downgrading the defect hunt. Reasoning effort has no equivalent for either: codex-companion
 # accepts --effort only on `task`, and the standard review runs through `review/start`, which
 # carries no effort at all — both reviews take it from ~/.codex/config.toml
 # (model_reasoning_effort), so that file is where to change it.
@@ -52,6 +52,7 @@ BASE=""
 CHALLENGE=""
 CHALLENGE_MISSING=""
 MODEL=""
+CHALLENGE_MODEL="gpt-6-sol"
 SKIP_DOCS_ONLY=""
 OUT=""
 USE_CACHE=1
@@ -120,12 +121,12 @@ CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/review-gate"
 # Keys are immutable (they name a tree), so age is the only thing that retires one.
 [ "$USE_CACHE" = 1 ] && find "$CACHE_DIR" -type f -mtime +14 -delete 2>/dev/null
 
-cache_path() {  # <kind> <focus>
+cache_path() {  # <kind> <model> <focus>
   [ "$USE_CACHE" = 1 ] || return 1
   [ -n "$HEAD_SHA" ] && [ -n "$BASE_SHA" ] || return 1
   command -v sha256sum >/dev/null 2>&1 || return 1
   local key
-  key="$(printf '%s\n' "$1" "$HEAD_SHA" "$BASE_SHA" "$MODEL" "$2" | sha256sum | cut -d' ' -f1)"
+  key="$(printf '%s\n' "$1" "$HEAD_SHA" "$BASE_SHA" "$2" "$3" | sha256sum | cut -d' ' -f1)"
   mkdir -p "$CACHE_DIR" 2>/dev/null || return 1
   printf '%s/%s.txt' "$CACHE_DIR" "$key"
 }
@@ -148,8 +149,8 @@ if docs_only; then
   exit 0
 fi
 
-cx_cache="$(cache_path review "")"
-ch_cache="$(cache_path challenge "$CHALLENGE")"
+cx_cache="$(cache_path review "$MODEL" "")"
+ch_cache="$(cache_path challenge "$CHALLENGE_MODEL" "$CHALLENGE")"
 
 if [ "$STANDARD" = 1 ] && [ -n "$cx_cache" ] && [ -s "$cx_cache" ]; then
   STANDARD=0; cx=cached; cx_file="$cx_cache"
@@ -164,7 +165,7 @@ if [ -n "$CODEX" ] && { [ "$STANDARD" = 1 ] || [ -n "$CHALLENGE" ]; }; then
     cx_pid=$!
   fi
   if [ -n "$CHALLENGE" ]; then
-    node "$CODEX" adversarial-review --scope branch --base "$BASE" --wait "$CHALLENGE" >"$OUT/codex-challenge.txt" 2>&1 &
+    node "$CODEX" adversarial-review --scope branch --base "$BASE" --model "$CHALLENGE_MODEL" --wait "$CHALLENGE" >"$OUT/codex-challenge.txt" 2>&1 &
     ch_pid=$!
   fi
   # Retries run after the parallel phase, and only for a run that failed.
@@ -176,7 +177,7 @@ if [ -n "$CODEX" ] && { [ "$STANDARD" = 1 ] || [ -n "$CHALLENGE" ]; }; then
   fi
   if [ -n "$CHALLENGE" ]; then
     ch=ran
-    wait "$ch_pid" || node "$CODEX" adversarial-review --scope branch --base "$BASE" --wait \
+    wait "$ch_pid" || node "$CODEX" adversarial-review --scope branch --base "$BASE" --model "$CHALLENGE_MODEL" --wait \
       "$CHALLENGE" >"$OUT/codex-challenge.txt" 2>&1 ||
       { ch=error; ch_reason="$(last_line "$OUT/codex-challenge.txt") [after one retry]"; }
   fi
