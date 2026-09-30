@@ -138,8 +138,10 @@ that policy.
    it: that judgement is what the review exists to test, and the passes most likely to be
    misjudged are the ones it would weaken. A missing flag, a model Codex doesn't know, or an effort
    that model does not take ends as `codex=error`, and the pass blocks. For the next pass, set
-   `CODEX_MODEL` to a model in `~/.codex/models_cache.json` or `CODEX_EFFORT` to one it takes; when
-   it is a pinned default that went away, update this table.
+   `CODEX_MODEL` or `CODEX_EFFORT` to a pair Codex accepts; when it is a pinned default that
+   went away, update this table. `~/.codex/models_cache.json` lists candidates but not every
+   model Codex accepts — it omits `gpt-6.1-sol` — so confirm a pair with a one-line
+   `codex exec -m <model> -c model_reasoning_effort=<effort>` run, not by its absence there.
 
    **`SKIP_DOCS_ONLY`**: `--skip-docs-only` under `light`, empty under `full`. On a `light` pass
    the diff *is* the fix commits, so a docs-only one has nothing for a code reviewer; on a `full`
