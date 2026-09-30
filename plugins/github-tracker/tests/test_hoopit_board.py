@@ -1118,36 +1118,50 @@ def test_init_names_a_disabled_workflow_and_a_shadowing_field():
     print("  a disabled required workflow and a same-named project field are both missing")
 
 
-
 # --- whose turn: caps, the stale check and settle read a PR's draft state ----------------
 
 PR = "https://github.com/hoopit/api/pull/"
 
 
 def review_board():
-    """Flight: 1 has no PR yet, 2 a draft, 3 a ready PR, 4 one of each — three an agent
-    works and one a human waits on. 5 is a closed issue a PR pulled back into review."""
+    """Flight: 1 has no PR yet, 2 a draft, 3 a ready PR, 4 one of each, 6 a ready PR among
+    more linked PRs than the query read — four an agent works and one a human waits on. 5
+    is a closed issue a PR pulled back into review."""
     return [item(1, "In progress"),
             item(2, "In review", prs=[PR + "2"], drafts=[PR + "2"]),
             item(3, "In review", prs=[PR + "3"]),
             item(4, "In review", prs=[PR + "4", PR + "40"], drafts=[PR + "40"]),
             item(5, "In review", prs=[PR + "5"], state="CLOSED"),
+            {**item(6, "In review", prs=[PR + "6"]), "prs_complete": False},
             item(9)]
 
 
 def test_the_caps_split_flight_by_draft_state():
-    board = review_board()[:4] + review_board()[5:]
-    d, _ = run_next(next_module(board), target=None, max_active=4, no_judge=True)
-    assert (d["in_flight"], d["active"], d["review"]) == (4, 3, 1), d
+    board = review_board()
+    d, _ = run_next(next_module(board), target=None, max_active=5, no_judge=True)
+    assert (d["in_flight"], d["active"], d["review"]) == (5, 4, 1), d
+    assert only(d, "unsettled") == ["hoopit/api#5"], d
     assert d["deficit"] == 1 and only(d, "startable") == ["hoopit/api#9"], d
-    d, code = run_next(next_module(board), target=None, max_active=3, no_judge=True)
+    d, code = run_next(next_module(board), target=None, max_active=4, no_judge=True)
     assert d["deficit"] == 0 and code == 1, d
-    d, code = run_next(next_module(board), target=None, max_active=4, max_review=1,
+    d, code = run_next(next_module(board), target=None, max_active=5, max_review=1,
                        no_judge=True)
     assert d["review"] == 1 and d["deficit"] == 0 and code == 1, d
-    d, _ = run_next(next_module(board), target=None, max_active=4, max_review=2, no_judge=True)
+    d, _ = run_next(next_module(board), target=None, max_active=5, max_review=2, no_judge=True)
     assert d["deficit"] == 1, d
-    print("  no PR, a draft and a mixed pair are active; only the all-ready PR awaits a human")
+    print("  no PR, a draft, a mixed pair and a truncated list are active; only the "
+          "all-ready PR awaits a human")
+
+
+def test_a_board_still_on_the_old_review_names_keeps_its_flight():
+    board = [item(1, "In progress"),
+             item(2, "AI review", prs=[PR + "2"], drafts=[PR + "2"]),
+             item(3, "Human review", prs=[PR + "3"]), item(9)]
+    d, code = run_next(next_module(board), target=None, max_active=2, max_review=1,
+                       no_judge=True)
+    assert (d["in_flight"], d["active"], d["review"], d["deficit"]) == (3, 2, 1, 0), d
+    assert code == 1, d
+    print("  AI review and Human review still count as flight before the board migrates")
 
 
 def test_a_ready_pr_is_never_stale_and_a_quiet_draft_is():
@@ -1181,6 +1195,7 @@ def test_settle_moves_only_a_closed_issue_out_of_review():
             out.getvalue()
     assert moved == [("PVT_7", "I5", "Done")], moved
     print("  the closed issue goes to Done under --apply, the open ones stay, a dry run writes nothing")
+
 
 # --- provision ---------------------------------------------------------------------------
 
@@ -1301,18 +1316,20 @@ def test_provision_names_a_disabled_workflow_and_a_shadowing_field():
                             "field of its own") for l in lines), lines
 
 
-
 def test_provision_renames_ai_review_on_its_id_and_keeps_human_review():
     lines, _, code, writes = run_provision(board_answer(statuses=[
         "Backlog", "Ready", "In progress", status("AI review", "ai-id", "PURPLE"),
         status("Human review", "human-id", "PINK"), "Done"]), "--apply")
-    assert code == 0 and len(writes) == 1, (code, writes)
+    assert code == 1 and len(writes) == 1, (code, writes)
     sent = sent_options(writes[0])
     assert ("ai-id", "In review", "PURPLE") in sent, sent
     assert sent[-1] == ("human-id", "Human review", "PINK"), sent
     assert "ADDED\tStatus option 'In review', renamed from 'AI review' with its items" in lines
-    assert "OK\tStatus option 'Human review' kept: this script never sets it" in lines, lines
-    print("  AI review becomes In review on its own id; Human review is left for a person")
+    assert "MANUAL\tStatus option 'Human review'\tmove its items to 'In review', then delete " \
+           "the option in the board's settings" in lines, lines
+    assert lines[-1].startswith("NOT READY\t"), lines
+    print("  AI review becomes In review on its own id; Human review is kept and named MANUAL")
+
 
 def test_provision_refuses_a_board_that_is_not_there():
     for answer, why in (({"organization": {"projectV2": None, "issueFields": {"nodes": []}}},

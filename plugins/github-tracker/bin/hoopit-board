@@ -133,6 +133,10 @@ REQUIRED_WORKFLOWS = (("Item added to project", "Backlog"), ("Item closed", "Don
 # A Status an older board carries under another name. `provision` renames it in place, so
 # the option keeps its id, its items and the built-in workflow that sets it.
 STATUS_PREDECESSORS = {"In review": "AI review"}
+# A Status an older board carries that folds into another. Nothing here reads it, so an
+# item left in it drops out of flight: `provision` names it until a person has moved its
+# items and deleted it, since dropping the option through the API would clear their Status.
+RETIRED_STATUSES = {"Human review": "In review"}
 CONFIG_ENV = "HOOPIT_BOARD_CONFIG"
 REPO_NAME = re.compile(r"[\w.-]+/[\w.-]+")
 
@@ -267,8 +271,10 @@ def dispatch_model():
 
 # GitHub's built-in date field, read as "not before": see the module docstring.
 DATE_FIELD = "Start date"
-IN_FLIGHT = ("In progress", "In review")
-REVIEW = "In review"
+IN_REVIEW = "In review"
+# A board not yet provisioned onto `In review` still holds its review work under the older
+# names, and that work is flight all the same.
+IN_FLIGHT = ("In progress", IN_REVIEW, *STATUS_PREDECESSORS.values(), *RETIRED_STATUSES)
 # Where dispatch picks from. `Ready` is work already committed to; anything whose
 # decision the issue itself would be is a proposal, and lands in `Backlog` to wait,
 # triaged or not, for the user to promote it — `create-gh-issue` draws the line, and
@@ -530,7 +536,8 @@ BOARD_QUERY = """query($login:String!,$number:Int!,$after:String){
         autonomy: fieldValueByName(name:"Autonomy"){ ...axis }
         not_before: fieldValueByName(name:"Start date"){ ...day }
         prs: fieldValueByName(name:"Linked pull requests"){
-          ... on ProjectV2ItemFieldPullRequestValue{ pullRequests(first:10){ nodes{ url state isDraft updatedAt } } } }
+          ... on ProjectV2ItemFieldPullRequestValue{ pullRequests(first:10){ totalCount
+            nodes{ url state isDraft updatedAt } } } }
       } } } } }
 fragment axis on ProjectV2ItemIssueFieldValue{
   issueFieldValue{ ... on IssueFieldSingleSelectValue{ name } } }
@@ -571,7 +578,8 @@ def board(bodies=False):
             c = i.get("content") or {}
             if not c.get("number"):
                 continue  # draft items carry no issue
-            prs = ((i.get("prs") or {}).get("pullRequests") or {}).get("nodes") or []
+            linked = (i.get("prs") or {}).get("pullRequests") or {}
+            prs = linked.get("nodes") or []
             out.append({
                 "n": c["number"], "repo": c["repository"]["nameWithOwner"], "url": c["url"],
                 "title": c.get("title", ""), "type": c["__typename"],
@@ -589,6 +597,7 @@ def board(bodies=False):
                 "pr_state": {p["url"]: p["state"] for p in prs},
                 "pr_updated": {p["url"]: p["updatedAt"] for p in prs},
                 "pr_draft": {p["url"]: p["isDraft"] for p in prs},
+                "prs_complete": linked.get("totalCount", 0) <= len(prs),
                 "item_id": i["id"],
             })
         if not items["pageInfo"]["hasNextPage"]:
@@ -596,17 +605,32 @@ def board(bodies=False):
         after = items["pageInfo"]["endCursor"]
 
 
+def open_prs(i):
+    """The URLs of an item's linked PRs that are still open."""
+    return [u for u in i["prs"] if i["pr_state"][u] == "OPEN"]
+
+
+def closed_in_review(i):
+    """An issue In review that is already closed: a PR linked it after it closed, and
+    GitHub's built-in workflow moved it into review whatever its state. It is no longer
+    flight, and `settle` moves it to Done."""
+    return i["status"] == IN_REVIEW and i["type"] == "Issue" and i["state"] not in ("", "OPEN")
+
+
 def awaits_human(i):
     """Whether an item in flight is a human's turn: it has an open PR and none of its open
     PRs is a draft. The board has one review status, and a PR's draft state is what says
     whose turn it is — a draft is the agent's review rounds, a ready PR waits on a human,
     holds a slot and spends nothing. An item with no open PR is still an agent's: its work
-    has not reached a PR, or the PR merged and the board has not caught up."""
-    open_prs = [u for u in i["prs"] if i["pr_state"][u] == "OPEN"]
-    return bool(open_prs) and not any(i["pr_draft"].get(u) for u in open_prs)
+    has not reached a PR, or the PR merged and the board has not caught up. Nor is an item
+    with more linked PRs than the board query reads: a draft among the unread ones would
+    make it the agent's, so it counts as the agent's."""
+    prs = open_prs(i)
+    return (bool(prs) and i.get("prs_complete", True)
+            and not any(i["pr_draft"].get(u) for u in prs))
 
 
-LOCATE_QUERY ="""query($login:String!,$number:Int!,$url:URI!){
+LOCATE_QUERY = """query($login:String!,$number:Int!,$url:URI!){
   organization(login:$login){ projectV2(number:$number){ id
     fields(first:50){ nodes{
       ... on ProjectV2FieldCommon{ id name }
@@ -1459,6 +1483,9 @@ def cmd_next(a):
     own "blocked by" link names, held before any body is read. `unexamined` counts the
     candidates the walk never reached.
 
+    `unsettled` lists the closed issues a linked PR pulled back into review. They hold no
+    place in flight, and `settle --apply` moves them to Done.
+
     Three caps, each optional, and the tightest sets the deficit. The target caps all of
     flight. `--max-active` caps the part an agent is still working — everything in flight
     but what `awaits_human` — so a slot frees when a PR goes ready, and the agents started
@@ -1507,10 +1534,12 @@ def cmd_next(a):
     ladder = dispatch_model()
     exclude = {e.strip() for e in a.exclude}
     items = board()
-    flight = [i for i in items if i["status"] in IN_FLIGHT
+    unsettled = [i for i in items if closed_in_review(i)]
+    flight = [i for i in items if i["status"] in IN_FLIGHT and not closed_in_review(i)
               and (not a.scope or i["repo"] in a.scope)]
-    review = [i for i in flight if awaits_human(i)]
-    active = [i for i in flight if not awaits_human(i)]
+    review, active = [], []
+    for i in flight:
+        (review if awaits_human(i) else active).append(i)
     quiet = []
     if a.live_agents is not None:
         live_agents = {n for n in a.live_agents.split(",") if n}
@@ -1571,6 +1600,7 @@ def cmd_next(a):
         "ready": len(backlog), "backlog": len(parked),
         "max_active": a.max_active, "active": len(active),
         "max_review": a.max_review, "review": len(review),
+        "unsettled": [brief(i) for i in unsettled],
         "quiet": [brief(i, "status", "prs", "agent") for i in quiet],
         "untriaged": [brief(i) for i in untriaged],
         "held": [brief(i, "autonomy") for i in held],
@@ -2372,10 +2402,10 @@ def cmd_stale(a):
     flight = [i for i in board() if i["status"] in IN_FLIGHT and not awaits_human(i)]
     for i in sorted(flight, key=rank_key):
         agent, since = claim_of(i)
-        open_prs = [u for u in i["prs"] if i["pr_state"][u] == "OPEN"]
-        if open_prs:
+        prs = open_prs(i)
+        if prs:
             # The freshest open PR governs: one moving PR means the work is not quiet.
-            quiet = min(hours_since(i["pr_updated"][u], now) for u in open_prs)
+            quiet = min(hours_since(i["pr_updated"][u], now) for u in prs)
             if quiet >= a.older_than:
                 print(f'{i["repo"]}#{i["n"]}\t{agent}\t{quiet:.1f}h\tpr-quiet\t{i["url"]}')
             continue
@@ -2574,8 +2604,7 @@ def cmd_settle(a):
     every cap. An open issue is never touched, whatever its PRs say.
 
     Prints SETTLED (applied) or WOULD-SETTLE per item; writes only with `--apply`."""
-    closed = [i for i in board() if i["status"] == REVIEW and i["type"] == "Issue"
-              and i["state"] not in ("", "OPEN")]
+    closed = [i for i in board() if closed_in_review(i)]
     if a.apply and closed:
         project_id, fields, _, _ = locate(closed[0]["repo"], closed[0]["n"])
     for i in closed:
@@ -2683,9 +2712,11 @@ def status_plan(field, items):
     STATUSES come first in their order, then every other option already there.
 
     An option naming a STATUSES entry in another case (GitHub's default `In Progress`), or
-    naming its entry in STATUS_PREDECESSORS, is renamed in place. GitHub's default `Todo` is dropped from a board with no items, where
-    nothing can hold it; on a board with items it stays with the other extras, since
-    dropping it would clear the Status of whatever does. `lines` are `(kind, what)`, kind
+    naming its entry in STATUS_PREDECESSORS, is renamed in place. GitHub's default `Todo`
+    is dropped from a board with no items, where nothing can hold it; on a board with
+    items it stays with the other extras, since dropping it would clear the Status of
+    whatever does. A RETIRED_STATUSES option is sent back unchanged and left to `provision`
+    to name. `lines` are `(kind, what)`, kind
     being OK or FIX."""
     existing = field.get("options") or []
     exact = {o["name"]: o for o in existing}
@@ -2721,6 +2752,8 @@ def status_plan(field, items):
             options.append(o)
             lines.append(("OK", "Status option 'Todo' kept: GitHub's default, "
                                 "and the board's items may hold it"))
+        elif o["name"] in RETIRED_STATUSES:
+            options.append(o)
         else:
             options.append(o)
             lines.append(("OK", f"Status option {o['name']!r} kept: this script never sets it"))
@@ -2768,6 +2801,10 @@ def cmd_provision(a):
                 f'singleSelectOptions:[{", ".join(option_literal(o) for o in options)}]}})'
                 '{ clientMutationId } }')
         entries += [(kind, what, "", "Status" if kind == "FIX" else None) for kind, what in lines]
+        entries += [("MANUAL", f"Status option {o['name']!r}",
+                     f"move its items to {RETIRED_STATUSES[o['name']]!r}, then delete the "
+                     "option in the board's settings", None)
+                    for o in status["options"] if o["name"] in RETIRED_STATUSES]
 
     org_fields = {f["name"]: f for f in org["issueFields"]["nodes"] if f.get("name")}
     for field, options in BOARD_ISSUE_FIELDS:

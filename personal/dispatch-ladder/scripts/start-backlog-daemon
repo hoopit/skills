@@ -26,8 +26,10 @@
 # included, for a review queue that must never pass a number. One tick fills every slot
 # the caps leave free.
 #
-# Each tick first runs `hoopit-board settle`: a PR that links an issue already closed
-# pulls it back into `In review`, where it would hold a slot under every cap.
+# A PR that links an issue already closed pulls it back into `In review`. `next` holds
+# no slot for it and lists it under `unsettled`, and only then does a tick run
+# `hoopit-board settle` to move it to Done — a second board read, spent when there is
+# something to move.
 #
 # Owning work and working it are separate facts. The board status is the ownership: an
 # item in flight is never offered again, and its open PR holds its files. Its place
@@ -188,16 +190,6 @@ prune_dispatched() {
   awk -v c="$cutoff" -F'\t' '$2 >= c' "$DISPATCHED" > "$DISPATCHED.new" && mv "$DISPATCHED.new" "$DISPATCHED"
 }
 
-# Move the closed issues a linked PR pulled back into review out to Done, so they free
-# their slots before the caps are counted.
-settle() {
-  local verdict item url apply=--apply
-  (( DRY )) && apply=
-  while IFS=$'\t' read -r verdict item url; do
-    [[ -n "${item:-}" ]] && log "settle $url: issue closed, In review -> Done (${verdict,,})"
-  done < <(hoopit-board settle $apply 2>/dev/null)
-}
-
 # Release the slots held by agents that are gone. An item claimed by `hoopit-board
 # start` carries no agent name — that is a Claude Code session, not a herdr pane, and
 # nothing here can tell whether it is still working. Left alone.
@@ -349,6 +341,14 @@ tick() {
     return 0
   fi
 
+  if python3 -c 'import json,sys; sys.exit(not json.load(open(sys.argv[1]))["unsettled"])' "$run"; then
+    local verdict item url apply=--apply
+    (( DRY )) && apply=
+    while IFS=$'\t' read -r verdict item url; do
+      [[ -n "${item:-}" ]] && log "settle $url: issue closed, In review -> Done (${verdict,,})"
+    done < <(hoopit-board settle $apply 2>/dev/null)
+  fi
+
   python3 - "$run" "$seen" "$COOLOFF_HOURS" "$SKIP_TYPES" <<'PY'
 import json, re, sys
 d = json.load(open(sys.argv[1]))
@@ -478,7 +478,6 @@ while :; do
     # rather than double-claiming an issue or double-releasing a reaped one.
     exec {lockfd}>"$LOCK"
     if flock -n "$lockfd"; then
-      settle
       reap
       tick
       flock -u "$lockfd"
