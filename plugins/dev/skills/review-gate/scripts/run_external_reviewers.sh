@@ -16,11 +16,13 @@
 # --challenge-only skips the standard review, for a caller that wants the challenge alone.
 # The standard review requires --model and --effort: how hard a branch is read is the caller's
 # decision, never a config default it inherits. It runs on the Codex CLI (`codex exec review`),
-# the path that takes an effort. The challenge runs on codex-companion's adversarial review, which
-# owns its prompt and output schema, and is not steerable: it always runs on CHALLENGE_MODEL,
-# whichever caller asks, because questioning an approach is what a strong model buys and must not
-# weaken as a side effect of a cheaper defect hunt. codex-companion takes no effort for it, so it
-# runs at the model_reasoning_effort ~/.codex/config.toml names.
+# the path that takes an effort. The challenge runs on the Codex CLI too, as a `codex exec` turn in a
+# read-only sandbox, fed the adversarial prompt and output schema under ../challenge/ (vendored from
+# the codex plugin — see ../challenge/NOTICE); its findings are that schema's JSON. It is not
+# steerable by the caller: it always runs on CHALLENGE_MODEL at CHALLENGE_EFFORT, whichever caller
+# asks, because questioning an approach is what a strong model buys and must not weaken as a side
+# effect of a cheaper defect hunt. CODEX_CHALLENGE_MODEL and CODEX_CHALLENGE_EFFORT in the
+# environment replace a pinned default Codex no longer accepts.
 # Prints, one per line:  codex=<ran|cached|skipped|error|unavailable>[:<output-file>]
 #                        codex_challenge=<same>[:<output-file>]   (with --challenge)
 # and, for each that did not run:  <name>_reason=<what went wrong>
@@ -28,7 +30,7 @@
 # A run that fails is retried once before it is reported as `error` — a Codex failure is as
 # often transient (an auth refresh, a rate limit, a timeout) as it is durable, and a caller
 # that treats `error` as gravely as a missing install should not be tripped by a blip.
-# `unavailable` is never retried: a CLI or plugin that isn't installed stays uninstalled.
+# `unavailable` is never retried: a CLI that isn't installed stays uninstalled.
 #
 # A run is keyed on what a reviewer would actually see — reviewer, head tree, base, model, effort,
 # focus — and a repeat of that exact key reuses the findings instead of spending Codex again,
@@ -53,7 +55,8 @@ CHALLENGE=""
 CHALLENGE_MISSING=""
 MODEL=""
 EFFORT=""
-CHALLENGE_MODEL="gpt-6.1-sol"
+CHALLENGE_MODEL="${CODEX_CHALLENGE_MODEL:-gpt-6.1-sol}"
+CHALLENGE_EFFORT="${CODEX_CHALLENGE_EFFORT:-high}"
 SKIP_DOCS_ONLY=""
 OUT=""
 USE_CACHE=1
@@ -133,16 +136,12 @@ cache_path() {  # <kind> <model> <effort> <focus>
   printf '%s/%s.txt' "$CACHE_DIR" "$key"
 }
 
-# Resolve codex-companion.mjs (prefer the newest installed cache, else the marketplace clone).
-CODEX="$(ls -1 "$HOME"/.claude/plugins/cache/openai-codex/*/*/scripts/codex-companion.mjs 2>/dev/null | sort -V | tail -1)"
-[ -z "$CODEX" ] && CODEX="$(ls -1 "$HOME"/.claude/plugins/marketplaces/openai-codex/plugins/codex/scripts/codex-companion.mjs 2>/dev/null | head -1)"
-
 # The last non-empty line of a failed run is where Codex states its failure.
 last_line() { grep -v '^[[:space:]]*$' "$1" | tail -1; }
 
 CODEX_CLI="$(command -v codex)"
 cx=unavailable; cx_reason="codex not found on PATH (Codex CLI not installed)"
-ch=unavailable; ch_reason="codex-companion.mjs not found under ~/.claude/plugins (codex plugin not installed)"
+ch=unavailable; ch_reason="$cx_reason"
 
 # The findings are Codex's last message, written by -o; the log keeps the rest for a failure's
 # reason. A run that exits 0 without writing findings has not reviewed anything.
@@ -150,6 +149,55 @@ standard_review() {
   rm -f "$OUT/codex.txt"
   codex exec review --base "$BASE" --model "$MODEL" -c model_reasoning_effort="\"$EFFORT\"" \
     --ephemeral -o "$OUT/codex.txt" </dev/null >"$OUT/codex.log" 2>&1 && [ -s "$OUT/codex.txt" ]
+}
+
+CHALLENGE_DIR="$(cd "$(dirname "$0")/../challenge" && pwd)"
+
+# The diff goes into the prompt when it is small, as the codex plugin's adversarial review does;
+# past that, Codex is told to read it itself with read-only git. Either way it runs from the repo root.
+challenge_prompt() {
+  local merge_base range names log stat diff="" bytes context guidance t
+  merge_base="$(git merge-base HEAD "$BASE")" || return 1
+  range="$merge_base..HEAD"
+  # Every git read is checked: a diff that failed must not reach Codex as an empty one.
+  names="$(git diff --name-only "$range")" || return 1
+  log="$(git log --oneline --decorate "$range")" || return 1
+  stat="$(git diff --stat "$range")" || return 1
+  bytes="$(git diff --binary --no-ext-diff --submodule=diff "$range" | wc -c; exit "${PIPESTATUS[0]}")" || return 1
+  if [ "$(printf '%s' "$names" | grep -c .)" -le 2 ] && [ "$bytes" -le 262144 ]; then
+    diff="$(git diff --binary --no-ext-diff --submodule=diff "$range")" || return 1
+  fi
+  section() { printf '## %s\n\n%s\n\n' "$1" "${2:-(none)}"; }
+  context="$(section "Commit Log" "$log")
+$(section "Diff Stat" "$stat")"
+  if [ -n "$diff" ]; then
+    context="$context
+$(section "Branch Diff" "$diff")"
+    guidance="Use the repository context below as primary evidence."
+  else
+    context="$context
+$(section "Changed Files" "$names")"
+    guidance="The repository context below is a lightweight summary. Inspect the target diff yourself with read-only git commands before finalizing findings."
+  fi
+  t="$(cat "$CHALLENGE_DIR/prompt.md")" || return 1
+  # Quoted replacements, so a `&` in a diff is never read as the matched text.
+  t="${t//'{{TARGET_LABEL}}'/"branch diff against $BASE (merge-base $merge_base)"}"
+  t="${t//'{{USER_FOCUS}}'/"$CHALLENGE"}"
+  t="${t//'{{REVIEW_COLLECTION_GUIDANCE}}'/"$guidance"}"
+  t="${t//'{{REVIEW_INPUT}}'/"$context"}"
+  printf '%s\n' "$t"
+}
+
+# Like the standard review: the findings are the last message, the log keeps the rest. A run that
+# exits 0 without a verdict in its findings has not reviewed anything.
+challenge_review() {
+  rm -f "$OUT/codex-challenge.txt"
+  challenge_prompt >"$OUT/codex-challenge-prompt.md" 2>"$OUT/codex-challenge.log" ||
+    { echo "could not build the challenge prompt against $BASE" >>"$OUT/codex-challenge.log"; return 1; }
+  codex exec --model "$CHALLENGE_MODEL" -c model_reasoning_effort="\"$CHALLENGE_EFFORT\"" \
+    --sandbox read-only --cd "$(git rev-parse --show-toplevel)" --output-schema "$CHALLENGE_DIR/schema.json" \
+    --ephemeral -o "$OUT/codex-challenge.txt" - <"$OUT/codex-challenge-prompt.md" >"$OUT/codex-challenge.log" 2>&1 &&
+    grep -q '"verdict"' "$OUT/codex-challenge.txt" 2>/dev/null
 }
 
 if docs_only; then
@@ -160,7 +208,7 @@ if docs_only; then
 fi
 
 cx_cache="$(cache_path review "$MODEL" "$EFFORT" "")"
-ch_cache="$(cache_path challenge "$CHALLENGE_MODEL" "" "$CHALLENGE")"
+ch_cache="$(cache_path challenge "$CHALLENGE_MODEL" "$CHALLENGE_EFFORT" "$CHALLENGE")"
 
 if [ "$STANDARD" = 1 ] && [ -n "$cx_cache" ] && [ -s "$cx_cache" ]; then
   STANDARD=0; cx=cached; cx_file="$cx_cache"
@@ -170,14 +218,14 @@ if [ -n "$CHALLENGE" ] && [ -n "$ch_cache" ] && [ -s "$ch_cache" ]; then
 fi
 
 [ -n "$CODEX_CLI" ] || STANDARD=0
-[ -n "$CODEX" ] || CHALLENGE=""
+[ -n "$CODEX_CLI" ] || CHALLENGE=""
 if [ "$STANDARD" = 1 ] || [ -n "$CHALLENGE" ]; then
   if [ "$STANDARD" = 1 ]; then
     standard_review &
     cx_pid=$!
   fi
   if [ -n "$CHALLENGE" ]; then
-    node "$CODEX" adversarial-review --scope branch --base "$BASE" --model "$CHALLENGE_MODEL" --wait "$CHALLENGE" >"$OUT/codex-challenge.txt" 2>&1 &
+    challenge_review &
     ch_pid=$!
   fi
   # Retries run after the parallel phase, and only for a run that failed.
@@ -188,9 +236,8 @@ if [ "$STANDARD" = 1 ] || [ -n "$CHALLENGE" ]; then
   fi
   if [ -n "$CHALLENGE" ]; then
     ch=ran
-    wait "$ch_pid" || node "$CODEX" adversarial-review --scope branch --base "$BASE" --model "$CHALLENGE_MODEL" --wait \
-      "$CHALLENGE" >"$OUT/codex-challenge.txt" 2>&1 ||
-      { ch=error; ch_reason="$(last_line "$OUT/codex-challenge.txt") [after one retry]"; }
+    wait "$ch_pid" || challenge_review ||
+      { ch=error; ch_reason="$(last_line "$OUT/codex-challenge.log") [after one retry]"; }
   fi
 fi
 
@@ -205,6 +252,7 @@ if [ "$WANT_STANDARD" = 1 ]; then
   case "$cx" in ran|cached) ;; *) echo "codex_reason=$cx_reason" ;; esac
 fi
 if [ -n "$WANT_CHALLENGE" ]; then
-  echo "codex_challenge=$ch$(suffix "$ch" "$OUT/codex-challenge.txt" "${ch_file:-}")"
+  ch_out="$OUT/codex-challenge.txt"; [ "$ch" = error ] && ch_out="$OUT/codex-challenge.log"
+  echo "codex_challenge=$ch$(suffix "$ch" "$ch_out" "${ch_file:-}")"
   case "$ch" in ran|cached) ;; *) echo "codex_challenge_reason=$ch_reason" ;; esac
 fi

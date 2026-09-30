@@ -66,7 +66,9 @@ Set by the caller; unset, the pass is a full review of the whole branch.
   `<CHALLENGE_AT>`*. Keying on the last **challenge** rather than the last round is what
   catches a shape that arrives in ten commits none of which moves it alone.
 - `CODEX_MODEL`, `CODEX_EFFORT` *(optional)* — override the model and reasoning effort step 2
-  picks for Codex's **standard review**. The challenge takes neither: the script pins its model.
+  picks for Codex's **standard review**. The challenge takes neither: the script pins its model
+  and effort, and only `CODEX_CHALLENGE_MODEL` / `CODEX_CHALLENGE_EFFORT` replace a pinned pair
+  Codex no longer accepts.
 - `PRIOR_ROUNDS` *(optional)* — one line per earlier pass: the highest severity among its valid
   findings. It is what lets this pass close (step 5).
 
@@ -279,22 +281,19 @@ Solution:
 - `mattpocock-skills:code-review` ships via the **`mattpocock-skills`** plugin
   (`mattpocock-skills@claude-plugins-official`). Without it the gate uses the cold-subagent fallback
   above — equivalent independence, minus the structured two-axis split.
-- **Two installs back the external step.** The standard review runs on the Codex CLI (`codex exec
-  review`), the challenge on the codex plugin's `codex-companion.mjs`; each reports `unavailable`
-  on its own missing piece. Both take minutes and need Codex's own auth (`codex setup`), and an
-  auth `error` blocks exactly as a missing install does — fix it and run the gate again. The
+- **The Codex CLI backs the external step.** The standard review runs as `codex exec review`, the
+  challenge as a `codex exec` turn in a read-only sandbox, on the adversarial prompt and output
+  schema vendored under `challenge/` from the codex plugin; its findings are that schema's JSON.
+  Without the CLI both report `unavailable`. Both take minutes and need Codex's own auth
+  (`codex setup`), and an auth `error` blocks exactly as a missing install does — fix it and run the gate again. The
   script already retried once, so `error` is a second failure: re-running the gate on the spot
   buys a third attempt at best.
-- **A challenge `error` that outlives its cause is a stale broker.** The codex plugin keeps one
-  broker per worktree, holding the credentials and usage-limit verdict it started with: a
-  usage-limit or 401 error that persists past the reset or a fresh login is that broker's. SIGTERM the worktree's
-  `app-server-broker.mjs` (match its `--cwd`), then run the gate again.
 - **Stop a Codex run by killing its pid, one at a time.** `TaskStop` on the shell that launched
   the script leaves Codex running, so read the pid off `ps` and kill that:
 
   ```bash
-  ps -eo pid,args | grep 'codex exec review --base'            # the standard review
-  ps -eo pid,args | grep 'codex-companion.mjs adversarial-review' # the challenge
+  ps -eo pid,args | grep 'codex exec review --base'   # the standard review
+  ps -eo pid,args | grep 'codex exec .*--output-schema' # the challenge
   ```
 
   Match the one you mean, or you take the other down with it; `readlink /proc/<pid>/cwd` tells
