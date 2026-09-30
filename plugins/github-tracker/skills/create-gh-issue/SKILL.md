@@ -118,15 +118,15 @@ gh issue create --repo <repo> --assignee @me --type <Type> \
 | `Bug` | An unexpected problem or behaviour. Something is broken. |
 | `Feature` | A request, an idea, new functionality. |
 | `Task` | Default. A specific piece of work that is neither of the above — a refactor, a chore, a cleanup, a spike. |
-| `Follow-up` | **No code change**, left behind by a **parent**: a verification, logs to read once it is live, a measurement, a script or repair command to run. |
+| `Follow-up` | **Operational** work a **parent** leaves behind: a verification, logs to read once it is live, a measurement, an existing script or repair command to run. |
 
-Type on what the work **is**, not on what it waits for or where you found it. Anything
-that changes code is never a `Follow-up`, however much it waits on a parent — a shim to
-drop, a flag to remove, a migration to add once the parent merges is a `Task`, `Bug` or
-`Feature` on its own merits. The wait rides on a `blockedBy` link to the parent issue or
-a `Gate: deployed` line (step 5), never on the type. An epic is being decomposed rather
-than shipped, so its rows are typed on their own merits too. Name the parent in the body
-either way (`follows hoopit/api#412`): a cross-reference is not a type.
+Type on the **deliverable**. A diff is a `Bug`, `Feature` or `Task`, whatever it waits
+on — a shim to drop, a flag to remove, a migration once the parent merges, a repair
+command still to write. An answer or an operational action is a `Follow-up`. The wait
+itself rides on a `blockedBy` link to the parent issue or a `Gate: deployed` line
+(step 5), which leaves the type free to say what the work is. An epic is being
+decomposed rather than shipped, so its rows are typed on their own merits too. Name the
+parent in the body either way (`follows hoopit/api#412`): a cross-reference is not a type.
 
 ## 5. Set Priority, Effort and Autonomy
 
