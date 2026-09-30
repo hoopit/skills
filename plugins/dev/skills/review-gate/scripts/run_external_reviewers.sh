@@ -151,6 +151,9 @@ standard_review() {
     --ephemeral -o "$OUT/codex.txt" </dev/null >"$OUT/codex.log" 2>&1 && [ -s "$OUT/codex.txt" ]
 }
 
+# The replacement text is a diff, so a `&` in it must stay a `&` (bash 5.2+ reads it as the match),
+# and it is left unquoted because bash before 4.3 keeps quotes around a quoted replacement.
+shopt -u patsub_replacement 2>/dev/null
 CHALLENGE_DIR="$(cd "$(dirname "$0")/../challenge" && pwd)"
 
 # The diff goes into the prompt when it is small, as the codex plugin's adversarial review does;
@@ -180,11 +183,11 @@ $(section "Changed Files" "$names")"
     guidance="The repository context below is a lightweight summary. Inspect the target diff yourself with read-only git commands before finalizing findings."
   fi
   t="$(cat "$CHALLENGE_DIR/prompt.md")" || return 1
-  # Quoted replacements, so a `&` in a diff is never read as the matched text.
-  t="${t//'{{TARGET_LABEL}}'/"branch diff against $BASE (merge-base $merge_base)"}"
-  t="${t//'{{USER_FOCUS}}'/"$CHALLENGE"}"
-  t="${t//'{{REVIEW_COLLECTION_GUIDANCE}}'/"$guidance"}"
-  t="${t//'{{REVIEW_INPUT}}'/"$context"}"
+  fill() { local k="{{$1}}"; t=${t//"$k"/$2}; }
+  fill TARGET_LABEL "branch diff against $BASE (merge-base $merge_base)"
+  fill USER_FOCUS "$CHALLENGE"
+  fill REVIEW_COLLECTION_GUIDANCE "$guidance"
+  fill REVIEW_INPUT "$context"
   printf '%s\n' "$t"
 }
 
