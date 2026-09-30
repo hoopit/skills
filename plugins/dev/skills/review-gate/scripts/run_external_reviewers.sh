@@ -129,9 +129,12 @@ CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/review-gate"
 cache_path() {  # <kind> <model> <effort> <focus>
   [ "$USE_CACHE" = 1 ] || return 1
   [ -n "$HEAD_SHA" ] && [ -n "$BASE_SHA" ] || return 1
-  command -v sha256sum >/dev/null 2>&1 || return 1
-  local key
-  key="$(printf '%s\n' "$1" "$HEAD_SHA" "$BASE_SHA" "$2" "$3" "$4" | sha256sum | cut -d' ' -f1)"
+  local key hash
+  # macOS ships shasum, not sha256sum; both print the same hex digest first.
+  if command -v sha256sum >/dev/null 2>&1; then hash="sha256sum"
+  elif command -v shasum >/dev/null 2>&1; then hash="shasum -a 256"
+  else return 1; fi
+  key="$(printf '%s\n' "$1" "$HEAD_SHA" "$BASE_SHA" "$2" "$3" "$4" | $hash | cut -d' ' -f1)"
   mkdir -p "$CACHE_DIR" 2>/dev/null || return 1
   printf '%s/%s.txt' "$CACHE_DIR" "$key"
 }
