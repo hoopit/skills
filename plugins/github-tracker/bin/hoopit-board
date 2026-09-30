@@ -2402,7 +2402,8 @@ def cmd_stale(a):
     is the right way round for something whose output frees a slot.
     """
     now = datetime.now(timezone.utc)
-    flight = [i for i in board() if i["status"] in IN_FLIGHT and not awaits_human(i)]
+    flight = [i for i in board() if i["status"] in IN_FLIGHT and not awaits_human(i)
+              and not closed_in_review(i)]
     for i in sorted(flight, key=rank_key):
         agent, since = claim_of(i)
         prs = open_prs(i)

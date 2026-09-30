@@ -26,7 +26,7 @@
 # included, for a review queue that must never pass a number. One tick fills every slot
 # the caps leave free.
 #
-# A PR that links an issue already closed pulls it back into `In review`. `next` holds
+# A PR that links an issue already closed pulls it back into review. `next` holds
 # no slot for it and lists it under `unsettled`, and only then does a tick run
 # `hoopit-board settle` to move it to Done — a second board read, spent when there is
 # something to move.
@@ -346,7 +346,7 @@ tick() {
     local verdict item url apply=--apply
     (( DRY )) && apply=
     while IFS=$'\t' read -r verdict item url; do
-      [[ -n "${item:-}" ]] && log "settle $url: issue closed, In review -> Done (${verdict,,})"
+      [[ -n "${item:-}" ]] && log "settle $url: issue closed, review -> Done (${verdict,,})"
     done < <(hoopit-board settle $apply 2>/dev/null)
   fi
 
