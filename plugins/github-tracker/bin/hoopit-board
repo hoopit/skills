@@ -130,14 +130,6 @@ STATUS_STYLE = {"Backlog": ("GREEN", "This item hasn't been started"),
 # workflow or reads which Status it sets, so these are checked for `enabled` only.
 REQUIRED_WORKFLOWS = (("Item added to project", "Backlog"), ("Item closed", "Done"),
                       ("Pull request linked to issue", "In review"))
-# A Status an older board carries under another name. `provision` renames it in place, so
-# the option keeps its id, its items and the built-in workflow that sets it.
-STATUS_PREDECESSORS = {"In review": "AI review"}
-# A Status an older board carries that folds into another. No workflow sets it any more,
-# and deleting the option through the API would clear its items' Status, so `provision`
-# names it until a person has moved its items and deleted it. Until then its items are
-# flight like any other review work.
-RETIRED_STATUSES = {"Human review": "In review"}
 CONFIG_ENV = "HOOPIT_BOARD_CONFIG"
 REPO_NAME = re.compile(r"[\w.-]+/[\w.-]+")
 
@@ -273,10 +265,7 @@ def dispatch_model():
 # GitHub's built-in date field, read as "not before": see the module docstring.
 DATE_FIELD = "Start date"
 IN_REVIEW = "In review"
-# A board not yet provisioned onto `In review` still holds its review work under the older
-# names, and that work is flight all the same.
-REVIEW_STATUSES = (IN_REVIEW, *STATUS_PREDECESSORS.values(), *RETIRED_STATUSES)
-IN_FLIGHT = ("In progress", *REVIEW_STATUSES)
+IN_FLIGHT = ("In progress", IN_REVIEW)
 # Where dispatch picks from. `Ready` is work already committed to; anything whose
 # decision the issue itself would be is a proposal, and lands in `Backlog` to wait,
 # triaged or not, for the user to promote it — `create-gh-issue` draws the line, and
@@ -617,8 +606,7 @@ def closed_in_review(i):
     to issue* workflow moves an issue into review whatever its state, so a PR that links
     an issue already closed pulls it back, and no close event follows to move it out. It
     is not flight; `settle` moves it to Done."""
-    return (i["status"] in REVIEW_STATUSES and i["type"] == "Issue"
-            and i["state"] not in ("", "OPEN"))
+    return i["status"] == IN_REVIEW and i["type"] == "Issue" and i["state"] not in ("", "OPEN")
 
 
 def awaits_human(i):
@@ -2712,12 +2700,10 @@ def status_plan(field, items):
     id, name, color and description, and the id is what keeps each item's value. The
     STATUSES come first in their order, then every other option already there.
 
-    An option naming a STATUSES entry in another case (GitHub's default `In Progress`), or
-    naming its entry in STATUS_PREDECESSORS, is renamed in place. GitHub's default `Todo`
-    is dropped from a board with no items, where nothing can hold it; on a board with
-    items it stays with the other extras, since dropping it would clear the Status of
-    whatever does. A RETIRED_STATUSES option is sent back unchanged and left to `provision`
-    to name. `lines` are `(kind, what)`, kind
+    An option naming a STATUSES entry in another case (GitHub's default `In Progress`) is
+    renamed in place. GitHub's default `Todo` is dropped from a board with no items, where
+    nothing can hold it; on a board with items it stays with the other extras, since
+    dropping it would clear the Status of whatever does. `lines` are `(kind, what)`, kind
     being OK or FIX."""
     existing = field.get("options") or []
     exact = {o["name"]: o for o in existing}
@@ -2730,9 +2716,7 @@ def status_plan(field, items):
         if s in chosen:
             continue
         o = next((o for o in existing
-                  if o["id"] not in taken and o["name"].lower() == s.lower()), None) \
-            or next((o for o in existing
-                     if o["id"] not in taken and o["name"] == STATUS_PREDECESSORS.get(s)), None)
+                  if o["id"] not in taken and o["name"].lower() == s.lower()), None)
         if o:
             chosen[s] = ({**o, "name": s}, "FIX",
                          f"Status option {s!r}, renamed from {o['name']!r} with its items")
@@ -2753,8 +2737,6 @@ def status_plan(field, items):
             options.append(o)
             lines.append(("OK", "Status option 'Todo' kept: GitHub's default, "
                                 "and the board's items may hold it"))
-        elif o["name"] in RETIRED_STATUSES:
-            options.append(o)
         else:
             options.append(o)
             lines.append(("OK", f"Status option {o['name']!r} kept: this script never sets it"))
@@ -2802,10 +2784,6 @@ def cmd_provision(a):
                 f'singleSelectOptions:[{", ".join(option_literal(o) for o in options)}]}})'
                 '{ clientMutationId } }')
         entries += [(kind, what, "", "Status" if kind == "FIX" else None) for kind, what in lines]
-        entries += [("MANUAL", f"Status option {o['name']!r}",
-                     f"move its items to {RETIRED_STATUSES[o['name']]!r}, then delete the "
-                     "option in the board's settings", None)
-                    for o in status["options"] if o["name"] in RETIRED_STATUSES]
 
     org_fields = {f["name"]: f for f in org["issueFields"]["nodes"] if f.get("name")}
     for field, options in BOARD_ISSUE_FIELDS:

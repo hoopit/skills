@@ -100,11 +100,9 @@ hoopit-board provision --owner <org> --number <n> --apply
 ```
 
 The dry run lists what `--apply` would change. On a board already in use, say what that
-means before applying: missing statuses are added, and a differently-cased one — or
-`AI review`, which `In review` takes over — renamed; every existing option keeps its
-id — so no item loses its status — and nothing is deleted except GitHub's default `Todo`
-on an empty board. A `Human review` option is left in place and named `MANUAL`: its items
-have to move to `In review` before a person deletes it.
+means before applying: missing statuses are added and a differently-cased one renamed,
+every existing option keeps its id — so no item loses its status — and nothing is
+deleted except GitHub's default `Todo` on an empty board.
 
 Then re-run the dry run and work every `MANUAL` line:
 

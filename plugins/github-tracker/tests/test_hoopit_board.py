@@ -1153,18 +1153,6 @@ def test_the_caps_split_flight_by_draft_state():
           "all-ready PR awaits a human")
 
 
-def test_a_board_still_on_the_old_review_names_keeps_its_flight():
-    board = [item(1, "In progress"),
-             item(2, "AI review", prs=[PR + "2"], drafts=[PR + "2"]),
-             item(3, "Human review", prs=[PR + "3"]),
-             item(5, "AI review", prs=[PR + "5"], state="CLOSED"), item(9)]
-    d, code = run_next(next_module(board), target=None, max_active=2, max_review=1,
-                       no_judge=True)
-    assert (d["in_flight"], d["active"], d["review"], d["deficit"]) == (3, 2, 1, 0), d
-    assert code == 1 and only(d, "unsettled") == ["hoopit/api#5"], d
-    print("  AI review and Human review still count as flight before the board migrates")
-
-
 def test_a_ready_pr_is_never_stale_and_a_quiet_draft_is():
     m = load()
     items = review_board()[:4]
@@ -1315,21 +1303,6 @@ def test_provision_names_a_disabled_workflow_and_a_shadowing_field():
            in lines, lines
     assert any(l.startswith("MANUAL\tissue field 'Priority' on the board\tthe board has a "
                             "field of its own") for l in lines), lines
-
-
-def test_provision_renames_ai_review_on_its_id_and_keeps_human_review():
-    lines, _, code, writes = run_provision(board_answer(statuses=[
-        "Backlog", "Ready", "In progress", status("AI review", "ai-id", "PURPLE"),
-        status("Human review", "human-id", "PINK"), "Done"]), "--apply")
-    assert code == 1 and len(writes) == 1, (code, writes)
-    sent = sent_options(writes[0])
-    assert ("ai-id", "In review", "PURPLE") in sent, sent
-    assert sent[-1] == ("human-id", "Human review", "PINK"), sent
-    assert "ADDED\tStatus option 'In review', renamed from 'AI review' with its items" in lines
-    assert "MANUAL\tStatus option 'Human review'\tmove its items to 'In review', then delete " \
-           "the option in the board's settings" in lines, lines
-    assert lines[-1].startswith("NOT READY\t"), lines
-    print("  AI review becomes In review on its own id; Human review is kept and named MANUAL")
 
 
 def test_provision_refuses_a_board_that_is_not_there():
