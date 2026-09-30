@@ -14,27 +14,25 @@
 # With --challenge, Codex also runs its adversarial review — a challenge to the approach and
 # its assumptions, weighted on the focus text — alongside its standard review, in parallel.
 # --challenge-only skips the standard review, for a caller that wants the challenge alone.
-# --model and --effort name the Codex model and reasoning effort for the standard review, and the
-# standard review refuses to run without both: how hard the branch is read is the caller's
-# decision, never a local config default it happens to inherit. The standard review runs through
-# the Codex CLI (`codex exec review`), because that is the path that takes an effort; the
-# challenge runs through codex-companion's adversarial review, which carries the prompt and output
-# schema it needs. The challenge is deliberately not steerable: it always runs on CHALLENGE_MODEL
-# below, whichever caller asks, because questioning an approach is what a strong model buys, so
-# downgrading it is never a side effect of downgrading the defect hunt. codex-companion takes no
-# effort for it, so its effort is the model_reasoning_effort ~/.codex/config.toml names.
-# Prints, one per line:  codex=<ran|error|unavailable>[:<output-file>]
-#                        codex_challenge=<ran|error|unavailable>[:<output-file>]   (with --challenge)
+# The standard review requires --model and --effort: how hard a branch is read is the caller's
+# decision, never a config default it inherits. It runs on the Codex CLI (`codex exec review`),
+# the path that takes an effort. The challenge runs on codex-companion's adversarial review, which
+# owns its prompt and output schema, and is not steerable: it always runs on CHALLENGE_MODEL,
+# whichever caller asks, because questioning an approach is what a strong model buys and must not
+# weaken as a side effect of a cheaper defect hunt. codex-companion takes no effort for it, so it
+# runs at the model_reasoning_effort ~/.codex/config.toml names.
+# Prints, one per line:  codex=<ran|cached|skipped|error|unavailable>[:<output-file>]
+#                        codex_challenge=<same>[:<output-file>]   (with --challenge)
 # and, for each that did not run:  <name>_reason=<what went wrong>
-# Output files hold each reviewer's raw findings for the skill to read.
+# Output files hold each reviewer's raw findings for the skill to read; an `error`'s holds its log.
 # A run that fails is retried once before it is reported as `error` — a Codex failure is as
 # often transient (an auth refresh, a rate limit, a timeout) as it is durable, and a caller
 # that treats `error` as gravely as a missing install should not be tripped by a blip.
 # `unavailable` is never retried: a CLI or plugin that isn't installed stays uninstalled.
 #
 # A run is keyed on what a reviewer would actually see — reviewer, head tree, base, model, effort,
-# focus — and a repeat of that exact key reuses the findings instead of spending Codex again, reported as
-# `cached`. It is the same review of the same tree, so a caller reads `cached` exactly as `ran`.
+# focus — and a repeat of that exact key reuses the findings instead of spending Codex again,
+# reported as `cached`. It is the same review of the same tree, so a caller reads `cached` exactly as `ran`.
 # What it removes is re-asking a question nothing changed the answer to: a pass re-run after a
 # block that was settled without touching the code, an interrupted round re-armed. A second run
 # would still be a second sample, which does find what a first missed — that, and nothing more, is

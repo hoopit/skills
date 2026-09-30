@@ -65,11 +65,8 @@ Set by the caller; unset, the pass is a full review of the whole branch.
   lines. Otherwise the challenge does not run and the notes say *shape unchanged since
   `<CHALLENGE_AT>`*. Keying on the last **challenge** rather than the last round is what
   catches a shape that arrives in ten commits none of which moves it alone.
-- `CODEX_MODEL`, `CODEX_EFFORT` *(optional)* — the Codex model and reasoning effort for Codex's
-  **standard review**, overriding what the scope would pick (step 2). The challenge is not
-  steerable at all: questioning an approach is what a strong model buys, so the script always runs
-  it on `gpt-6.1-sol`, at the `model_reasoning_effort` `~/.codex/config.toml` names —
-  `codex-companion`, which runs it, takes no effort for it.
+- `CODEX_MODEL`, `CODEX_EFFORT` *(optional)* — override the model and reasoning effort step 2
+  picks for Codex's **standard review**. The challenge takes neither: the script pins its model.
 - `PRIOR_ROUNDS` *(optional)* — one line per earlier pass: the highest severity among its valid
   findings. It is what lets this pass close (step 5).
 
@@ -127,20 +124,22 @@ that policy.
    spent on it. It does not block — there is no code for a second engine to read — and the notes
    say the external step skipped and why.
 
-   **The model and effort follow the scope, not a judgement about the diff.** Under `full`,
-   `MODEL="${CODEX_MODEL:-gpt-6.1-sol}"` and `EFFORT="${CODEX_EFFORT:-high}"` — named here rather
-   than left to `~/.codex/config.toml`, so a reviewer's local default never decides how hard a
-   branch is read. Under `light`, `MODEL="${CODEX_MODEL:-gpt-6-luna}"` and
-   `EFFORT="${CODEX_EFFORT:-medium}"`: that pass reviews only the previous
-   pass's fix commits, behind a `full` pass that cleared everything before `REVIEWED_AT`, which is
-   the same reason it already drops the Spec axis. Nobody — not the caller, not this gate — rules a
-   change "simple" and reviews it more cheaply for it: that judgement is what the review exists to
-   test, and the passes most likely to be misjudged are the ones it would weaken. The script
-   refuses a standard review with no `--model` or `--effort`, as `codex=error`, and a model Codex
-   doesn't know, or an effort that model does not take, fails the run — either way the pass blocks
-   with the reason in `codex_reason`. Set `CODEX_MODEL` to one listed in
-   `~/.codex/models_cache.json`, or `CODEX_EFFORT` to one it supports, for the next pass, and fix
-   the default here if it is the pinned value that went away.
+   **The model and effort follow the scope, not a judgement about the diff:**
+
+   | Scope   | `MODEL`                        | `EFFORT`                   |
+   |---------|--------------------------------|----------------------------|
+   | `full`  | `${CODEX_MODEL:-gpt-6.1-sol}`  | `${CODEX_EFFORT:-high}`    |
+   | `light` | `${CODEX_MODEL:-gpt-6-luna}`   | `${CODEX_EFFORT:-medium}`  |
+
+   The gate names both so a local `~/.codex/config.toml` never decides how hard a branch is read.
+   `light` runs lighter because it reviews only the previous pass's fix commits, behind a `full`
+   pass that cleared everything before `REVIEWED_AT` — the same reason it drops the Spec axis.
+   Nobody — not the caller, not this gate — rules a change "simple" and reviews it more cheaply for
+   it: that judgement is what the review exists to test, and the passes most likely to be
+   misjudged are the ones it would weaken. A missing flag, a model Codex doesn't know, or an effort
+   that model does not take ends as `codex=error`, and the pass blocks. For the next pass, set
+   `CODEX_MODEL` to a model in `~/.codex/models_cache.json` or `CODEX_EFFORT` to one it takes; when
+   it is a pinned default that went away, update this table.
 
    **`SKIP_DOCS_ONLY`**: `--skip-docs-only` under `light`, empty under `full`. On a `light` pass
    the diff *is* the fix commits, so a docs-only one has nothing for a code reviewer; on a `full`
@@ -278,16 +277,15 @@ Solution:
 - `mattpocock-skills:code-review` ships via the **`mattpocock-skills`** plugin
   (`mattpocock-skills@claude-plugins-official`). Without it the gate uses the cold-subagent fallback
   above — equivalent independence, minus the structured two-axis split.
-- The standard review runs on the Codex CLI (`codex exec review`) and the challenge on the codex
-  plugin's `codex-companion.mjs`, so each is `unavailable` on its own missing piece: `codex` off
-  `PATH`, or the plugin not installed.
-- `codex` may be slow (minutes) and needs its own auth (codex setup); an auth/`error` result
-  blocks the pass exactly as a missing install does — fix the auth and run the gate again. The
-  script already retried it once, so `error` is a second failure, not a blip: re-running the
-  gate on the spot buys a third attempt at best.
+- **Two installs back the external step.** The standard review runs on the Codex CLI (`codex exec
+  review`), the challenge on the codex plugin's `codex-companion.mjs`; each reports `unavailable`
+  on its own missing piece. Both take minutes and need Codex's own auth (`codex setup`), and an
+  auth `error` blocks exactly as a missing install does — fix it and run the gate again. The
+  script already retried once, so `error` is a second failure: re-running the gate on the spot
+  buys a third attempt at best.
 - **A challenge `error` that outlives its cause is a stale broker.** The codex plugin keeps one
-  broker per worktree, and it holds the credentials and usage-limit verdict it started with: a usage-limit or
-  401 error that persists past the reset or a fresh login is that broker's. SIGTERM the worktree's
+  broker per worktree, holding the credentials and usage-limit verdict it started with: a
+  usage-limit or 401 error that persists past the reset or a fresh login is that broker's. SIGTERM the worktree's
   `app-server-broker.mjs` (match its `--cwd`), then run the gate again.
 - **Stop a Codex run by killing its pid, one at a time.** `TaskStop` on the shell that launched
   the script leaves Codex running, so read the pid off `ps` and kill that:
