@@ -13,10 +13,11 @@
 # With --challenge, Codex also runs its adversarial review — a challenge to the approach and
 # its assumptions, weighted on the focus text — alongside its standard review, in parallel.
 # --challenge-only skips the standard review, for a caller that wants the challenge alone.
-# --model picks the Codex model for the standard review; empty or absent leaves Codex on the model
-# its own config names, which is the normal case. The challenge is deliberately not steerable:
-# questioning an approach is what a strong model buys, so downgrading it is never a side effect of
-# downgrading the defect hunt. Reasoning effort has no equivalent for either: codex-companion
+# --model names the Codex model for the standard review, and the standard review refuses to run
+# without one: which model reads the branch is the caller's decision, never a local config default
+# it happens to inherit. The challenge is deliberately not steerable, and runs on the model
+# ~/.codex/config.toml names: questioning an approach is what a strong model buys, so downgrading
+# it is never a side effect of downgrading the defect hunt. Reasoning effort has no equivalent for either: codex-companion
 # accepts --effort only on `task`, and the standard review runs through `review/start`, which
 # carries no effort at all — both reviews take it from ~/.codex/config.toml
 # (model_reasoning_effort), so that file is where to change it.
@@ -88,6 +89,7 @@ fail() {
 [ -n "${BAD_FLAG:-}" ] && fail "unknown flag $BAD_FLAG"
 [ -n "$CHALLENGE_MISSING" ] && fail "--challenge given no focus text"
 [ -n "$BASE" ] || fail "no base ref given (pass the base the caller resolved)"
+[ "$STANDARD" = 1 ] && [ -z "$MODEL" ] && fail "no --model given for the standard review"
 # Unique output dir per invocation so concurrent gates (different repos/worktrees,
 # run in parallel) never clobber each other's findings. The caller reads the exact
 # paths printed below, so the location is opaque to it.
@@ -96,10 +98,8 @@ if [ -z "$OUT" ]; then
 fi
 [ -d "$OUT" ] || fail "output dir $OUT does not exist"
 
-# An empty MODEL must expand to no arguments at all, so build the flag as an array. It goes to the
-# standard review alone — see --model above.
-MODEL_ARGS=()
-[ -n "$MODEL" ] && MODEL_ARGS=(--model "$MODEL")
+# The flag goes to the standard review alone — see --model above.
+MODEL_ARGS=(--model "$MODEL")
 
 # Everything below keys on the tree as git sees it. Outside a repo there is nothing to key on, so
 # reuse and the docs-only skip both fail open into a plain run.
