@@ -121,8 +121,8 @@ and link that copy.
 hand-off — the only one a workflow can trigger on, since a resolved review thread raises
 no event. A PR handed straight to humans on creation, with no watch to follow, omits
 `--draft`: nothing would ever mark it ready, and it would sit unmergeable, its issue
-counted as an agent's work in flight. Where its base requires the `merge-briefing` check (the probe in `monitor-pr`'s
-`GREEN.md` answers that), that PR still owes a
+counted as an agent's work in flight. Where its base requires the `merge-briefing`
+check (the probe in `monitor-pr`'s `GREEN.md` answers that), that PR still owes a
 merge briefing before it can merge: say so when handing it over (`/merge-briefing <PR>`).
 
 *Born*, never opened-then-converted: a PR ready for even an instant reads as a human's turn,
@@ -162,9 +162,9 @@ gh pr view --json closingIssuesReferences --jq '.closingIssuesReferences[].numbe
 
 Empty, on a PR that delivers a GitHub issue, means no closing keyword reached the list:
 the body says `refs`, or names the issue in prose, or carries the wrong number. Fix the
-body now. Nothing downstream reports it — the board automation reads an empty list as
-nothing to move and goes green, so the first sign is a human noticing the board is
-wrong days later. (`closingIssuesReferences` is GraphQL-only; REST exposes no such
+body now. Nothing downstream reports it — the board's built-in workflow sees no linked
+issue and moves nothing, so the first sign is a human noticing the board is wrong days
+later. (`closingIssuesReferences` is GraphQL-only; REST exposes no such
 field.)
 
 A calling workflow adds its own body sections (e.g. an `## ITSM` / `## Sentry`

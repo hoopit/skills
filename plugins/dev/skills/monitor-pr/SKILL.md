@@ -186,8 +186,8 @@ or `PR_CLOSED` — drop the label again, so it only ever marks PRs under an acti
 **A PR is a draft exactly while an agent owns its review rounds.** So an ending that hands
 the PR to the user with the rounds over — a close holding a verdict, a checkpoint, or any *Stop,
 I'll take it* answer — marks it ready, or it stays unmergeable, its issue counted as an
-agent's work in flight, with no event left to move it. A hard fork and an error stop leave it a draft on
-purpose: that work is unfinished, and re-arming the watch picks it up where it stands.
+agent's work in flight, with no event left to move it. A hard fork and an error stop
+leave it a draft on purpose: that work is unfinished, and re-arming the watch picks it up where it stands.
 A PR these endings ready without a passing briefing for its head — a verdict close, a
 checkpoint, a *Stop, I'll take it* on a head no `GREEN` briefed or answered to the *no passing
 briefing* question — owes one where its base requires the `merge-briefing` check
