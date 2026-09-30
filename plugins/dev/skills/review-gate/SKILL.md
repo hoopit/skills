@@ -129,14 +129,16 @@ that policy.
    say the external step skipped and why.
 
    **The model follows the scope, not a judgement about the diff.** Under `full`,
-   `MODEL="$CODEX_MODEL"` — empty unless the caller overrode it, leaving Codex on its own default.
+   `MODEL="${CODEX_MODEL:-gpt-6-astra}"` — Codex's frontier model, named here rather than left to
+   `~/.codex/config.toml`, so a reviewer's local default never decides how hard a branch is read.
    Under `light`, `MODEL="${CODEX_MODEL:-gpt-5.6-luna}"`: that pass reviews only the previous
    pass's fix commits, behind a `full` pass that cleared everything before `REVIEWED_AT`, which is
    the same reason it already drops the Spec axis. Nobody — not the caller, not this gate — rules a
    change "simple" and reviews it more cheaply for it: that judgement is what the review exists to
    test, and the passes most likely to be misjudged are the ones it would weaken. `--model` is
    safe to pass empty. A model Codex doesn't know fails the run, so the pass blocks with the id in
-   `codex_reason` — set `CODEX_MODEL=""` to take the next pass back to the config model.
+   `codex_reason` — set `CODEX_MODEL` to one listed in `~/.codex/models_cache.json` for the next
+   pass, and fix the default here if it is the pinned id that went away.
 
    **`SKIP_DOCS_ONLY`**: `--skip-docs-only` under `light`, empty under `full`. On a `light` pass
    the diff *is* the fix commits, so a docs-only one has nothing for a code reviewer; on a `full`
