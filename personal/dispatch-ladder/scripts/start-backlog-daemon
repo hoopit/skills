@@ -341,7 +341,8 @@ tick() {
     return 0
   fi
 
-  if python3 -c 'import json,sys; sys.exit(not json.load(open(sys.argv[1]))["unsettled"])' "$run"; then
+  if python3 -c 'import json,sys; sys.exit(not json.load(open(sys.argv[1])).get("unsettled"))' \
+      "$run" 2>/dev/null; then
     local verdict item url apply=--apply
     (( DRY )) && apply=
     while IFS=$'\t' read -r verdict item url; do

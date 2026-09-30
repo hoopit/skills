@@ -133,9 +133,10 @@ REQUIRED_WORKFLOWS = (("Item added to project", "Backlog"), ("Item closed", "Don
 # A Status an older board carries under another name. `provision` renames it in place, so
 # the option keeps its id, its items and the built-in workflow that sets it.
 STATUS_PREDECESSORS = {"In review": "AI review"}
-# A Status an older board carries that folds into another. Nothing here reads it, so an
-# item left in it drops out of flight: `provision` names it until a person has moved its
-# items and deleted it, since dropping the option through the API would clear their Status.
+# A Status an older board carries that folds into another. No workflow sets it any more,
+# and deleting the option through the API would clear its items' Status, so `provision`
+# names it until a person has moved its items and deleted it. Until then its items are
+# flight like any other review work.
 RETIRED_STATUSES = {"Human review": "In review"}
 CONFIG_ENV = "HOOPIT_BOARD_CONFIG"
 REPO_NAME = re.compile(r"[\w.-]+/[\w.-]+")
@@ -274,7 +275,8 @@ DATE_FIELD = "Start date"
 IN_REVIEW = "In review"
 # A board not yet provisioned onto `In review` still holds its review work under the older
 # names, and that work is flight all the same.
-IN_FLIGHT = ("In progress", IN_REVIEW, *STATUS_PREDECESSORS.values(), *RETIRED_STATUSES)
+REVIEW_STATUSES = (IN_REVIEW, *STATUS_PREDECESSORS.values(), *RETIRED_STATUSES)
+IN_FLIGHT = ("In progress", *REVIEW_STATUSES)
 # Where dispatch picks from. `Ready` is work already committed to; anything whose
 # decision the issue itself would be is a proposal, and lands in `Backlog` to wait,
 # triaged or not, for the user to promote it — `create-gh-issue` draws the line, and
@@ -614,7 +616,8 @@ def closed_in_review(i):
     """An issue In review that is already closed: a PR linked it after it closed, and
     GitHub's built-in workflow moved it into review whatever its state. It is no longer
     flight, and `settle` moves it to Done."""
-    return i["status"] == IN_REVIEW and i["type"] == "Issue" and i["state"] not in ("", "OPEN")
+    return (i["status"] in REVIEW_STATUSES and i["type"] == "Issue"
+            and i["state"] not in ("", "OPEN"))
 
 
 def awaits_human(i):
@@ -748,7 +751,7 @@ def row(it, *extra):
 
 def cmd_slots(a):
     items = board()
-    flight = [i for i in items if i["status"] in IN_FLIGHT]
+    flight = [i for i in items if i["status"] in IN_FLIGHT and not closed_in_review(i)]
     backlog = sorted([i for i in items if i["status"] == POOL], key=rank_key)
     parked = [i for i in items if i["status"] == PARKED]
     deficit = a.target - len(flight)
@@ -2600,8 +2603,9 @@ def cmd_settle(a):
 
     GitHub's built-in *Pull request linked to issue* workflow moves an issue into review
     whatever its state, so a PR that links an issue already closed pulls it back into
-    flight, and no close event follows to move it out. Left there it holds a slot under
-    every cap. An open issue is never touched, whatever its PRs say.
+    review, and no close event follows to move it out. `next` already holds no slot for
+    it; this takes it off the review column and out of `slots`. An open issue is never
+    touched, whatever its PRs say.
 
     Prints SETTLED (applied) or WOULD-SETTLE per item; writes only with `--apply`."""
     closed = [i for i in board() if closed_in_review(i)]

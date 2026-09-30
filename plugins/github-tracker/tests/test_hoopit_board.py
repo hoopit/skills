@@ -1156,11 +1156,12 @@ def test_the_caps_split_flight_by_draft_state():
 def test_a_board_still_on_the_old_review_names_keeps_its_flight():
     board = [item(1, "In progress"),
              item(2, "AI review", prs=[PR + "2"], drafts=[PR + "2"]),
-             item(3, "Human review", prs=[PR + "3"]), item(9)]
+             item(3, "Human review", prs=[PR + "3"]),
+             item(5, "AI review", prs=[PR + "5"], state="CLOSED"), item(9)]
     d, code = run_next(next_module(board), target=None, max_active=2, max_review=1,
                        no_judge=True)
     assert (d["in_flight"], d["active"], d["review"], d["deficit"]) == (3, 2, 1, 0), d
-    assert code == 1, d
+    assert code == 1 and only(d, "unsettled") == ["hoopit/api#5"], d
     print("  AI review and Human review still count as flight before the board migrates")
 
 
