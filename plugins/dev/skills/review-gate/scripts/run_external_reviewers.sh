@@ -5,7 +5,8 @@
 # independent review and the fix/dispute judgment live in the review-gate SKILL.
 #
 # Usage:  run_external_reviewers.sh <base-ref> [--challenge "<focus text>"] [--challenge-only]
-#                                   [--model "<codex model>"] [--skip-docs-only] [--no-cache]
+#                                   [--model "<codex model>"] [--effort "<reasoning effort>"]
+#                                   [--skip-docs-only] [--no-cache]
 #                                   [--out <dir>]
 # <base-ref> is required — the default branch differs per project, so this script refuses to guess
 # rather than name one. Any ref the caller resolved is fine: a `full` pass passes
@@ -13,14 +14,15 @@
 # With --challenge, Codex also runs its adversarial review — a challenge to the approach and
 # its assumptions, weighted on the focus text — alongside its standard review, in parallel.
 # --challenge-only skips the standard review, for a caller that wants the challenge alone.
-# --model names the Codex model for the standard review, and the standard review refuses to run
-# without one: which model reads the branch is the caller's decision, never a local config default
-# it happens to inherit. The challenge is deliberately not steerable: it always runs on
-# CHALLENGE_MODEL below, whichever caller asks, because questioning an approach is what a strong
-# model buys, so downgrading it is never a side effect of downgrading the defect hunt. Reasoning effort has no equivalent for either: codex-companion
-# accepts --effort only on `task`, and the standard review runs through `review/start`, which
-# carries no effort at all — both reviews take it from ~/.codex/config.toml
-# (model_reasoning_effort), so that file is where to change it.
+# --model and --effort name the Codex model and reasoning effort for the standard review, and the
+# standard review refuses to run without both: how hard the branch is read is the caller's
+# decision, never a local config default it happens to inherit. The standard review runs through
+# the Codex CLI (`codex exec review`), because that is the path that takes an effort; the
+# challenge runs through codex-companion's adversarial review, which carries the prompt and output
+# schema it needs. The challenge is deliberately not steerable: it always runs on CHALLENGE_MODEL
+# below, whichever caller asks, because questioning an approach is what a strong model buys, so
+# downgrading it is never a side effect of downgrading the defect hunt. codex-companion takes no
+# effort for it, so its effort is the model_reasoning_effort ~/.codex/config.toml names.
 # Prints, one per line:  codex=<ran|error|unavailable>[:<output-file>]
 #                        codex_challenge=<ran|error|unavailable>[:<output-file>]   (with --challenge)
 # and, for each that did not run:  <name>_reason=<what went wrong>
@@ -28,10 +30,10 @@
 # A run that fails is retried once before it is reported as `error` — a Codex failure is as
 # often transient (an auth refresh, a rate limit, a timeout) as it is durable, and a caller
 # that treats `error` as gravely as a missing install should not be tripped by a blip.
-# `unavailable` is never retried: a plugin that isn't installed stays uninstalled.
+# `unavailable` is never retried: a CLI or plugin that isn't installed stays uninstalled.
 #
-# A run is keyed on what a reviewer would actually see — reviewer, head tree, base, model, focus —
-# and a repeat of that exact key reuses the findings instead of spending Codex again, reported as
+# A run is keyed on what a reviewer would actually see — reviewer, head tree, base, model, effort,
+# focus — and a repeat of that exact key reuses the findings instead of spending Codex again, reported as
 # `cached`. It is the same review of the same tree, so a caller reads `cached` exactly as `ran`.
 # What it removes is re-asking a question nothing changed the answer to: a pass re-run after a
 # block that was settled without touching the code, an interrupted round re-armed. A second run
@@ -52,7 +54,8 @@ BASE=""
 CHALLENGE=""
 CHALLENGE_MISSING=""
 MODEL=""
-CHALLENGE_MODEL="gpt-6-sol"
+EFFORT=""
+CHALLENGE_MODEL="gpt-6.1-sol"
 SKIP_DOCS_ONLY=""
 OUT=""
 USE_CACHE=1
@@ -70,6 +73,9 @@ while [ $# -gt 0 ]; do
       shift; [ $# -gt 0 ] && shift ;;
     --model)
       MODEL="${2:-}"
+      shift; [ $# -gt 0 ] && shift ;;
+    --effort)
+      EFFORT="${2:-}"
       shift; [ $# -gt 0 ] && shift ;;
     -*) BAD_FLAG="$1"; shift ;;
     *) BASE="$1"; shift ;;
@@ -91,6 +97,7 @@ fail() {
 [ -n "$CHALLENGE_MISSING" ] && fail "--challenge given no focus text"
 [ -n "$BASE" ] || fail "no base ref given (pass the base the caller resolved)"
 [ "$STANDARD" = 1 ] && [ -z "$MODEL" ] && fail "no --model given for the standard review"
+[ "$STANDARD" = 1 ] && [ -z "$EFFORT" ] && fail "no --effort given for the standard review"
 # Unique output dir per invocation so concurrent gates (different repos/worktrees,
 # run in parallel) never clobber each other's findings. The caller reads the exact
 # paths printed below, so the location is opaque to it.
@@ -98,9 +105,6 @@ if [ -z "$OUT" ]; then
   OUT="$(bash "$(dirname "$0")/gate_dir.sh" open)" || fail "could not create an output dir"
 fi
 [ -d "$OUT" ] || fail "output dir $OUT does not exist"
-
-# The flag goes to the standard review alone — see --model above.
-MODEL_ARGS=(--model "$MODEL")
 
 # Everything below keys on the tree as git sees it. Outside a repo there is nothing to key on, so
 # reuse and the docs-only skip both fail open into a plain run.
@@ -121,12 +125,12 @@ CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/review-gate"
 # Keys are immutable (they name a tree), so age is the only thing that retires one.
 [ "$USE_CACHE" = 1 ] && find "$CACHE_DIR" -type f -mtime +14 -delete 2>/dev/null
 
-cache_path() {  # <kind> <model> <focus>
+cache_path() {  # <kind> <model> <effort> <focus>
   [ "$USE_CACHE" = 1 ] || return 1
   [ -n "$HEAD_SHA" ] && [ -n "$BASE_SHA" ] || return 1
   command -v sha256sum >/dev/null 2>&1 || return 1
   local key
-  key="$(printf '%s\n' "$1" "$HEAD_SHA" "$BASE_SHA" "$2" "$3" | sha256sum | cut -d' ' -f1)"
+  key="$(printf '%s\n' "$1" "$HEAD_SHA" "$BASE_SHA" "$2" "$3" "$4" | sha256sum | cut -d' ' -f1)"
   mkdir -p "$CACHE_DIR" 2>/dev/null || return 1
   printf '%s/%s.txt' "$CACHE_DIR" "$key"
 }
@@ -135,12 +139,20 @@ cache_path() {  # <kind> <model> <focus>
 CODEX="$(ls -1 "$HOME"/.claude/plugins/cache/openai-codex/*/*/scripts/codex-companion.mjs 2>/dev/null | sort -V | tail -1)"
 [ -z "$CODEX" ] && CODEX="$(ls -1 "$HOME"/.claude/plugins/marketplaces/openai-codex/plugins/codex/scripts/codex-companion.mjs 2>/dev/null | head -1)"
 
-missing="codex-companion.mjs not found under ~/.claude/plugins (codex plugin not installed)"
-# The last non-empty line of a failed run is where codex-companion states its failure.
+# The last non-empty line of a failed run is where Codex states its failure.
 last_line() { grep -v '^[[:space:]]*$' "$1" | tail -1; }
 
-cx=unavailable; cx_reason="$missing"
-ch=unavailable; ch_reason="$missing"
+CODEX_CLI="$(command -v codex)"
+cx=unavailable; cx_reason="codex not found on PATH (Codex CLI not installed)"
+ch=unavailable; ch_reason="codex-companion.mjs not found under ~/.claude/plugins (codex plugin not installed)"
+
+# The findings are Codex's last message, written by -o; the log keeps the rest for a failure's
+# reason. A run that exits 0 without writing findings has not reviewed anything.
+standard_review() {
+  rm -f "$OUT/codex.txt"
+  codex exec review --base "$BASE" --model "$MODEL" -c model_reasoning_effort="\"$EFFORT\"" \
+    --ephemeral -o "$OUT/codex.txt" </dev/null >"$OUT/codex.log" 2>&1 && [ -s "$OUT/codex.txt" ]
+}
 
 if docs_only; then
   skip_reason="no reviewable change in $BASE..HEAD (only docs/ and *.md)"
@@ -149,8 +161,8 @@ if docs_only; then
   exit 0
 fi
 
-cx_cache="$(cache_path review "$MODEL" "")"
-ch_cache="$(cache_path challenge "$CHALLENGE_MODEL" "$CHALLENGE")"
+cx_cache="$(cache_path review "$MODEL" "$EFFORT" "")"
+ch_cache="$(cache_path challenge "$CHALLENGE_MODEL" "" "$CHALLENGE")"
 
 if [ "$STANDARD" = 1 ] && [ -n "$cx_cache" ] && [ -s "$cx_cache" ]; then
   STANDARD=0; cx=cached; cx_file="$cx_cache"
@@ -159,9 +171,11 @@ if [ -n "$CHALLENGE" ] && [ -n "$ch_cache" ] && [ -s "$ch_cache" ]; then
   CHALLENGE=""; ch=cached; ch_file="$ch_cache"
 fi
 
-if [ -n "$CODEX" ] && { [ "$STANDARD" = 1 ] || [ -n "$CHALLENGE" ]; }; then
+[ -n "$CODEX_CLI" ] || STANDARD=0
+[ -n "$CODEX" ] || CHALLENGE=""
+if [ "$STANDARD" = 1 ] || [ -n "$CHALLENGE" ]; then
   if [ "$STANDARD" = 1 ]; then
-    node "$CODEX" review --scope branch --base "$BASE" "${MODEL_ARGS[@]}" --wait >"$OUT/codex.txt" 2>&1 &
+    standard_review &
     cx_pid=$!
   fi
   if [ -n "$CHALLENGE" ]; then
@@ -171,9 +185,8 @@ if [ -n "$CODEX" ] && { [ "$STANDARD" = 1 ] || [ -n "$CHALLENGE" ]; }; then
   # Retries run after the parallel phase, and only for a run that failed.
   if [ "$STANDARD" = 1 ]; then
     cx=ran
-    wait "$cx_pid" || node "$CODEX" review --scope branch --base "$BASE" "${MODEL_ARGS[@]}" --wait \
-      >"$OUT/codex.txt" 2>&1 ||
-      { cx=error; cx_reason="$(last_line "$OUT/codex.txt") [after one retry]"; }
+    wait "$cx_pid" || standard_review ||
+      { cx=error; cx_reason="$(last_line "$OUT/codex.log") [after one retry]"; }
   fi
   if [ -n "$CHALLENGE" ]; then
     ch=ran
@@ -189,7 +202,8 @@ fi
 
 suffix() { case "$1" in ran|error) printf ':%s' "$2" ;; cached) printf ':%s' "$3" ;; esac; }
 if [ "$WANT_STANDARD" = 1 ]; then
-  echo "codex=$cx$(suffix "$cx" "$OUT/codex.txt" "${cx_file:-}")"
+  cx_out="$OUT/codex.txt"; [ "$cx" = error ] && cx_out="$OUT/codex.log"
+  echo "codex=$cx$(suffix "$cx" "$cx_out" "${cx_file:-}")"
   case "$cx" in ran|cached) ;; *) echo "codex_reason=$cx_reason" ;; esac
 fi
 if [ -n "$WANT_CHALLENGE" ]; then
