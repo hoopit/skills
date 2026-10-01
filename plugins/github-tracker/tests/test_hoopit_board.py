@@ -1847,6 +1847,40 @@ def test_bind_pr_binds_every_issue_the_description_closes():
     assert sorted(m.session_load("s3")["items"]) == ["hoopit/api#5", "hoopit/web-admin#7"]
 
 
+def test_binding_an_item_takes_it_from_the_session_that_held_it():
+    m = agent_module()
+    bound(m, "parent", n=5, item="I5")
+    bound(m, "parent", n=6, item="I6")
+    hook(m, "parent", "PreToolUse", **ASK)
+    assert bound(m, "child", n=5, item="I5") == "BOUND\thoopit/api#5\tsession child"
+    assert list(m.session_load("parent")["items"]) == ["hoopit/api#6"]
+    want = m.agent_values(m.sessions_load())
+    assert (want["I5"]["state"], want["I6"]["state"]) == ("Working", "Needs you"), want
+    print("  the parent's question stays on the item it kept, not the one it gave away")
+
+
+def test_claim_binds_the_agents_session_not_the_callers():
+    for sid, line in (("child", "BOUND\thoopit/api#5\tsession child"),
+                      (None, "UNBOUND\thoopit/api#5\tno Claude session for agent gh5 yet")):
+        m = start_module("Ready")
+        bound(m, "parent")
+        m.herdr_session = lambda agent, sid=sid: sid
+        os.environ["CLAUDE_CODE_SESSION_ID"] = "parent"
+        try:
+            out, _, code = main(m, "claim", "hoopit/api", "5", "--agent", "gh5")
+        finally:
+            del os.environ["CLAUDE_CODE_SESSION_ID"]
+        assert code == 0 and out.splitlines()[1:] == [line], out
+        parent = m.session_load("parent")["items"]
+        assert ("hoopit/api#5" in parent) == (sid is None), parent
+        if sid:
+            child = m.session_load("child")
+            assert list(child["items"]) == ["hoopit/api#5"] and child["state"] == "Working"
+            # The agent's own hooks fill in its pid; until then it is never reaped as dead.
+            assert child["pid"] is None and m.pid_alive(child["pid"])
+    print("  bound to the agent's session when herdr knows it; left alone when it does not yet")
+
+
 def test_the_agent_commands_need_no_config():
     m = refusing(str(TMP / "nowhere" / "config.json"))
     os.environ["XDG_STATE_HOME"] = str(TMP / f"state-{next(STATE_DIRS)}")

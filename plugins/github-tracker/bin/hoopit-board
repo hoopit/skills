@@ -96,11 +96,14 @@ session, tie it to the items it works.
   open [--type TYPE]...          every open item, one line each
   scan [--no-judge]              every open item, with curation signals and judged duplicate pairs
   check <repo> <n>               is this issue startable?  exit 0 yes / 1 no
-  claim <repo> <n> --agent A [--tab T]    status -> In progress, then comment
+  claim <repo> <n> --agent A [--tab T]    status -> In progress, then comment; binds
+                                 herdr agent A's session once it has one
   start <repo> <n>               the same, for work taken in this session; work already in
-                                 flight is left as it is. Binds the session either way
+                                 flight is left as it is. Binds the session either way.
+                                 Work handed to another agent is claimed, never started
   bind <repo> <n> [--pr]         tie this session to the item (or to every issue the PR
-                                 closes), so its Agent field follows the session
+                                 closes), so its Agent field follows the session. An item
+                                 has one session: binding takes it from the one before
   agents [--sync]                the sessions tied to items here; --sync reaps the dead
                                  and writes the board what changed
   agent-hook                     the plugin hooks' entry point: one hook event on stdin
@@ -1123,6 +1126,11 @@ def cmd_claim(a):
     gh("api", f"repos/{a.repo}/issues/{a.number}/comments",
        "-f", f"body=Started as herdr agent `{a.agent}`{tab}{on}.", parse=False)
     print(f"CLAIMED\t{a.repo}#{a.number}\tagent={a.agent}\tmodel={a.model or '-'}")
+    # The agent's session is the one working the item, never the caller's: a dispatcher that
+    # bound itself would put its own questions on every item it handed out.
+    sid = herdr_session(a.agent)
+    print(bind_line(a.repo, a.number, project_id, item_id, sid=sid) if sid else
+          f"UNBOUND\t{a.repo}#{a.number}\tno Claude session for agent {a.agent} yet")
 
 
 def cmd_start(a):
@@ -1474,20 +1482,45 @@ def cmd_agent_hook(a):
     return 0
 
 
-def bind_line(repo, number, project_id, item_id):
-    """Tie the running Claude Code session to a board item, and say how it went in one
-    output line. The record starts Working: the session is mid-turn, running this."""
+def herdr_session(agent):
+    """The Claude Code session id of herdr agent `agent`, or None: no herdr, no such agent,
+    or one whose session has not started yet."""
+    try:
+        r = subprocess.run(["herdr", "agent", "get", agent], capture_output=True, text=True,
+                           timeout=10)
+        info = json.loads(r.stdout)["result"]["agent"]["agent_session"]
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
+        return None
+    sid = info.get("value") if info.get("agent") == "claude" else None
+    return sid if session_file(sid or "", create=False) else None
+
+
+def bind_line(repo, number, project_id, item_id, sid=None):
+    """Tie a Claude Code session — the running one, unless `sid` names another — to a board
+    item, and say how it went in one output line. An item has one session: binding it takes
+    it from whichever session held it, so a dispatcher's questions never land on work it
+    handed out. The running session's record starts Working, since it is mid-turn running
+    this; another session's keeps the state its own hooks gave it."""
     key = f"{repo}#{number}"
-    sid = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+    own = sid is None
+    sid = os.environ.get("CLAUDE_CODE_SESSION_ID", "") if own else sid
     if not item_id:
         return f"NOT-ON-BOARD\t{key}"
     if not session_file(sid):
         return f"UNBOUND\t{key}\tnot inside a Claude Code session"
     with agents_lock():
-        s = session_load(sid) or {"session": sid, "items": {}}
+        for other in sessions_load():
+            if other["session"] != sid and key in other["items"]:
+                del other["items"][key]
+                session_save(other)
+        s = session_load(sid) or {"session": sid, "items": {}, "state": "Working", "note": "",
+                                  "asked": False}
         s["items"][key] = {"repo": repo, "n": number, "project": project_id, "item": item_id}
-        s.update(pid=claude_pid() or s.get("pid"), state="Working", note="", asked=False,
-                 ended=None)
+        s["ended"] = None
+        if own:
+            s.update(pid=claude_pid() or s.get("pid"), state="Working", note="", asked=False)
+        else:
+            s.setdefault("pid", None)
         session_save(s)
     spawn_sync()
     return f"BOUND\t{key}\tsession {sid}"
