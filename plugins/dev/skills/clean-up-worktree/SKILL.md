@@ -35,7 +35,8 @@ bash "$INSPECT" <branch>  # a named branch
 ```
 
 Read-only, single target. Every fact the gates below need is in its output — read the output
-rather than re-deriving any of it. No fetch is needed first: merge state comes from GitHub
+rather than re-deriving any of it. Its last line is a verdict on the inspection, not on the
+gates: `OK: …` once the facts are printed, `FAILED: …` when the target could not be read. No fetch is needed first: merge state comes from GitHub
 live via `gh`, not from local refs.
 
 ## 2. Gate on the merge — this is the whole point
@@ -129,13 +130,18 @@ worktree the user approved as dirty.
 
 ## 6. Verify and report
 
-Verify both halves separately from `$MAIN_ROOT` — `inspect.sh <branch>` exits 1 with
-`BRANCH_EXISTS no` once the branch is gone, which proves nothing about the directory:
+Verify both halves from `$MAIN_ROOT` — `inspect.sh <branch>` prints `BRANCH_EXISTS no`
+once the branch is gone, which proves nothing about the directory. The check ends on its
+verdict:
 
 ```bash
-git -C "$MAIN_ROOT" rev-parse --verify "refs/heads/$BRANCH"   # must fail: branch gone
-test ! -e "$WORKTREE" && echo "worktree directory gone"
-git -C "$MAIN_ROOT" worktree list                             # must no longer list it
+LEFT=()
+git -C "$MAIN_ROOT" rev-parse --quiet --verify "refs/heads/$BRANCH" >/dev/null && LEFT+=("branch $BRANCH")
+if [[ $WORKTREE != "-" ]]; then
+  [[ -e $WORKTREE ]] && LEFT+=("directory $WORKTREE")
+  git -C "$MAIN_ROOT" worktree list --porcelain | grep -qxF "worktree $WORKTREE" && LEFT+=("worktree record $WORKTREE")
+fi
+if (( ${#LEFT[@]} )); then echo "FAILED: still there: $(IFS=,; echo "${LEFT[*]}")"; else echo "OK: branch and worktree gone"; fi
 ```
 
 Then report:
