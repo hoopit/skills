@@ -89,6 +89,10 @@ def parse_prompt(path):
             meta[key] = int(meta[key])
     if "tags" in meta:
         meta["tags"] = [t.strip() for t in meta["tags"].strip("[]").split(",") if t.strip()]
+    if "cwd" in meta:
+        cwd = pathlib.PurePosixPath(meta["cwd"])
+        if cwd.is_absolute() or ".." in cwd.parts:
+            sys.exit(f"{path}: cwd: {meta['cwd']} must be a path inside the run dir")
     return meta, text.strip()
 
 
@@ -304,8 +308,8 @@ def run_script(script, cwd, env, timeout=600):
         return 124, "", f"{script.name} timed out after {timeout}s"
 
 
-def run_config(rundir, fixture):
-    """This run's own config dir: `setup`'s files, a copy of its plugins, its fixture trusted.
+def run_config(rundir, trusted):
+    """This run's own config dir: `setup`'s files, a copy of its plugins, `trusted` trusted.
 
     Claude honours a project's `permissions.additionalDirectories` only in a trusted
     workspace, trust does not reach down from a parent dir, and every run's fixture is a
@@ -323,7 +327,8 @@ def run_config(rundir, fixture):
             shutil.copy2(item, config / item.name)
     state = config / ".claude.json"
     data = json.loads(state.read_text()) if state.is_file() else {}
-    data.setdefault("projects", {})[str(fixture)] = {"hasTrustDialogAccepted": True}
+    for d in trusted:
+        data.setdefault("projects", {})[str(d)] = {"hasTrustDialogAccepted": True}
     state.write_text(json.dumps(data))
     return config
 
@@ -359,7 +364,7 @@ def copy_plugins(shared, own):
         known.write_text(json.dumps(data, indent=2))
 
 
-def agent_env(opts, rundir, shims, fixture):
+def agent_env(opts, rundir, shims, trusted):
     env = {k: v for k, v in os.environ.items()
            if k not in SCRUBBED and not k.startswith(("CLAUDE", "HERDR"))}
     env["PATH"] = f"{shims}{os.pathsep}{env.get('PATH', '')}"
@@ -368,7 +373,7 @@ def agent_env(opts, rundir, shims, fixture):
     # Claude and its plugins hold still for the run: the version measured is the one installed.
     env["DISABLE_AUTOUPDATER"] = "1"
     if not opts.as_me:
-        env["CLAUDE_CONFIG_DIR"] = str(run_config(rundir, fixture))
+        env["CLAUDE_CONFIG_DIR"] = str(run_config(rundir, trusted))
         env["CLAUDE_CODE_OAUTH_TOKEN"] = token()
         env.pop("ANTHROPIC_API_KEY", None)
     return env
@@ -380,7 +385,7 @@ def model_effort(case, opts):
             opts.effort or meta.get("effort") or DEFAULTS["effort"])
 
 
-def run_agent(case, opts, fixture, log, env, args):
+def run_agent(case, opts, cwd, log, env, args):
     meta = case["meta"]
     model, effort = model_effort(case, opts)
     cmd = [CLAUDE, "-p", case["prompt"], "--output-format", "stream-json", "--verbose",
@@ -391,7 +396,7 @@ def run_agent(case, opts, fixture, log, env, args):
         cmd += ["--plugin-dir", d]
     timeout = meta.get("timeout_seconds", DEFAULTS["timeout_seconds"])
     with open(log, "w") as out, open(log.with_suffix(".stderr"), "w") as err:
-        proc = subprocess.Popen(cmd, cwd=fixture, env=env, stdout=out, stderr=err,
+        proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=out, stderr=err,
                                 stdin=subprocess.DEVNULL, start_new_session=True)
         try:
             proc.wait(timeout=timeout)
@@ -440,11 +445,13 @@ def one_run(job):
     git("clone", "-q", "--shared", str(ctx["upstream"]), str(fixture))
     git("remote", "set-url", "--push", "origin", "/nonexistent/skill-eval-push-disabled", cwd=fixture)
     shims, calls = make_shims(rundir, case)
-    env = agent_env(opts, rundir, shims, fixture)
+    # A session that began in another repo starts there: a `setup.sh` lays it out.
+    start = rundir / case["meta"]["cwd"] if case["meta"].get("cwd") else fixture
+    env = agent_env(opts, rundir, shims, {fixture, start})
     expects = {f"EVAL_EXPECT_{k[7:].upper()}": v for k, v in case["meta"].items() if k.startswith("expect_")}
     script_env = {**env, **expects, "EVAL_FIXTURE": str(fixture), "EVAL_RUN_DIR": str(rundir),
                   "EVAL_SOURCE": str(skill["src"]), "EVAL_UPSTREAM": str(ctx["upstream"]),
-                  "EVAL_CASE": case["name"], "EVAL_CASE_DIR": str(case["dir"]),
+                  "EVAL_CWD": str(start), "EVAL_CASE": case["name"], "EVAL_CASE_DIR": str(case["dir"]),
                   "EVAL_SUITE_DIR": str(ctx["evals"]), "EVAL_BRANCH": skill["branch"],
                   "EVAL_BASE": ctx["commit"], "EVAL_CALLS": str(calls),
                   "EVAL_SLOW": "1" if opts.slow else "0"}
@@ -454,10 +461,12 @@ def one_run(job):
             code, _, err = run_script(setup, fixture, script_env)
             if code:
                 checks["setup"] = ("FAIL", f"{setup.relative_to(ctx['evals'])} exited {code}: {err.strip()[-300:]}")
+    if "setup" not in checks and not start.is_dir():
+        checks["setup"] = ("FAIL", f"cwd: {case['meta']['cwd']} is not a directory once setup is done")
     log = rundir / "agent.jsonl"
     before = source_state(skill["src"])
     started = time.monotonic()
-    timed_out = None if "setup" in checks else run_agent(case, opts, fixture, log, env, ctx["agent_args"])
+    timed_out = None if "setup" in checks else run_agent(case, opts, start, log, env, ctx["agent_args"])
     seconds = round(time.monotonic() - started, 1)
     after = source_state(skill["src"])
     if not log.exists():

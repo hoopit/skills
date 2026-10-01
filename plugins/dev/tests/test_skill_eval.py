@@ -123,6 +123,30 @@ def build(tmp):
             grep -q "$SKILL_EVAL_HOME/claude-config/plugins" "$EVAL_LOG" \\
               && echo "FAIL shared_unnamed" || echo "PASS shared_unnamed"
          '''))
+    # A session that began in a sibling repo: the agent starts there and reaches the fixture as ../src.
+    case(evals, "elsewhere",
+         "RUN: pwd\nRUN: cat \"$CLAUDE_CONFIG_DIR/.claude.json\"\n"
+         "RUN: test -f ../src/.claude/skills/demo/SKILL.md && echo reaches-fixture",
+         meta="cwd: api\n", setup="#!/usr/bin/env bash\ngit init -q \"$EVAL_RUN_DIR/api\"\n",
+         check=textwrap.dedent('''\
+            #!/usr/bin/env bash
+            exec python3 - <<'PY'
+            import json, os
+            env = os.environ
+            out = [c["content"] for e in map(json.loads, open(env["EVAL_LOG"])) if e.get("type") == "user"
+                   for c in e["message"]["content"]]
+            start = os.path.join(env["EVAL_RUN_DIR"], "api")
+            say = lambda ok, name, why="": print(f"PASS {name}" if ok else f"FAIL {name} {why}")
+            say(out and out[0].strip() == start, "started_in_cwd", out[:1])
+            say(env["EVAL_CWD"] == start, "eval_cwd", env["EVAL_CWD"])
+            say(os.getcwd() == env["EVAL_FIXTURE"], "checks_in_fixture", os.getcwd())
+            trusted = json.loads(out[1])["projects"] if len(out) > 1 else {}
+            say(all(trusted.get(d, {}).get("hasTrustDialogAccepted") for d in (start, env["EVAL_FIXTURE"])),
+                "cwd_trusted", trusted)
+            say(len(out) > 2 and "reaches-fixture" in out[2], "sibling_fixture", out[2:])
+            PY
+         '''))
+    case(evals, "cwd-missing", "RUN: true", meta="cwd: nowhere\n")
     case(evals, "mocked",
          "RUN: printf 'Adds x.\\n\\ncloses #3\\n' | gh pr create --title 'BAC-12 Add x' --body-file -\n"
          "RUN: gh issue view 9\nRUN: hoopit-board triage hoopit/api 3",
@@ -270,7 +294,7 @@ def main():
         p = run(tmp, "run", str(skill), "--runs", "2", "--concurrency", "4", "--out", str(out))
         expect(p.returncode == 1, f"a suite with failing runs exits 1 (got {p.returncode}: {p.stderr[-400:]})")
         r = runs(out)
-        expect(len(r) == 18, f"9 cases x 2 runs recorded (got {len(r)})")
+        expect(len(r) == 22, f"11 cases x 2 runs recorded (got {len(r)})")
         expect(snapshot(tmp / "home" / "claude-config" / "plugins") == store,
                "a run's writes to its plugin store leave the shared store byte-identical")
 
@@ -320,6 +344,18 @@ def main():
                             ("shared_unnamed", "the run's store never names the shared one")):
             expect(ps[check]["status"] == "PASS", what)
         expect(iso["_"]["metrics"]["masked_exit"] == 1, "a `| tail` without pipefail is counted")
+
+        el = r[("elsewhere", 1)]
+        for check, what in (("started_in_cwd", "a case's cwd: starts the agent in that dir under the run dir"),
+                            ("eval_cwd", "the scripts see the start dir as EVAL_CWD"),
+                            ("checks_in_fixture", "check.sh still runs in the fixture"),
+                            ("cwd_trusted", "the run's config trusts the start dir and the fixture"),
+                            ("sibling_fixture", "the fixture sits next to the start dir under the repo's name")):
+            got = el.get(check, {"status": "missing", "reason": ""})
+            expect(got["status"] == "PASS", f"{what} ({got['reason'][:300]})")
+        nowhere = r[("cwd-missing", 1)]
+        expect(nowhere["setup"]["status"] == "FAIL" and "cwd: nowhere" in nowhere["setup"]["reason"]
+               and "agent_finished" not in nowhere, "a cwd: setup never made fails the run without starting the agent")
 
         m = r[("mocked", 1)]
         for check, what in (("pr_title", "a check grades the title of a mocked `gh pr create`"),

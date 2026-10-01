@@ -92,13 +92,17 @@ F="${CLAUDE_PLUGIN_ROOT}/skills/skill-eval/scripts/field-report"
   A call nothing matches, a tool without a file included, fails with `no mock for: <argv>`.
 - **Frontmatter.** It takes `runs`, `max_turns`, `timeout_seconds`, `model`, `effort` and `tags`.
   `expect_<name>` reaches the checks as `EVAL_EXPECT_<NAME>`.
+- **`cwd: <path>`** starts the agent in `$EVAL_RUN_DIR/<path>` instead of the fixture, for a
+  session that began in another repo. A `setup.sh` makes that dir, and the run fails without
+  starting the agent if it is missing. The fixture is `$EVAL_RUN_DIR/<repo>`, so a clone at
+  `$EVAL_RUN_DIR/api` reaches it as `../<repo>`. Both dirs are trusted.
 - **`check.sh` grades state, not wording.** A tracker write is state: grade the recorded
   call, such as the `gh pr create` title, never what the agent says it did. It prints one line per check:
   `PASS <name>`, `FAIL <name> <reason>` or `SKIP <name> <reason>`.
   - It runs with the fixture as cwd.
   - Its environment has `EVAL_FIXTURE`, `EVAL_BASE` (the commit carrying the skill under
     test), `EVAL_LOG` (the agent's stream-json log), `EVAL_CALLS` (the shims' calls),
-    `EVAL_RUN_DIR`, `EVAL_SOURCE` and `EVAL_SLOW`.
+    `EVAL_RUN_DIR`, `EVAL_CWD` (where the agent started), `EVAL_SOURCE` and `EVAL_SLOW`.
   - Run slow checks only when `EVAL_SLOW=1`.
 - **`setup.sh`** runs before the agent with the same environment. A non-zero exit fails
   the run without starting the agent.
