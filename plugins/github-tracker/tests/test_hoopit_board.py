@@ -895,19 +895,28 @@ def gated(prs=None, promoted=()):
     return m
 
 
-def check(m, body):
-    """cmd_check on an open, unclaimed, unblocked issue in `x/y` with the given body.
-    Returns its one line of output."""
+def check(m, body, children=0):
+    """cmd_check on an open, unclaimed, unblocked issue in `x/y` with the given body and
+    `children` open sub-issues. Returns its one line of output."""
     def gh(*a, **k):
         if a[0] == "issue":
             return {"state": "OPEN", "comments": [], "closedByPullRequestsReferences": []}
         return body
     m.gh = gh
-    m.issue_gates = lambda repo, number: ("", [])
+    m.issue_gates = lambda repo, number: ("", [], children)
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
         m.cmd_check(argparse.Namespace(repo="x/y", number=9))
     return out.getvalue().strip()
+
+
+def test_check_holds_a_parent_with_open_sub_issues():
+    """Started by name, a parent would hand one agent every child, as `next` refuses to."""
+    m = gated()
+    assert check(m, "", children=2) == "SKIP\tx/y#9\tparent of 2 open sub-issues"
+    assert check(m, "", children=1).endswith("parent of 1 open sub-issue")
+    assert check(m, "", children=0) == "START\tx/y#9"
+    print("  a parent with open sub-issues is skipped; one whose children all closed starts")
 
 
 def test_a_gate_sharing_its_line_with_prose_still_holds():

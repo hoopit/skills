@@ -1044,6 +1044,7 @@ def judge_pairs(issues, pairs):
 
 GATES_QUERY = """query($url:URI!){ resource(url:$url){ ... on Issue{
   blockedBy(first:20){ nodes{ number state repository{ nameWithOwner } } }
+  subIssuesSummary{ total completed }
   issueFieldValues(first:20){ nodes{ ... on IssueFieldDateValue{
     value field{ ... on IssueFieldDate{ name } } } } } } } }"""
 
@@ -1065,24 +1066,28 @@ def open_blockers(repo, blocked_by):
 
 
 def issue_gates(repo, number):
-    """(earliest-pick-up date, open blockers) of one issue. Read off the issue and not
-    off a board item, because `check` is also asked about issues that are not on it."""
+    """(earliest-pick-up date, open blockers, open sub-issues) of one issue. Read off the
+    issue and not off a board item, because `check` is also asked about issues that are
+    not on it."""
     res = gql(GATES_QUERY, url=f"https://github.com/{repo}/issues/{number}")["resource"] or {}
     not_before = ""
     for n in (res.get("issueFieldValues") or {}).get("nodes") or []:
         if (n.get("field") or {}).get("name") == DATE_FIELD:
             not_before = n.get("value") or ""
-    return not_before, open_blockers(repo, res.get("blockedBy"))
+    return (not_before, open_blockers(repo, res.get("blockedBy")),
+            open_children(res.get("subIssuesSummary")))
 
 
 def cmd_check(a):
     d = gh("issue", "view", str(a.number), "--repo", a.repo, "--json",
            "state,stateReason,assignees,comments,closedByPullRequestsReferences")
     why = []
-    nb, blockers = issue_gates(a.repo, a.number)
+    nb, blockers, children = issue_gates(a.repo, a.number)
     if nb > today():
         why.append(f"not before {nb}")
     why += [f"blocked by {b}" for b in blockers]
+    if tracking({"open_children": children}):
+        why.append(f"parent of {children} open sub-issue{'s' if children != 1 else ''}")
     gate = deploy_gate(a.repo, gh("api", f"repos/{a.repo}/issues/{a.number}",
                                   "--jq", ".body", parse=False))
     if gate:
