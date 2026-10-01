@@ -1,0 +1,42 @@
+[
+ {
+  "match": "^issue create",
+  "stdout": "https://github.com/hoopit/api/issues/18413\n"
+ },
+ {
+  "match": "^api .*search",
+  "stdout": "{\"total_count\": 0, \"items\": []}\n"
+ },
+ {
+  "match": "^issue (list|view)",
+  "stdout": "[]\n"
+ },
+ {
+  "match": "^api ",
+  "stdout": "{}\n"
+ },
+ {
+  "match": "^pr create",
+  "stdout": "https://github.com/hoopit/api/pull/18412\n"
+ },
+ {
+  "match": "^pr edit",
+  "stdout": "https://github.com/hoopit/api/pull/18412\n"
+ },
+ {
+  "match": "^pr list",
+  "stdout": "[]\n"
+ },
+ {
+  "match": "^pr view",
+  "stdout": "{\"number\": 18412, \"url\": \"https://github.com/hoopit/api/pull/18412\", \"isDraft\": true, \"state\": \"OPEN\"}\n"
+ },
+ {
+  "match": "^auth status",
+  "stdout": "github.com\n  \u2713 Logged in to github.com account ezet (keyring)\n"
+ },
+ {
+  "match": "^repo view",
+  "stdout": "hoopit/api\n"
+ }
+]
