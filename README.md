@@ -123,7 +123,8 @@ install them from their own marketplace so they update straight from upstream:
 claude plugin install mattpocock-skills@claude-plugins-official --scope project
 ```
 
-Every skill that leans on one falls back gracefully when it isn't installed.
+Most skills that lean on one fall back gracefully when it isn't installed; `review-gate`
+blocks without `mattpocock-skills:code-review`.
 
 ## Setting up `github-tracker`
 

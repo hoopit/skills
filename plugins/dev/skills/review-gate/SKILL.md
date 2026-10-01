@@ -6,12 +6,12 @@ description: Run independent code reviewers. Use right before opening a PR, or b
 # Review Gate
 
 Reviews the branch's committed changes against a fixed point — the repo's default branch, or on a
-`light` pass only what the previous pass hasn't seen — then gates PR creation. The
-always-on **independent** review prefers the **`mattpocock-skills:code-review` skill** (a two-axis
-Standards + Spec reviewer that spawns its own cold sub-agents — genuinely independent eyes); without
-it, a fresh independent subagent, and inline self-review only when no subagent tool is available.
-**Codex** is a second, separate engine and is **required**: engine diversity is the point, so a pass
-that cannot run it blocks rather than passing on one engine's word.
+`light` pass only what the previous pass hasn't seen — then gates PR creation. Both reviewers are
+**required**, and a pass missing either blocks rather than reporting reduced coverage. The
+**independent** review is the **`mattpocock-skills:code-review` skill** (a two-axis Standards + Spec
+reviewer that spawns its own cold sub-agents — genuinely independent eyes). **Codex** is a second,
+separate engine: engine diversity is the point, so a pass that cannot run it blocks rather than
+passing on one engine's word.
 
 ## Contract
 
@@ -24,7 +24,8 @@ Return exactly one verdict:
   skipped with a one-line justification. Say which **scope** ran and against which fixed point, and
   whether this pass **made fix commits** — none, `text-only`, or code: fixed code no reviewer has
   seen is what the caller's next round is for. Caller opens the PR and pastes the gate notes into it.
-- **`BLOCK: <reason>`** — **Codex did not run** (step 2), there is a **disputed Critical/High** finding
+- **`BLOCK: <reason>`** — **`mattpocock-skills:code-review` is not installed** (step 1),
+  **Codex did not run** (step 2), there is a **disputed Critical/High** finding
   (you judge it invalid/not worth fixing), or a valid Critical/High that isn't safe to fix here. You
   may **not** unilaterally dismiss a Critical/High. Caller must NOT open the PR — surface the blocking findings; unattended, the
   caller hands back per its own contract, which owns what an escalation writes to the tracker.
@@ -78,7 +79,11 @@ that policy.
 
 ## Steps
 
-1. **Fixed point.** Resolve `$DEFAULT_BRANCH` from the repo's AGENTS.md *Workflow skills config*
+1. **Fixed point.** First confirm `mattpocock-skills:code-review` is among your available skills.
+   When it is not, return `BLOCK: mattpocock-skills:code-review not installed — claude plugin
+   install mattpocock-skills@claude-plugins-official --scope project` before opening anything:
+   step 3 has no other independent reviewer, and finding that out after Codex's minutes-long
+   run wastes them. Then resolve `$DEFAULT_BRANCH` from the repo's AGENTS.md *Workflow skills config*
    (e.g. `master`), then set the base every reviewer in this pass diffs against:
    `git fetch` and `REVIEW_BASE=origin/$DEFAULT_BRANCH` under `full`, `REVIEW_BASE=$REVIEWED_AT`
    under `light`. **The remote-tracking ref carries the fixed point**, because a worktree branched
@@ -162,12 +167,12 @@ that policy.
    once, and a reviewer that reverts a file there hands every peer a tree that is neither the
    branch nor the base — a measurement taken in that window is false, and nothing downstream
    can tell. Give each reviewer its own `PROBE_DIR` on the same prompt as its brief —
-   `$GATE_DIR/standards-probe`, `$GATE_DIR/spec-probe`, `$GATE_DIR/independent-probe` — where
+   `$GATE_DIR/standards-probe`, `$GATE_DIR/spec-probe` — where
    it builds a private worktree the first time a probe has to change files (the agent
    definition holds how), so only an axis that probes pays for the checkout. A `PROBE_DIR`
    is always inside `$GATE_DIR`: closing the dir is what removes the worktree, and one built
    anywhere else outlives the pass.
-   - **Preferred — invoke the `mattpocock-skills:code-review` skill** (the two-axis reviewer;
+   - **Invoke the `mattpocock-skills:code-review` skill** (the two-axis reviewer;
      use the namespaced name so it isn't confused with the built-in `/review`, which reviews an
      existing GitHub PR). Give it **`$REVIEW_BASE` as the fixed point** — it runs
      `git diff "$REVIEW_BASE"...HEAD`, spawns its own parallel **Standards** and **Spec** sub-agents
@@ -185,17 +190,9 @@ that policy.
      findings there and returns a `FINDINGS <path> · <n> findings` receipt; you read the file.
      That is what makes a lost report survivable (Notes), so pass the path even when you expect
      the report to arrive normally.
-   - **Fallback — if that skill isn't installed** (e.g. only `hoopit-dev`, not `mattpocock-skills`):
-     if the Agent/Task tool is available, spawn a fresh `hoopit-dev:code-reviewer` subagent (same
-     pinned reviewer as above, `FINDINGS_FILE` included — `$GATE_DIR/independent.md`) to review the
-     change **cold**: give it only the repo path and `git diff "$REVIEW_BASE"...HEAD`; otherwise
-     review the diff yourself inline. For this fallback look for: correctness/logic bugs, security,
-     data-integrity/regressions, missed edge cases, and repo conventions (read the relevant
-     `$REPO/.claude/skills/*` for the area you touched).
    A subagent sitting at `idle` with no result has **not** failed, and a result that never
-   arrives is recoverable — see Notes. Work that ladder rather than falling back.
-   Note in the PR which mode ran (`mattpocock-skills:code-review` · independent subagent ·
-   self-review) and at which scope.
+   arrives is recoverable — see Notes. Work that ladder rather than reviewing the diff yourself.
+   Note in the PR at which scope the axes ran.
    `mattpocock-skills:code-review` findings aren't pre-labelled by severity — assign each a severity when you
    triage (step 5): a missing/incorrect spec requirement, or any correctness/security/data-integrity
    issue, is usually Critical/High; baseline code-smells and style nits are Medium/Low.
@@ -279,8 +276,8 @@ Solution:
   Lifting the block is the user's call, not the gate's: the caller asks (`ship` Step 6 offers
   *Open the PR anyway*), and a PR opened that way says in its body that Codex never ran.
 - `mattpocock-skills:code-review` ships via the **`mattpocock-skills`** plugin
-  (`mattpocock-skills@claude-plugins-official`). Without it the gate uses the cold-subagent fallback
-  above — equivalent independence, minus the structured two-axis split.
+  (`mattpocock-skills@claude-plugins-official`). Without it step 1 blocks: there is no in-house
+  substitute, and self-review is not independent review.
 - **The Codex CLI backs the external step.** The standard review runs as `codex exec review`, the
   challenge as a `codex exec` turn in a read-only sandbox, on the adversarial prompt and output
   schema vendored under `challenge/` from the codex plugin; its findings are that schema's JSON.
@@ -303,7 +300,7 @@ Solution:
   it kills its caller too (the shell reports 144) whatever the escaping.
 - **A reviewer subagent at `idle` with no result is not a dead one.** It usually means the work
   finished and the result has not been handed back yet, and delivery can lag the work by a long way.
-  Spawning replacements or dropping to self-review on that signal throws away the independent axis
+  Spawning replacements or reviewing the diff yourself on that signal throws away the independent axis
   while its findings are still in flight. Recover the review in this order, stopping at the first
   that yields it:
   1. **`SendMessage` the agent by name** and wait — a send resumes it from its transcript, so
