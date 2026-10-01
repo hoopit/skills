@@ -318,5 +318,7 @@ The script is the plugin's `bin/hoopit-board`, on `PATH` as a bare command, with
 tests in the plugin's `tests/`; every skill in the plugin calls it, so edit it there and
 mind them. The rubrics above are
 its `PRIORITIES`, `EFFORTS` and `AUTONOMY` lists — a value added to one belongs in the
-other, and a value added to either belongs in the org field as well (`updateIssueField`,
-listed by `organization.issueFields`).
+other, and a value added to either belongs in the org field as well (listed by
+`organization.issueFields`). An org admin adds or renames it in the org's settings UI,
+never through `updateIssueField`: that mutation replaces the whole option list, and every
+issue whose option it drops loses its value.
