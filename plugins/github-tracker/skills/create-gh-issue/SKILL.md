@@ -230,7 +230,11 @@ reason is in front of you.
 |---|---|
 | `Unattended` | **Decided** and **reachable**: the issue says what to do, and everything it needs is in a repo the agent checks out. |
 | `Needs decision` | A question of product behaviour, naming, UX or scope is the author's. An issue too vague to judge lands here. |
-| `Out of reach` | It needs something no checkout reaches — a third-party dashboard, a credential the author keeps, an app-store step, a deploy someone triggers, a manual action with no PR behind it. |
+| `Manual` | It needs hands no checkout has — a third-party dashboard or console, a credential the author keeps, an app-store step, a prod write with no PR behind it. |
+| `Waiting` | An outside party — a partner, a vendor, support — has to answer or act first. The body owes a `## Waiting on` section: who, what was asked, and when they were last chased. |
+
+A wait on a deploy, a date or another issue is none of these. Those have a gate, a
+`Start date` or a `blockedBy` link (below), and Autonomy is judged as if it had passed.
 
 A command to write and run is judged on the writing: its PR asks for the run before it
 merges (step 3), so the run has a PR behind it and the issue can be `Unattended`.
@@ -290,8 +294,10 @@ the schema it carries — so the agent it releases still confirms the rollout fi
 polling for the thing itself rather than re-reading ancestry. Where the repo has a skill
 for the rollout's ordering and figures (see its `AGENTS.md`), that's the one to poll
 with; a gated issue's acceptance is the right place to name it. And a repo configured
-with no production branch has no such test at all: that work is Autonomy `Out of reach`,
-not a gate.
+with no production branch has no such test at all. Hold that work with a `Start date`
+at the earliest the release can land, and a `Start only when` section naming what to
+check — the store version, the live bundle — so the agent it releases confirms the
+release itself, and pushes the date out when it has not landed.
 
 `blockedBy` is worth setting only where the blocker is an issue someone will close —
 `check` holds on an open one and ignores a closed one.

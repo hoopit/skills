@@ -91,7 +91,7 @@ session, tie it to the items it works.
        [--repo R]... [--skip-type TYPE]...
        [--exclude REPO#N]... [--no-judge]
                                  one tick, as JSON; exit 1 = nothing to do
-  decisions [N] [--unnamed] [--out-of-reach] [--no-judge]   the top N decisions to answer (default 5)
+  decisions [N] [--unnamed] [--manual] [--waiting] [--no-judge]   the top N decisions to answer (default 5)
   stale [--older-than H]         flight that may have lost its agent: no-pr | pr-quiet\n  dispatches [--since D] [--repo R]... [--no-judge]  merged PRs by the rung that wrote them
   open [--type TYPE]...          every open item, one line each
   scan [--no-judge]              every open item, with curation signals and judged duplicate pairs
@@ -129,7 +129,7 @@ from datetime import date, datetime, timedelta, timezone
 
 PRIORITIES = ["P0", "P1", "P2", "P3"]
 EFFORTS = ["XS", "S", "M", "L", "XL"]
-AUTONOMY = ["Unattended", "Needs decision", "Out of reach"]
+AUTONOMY = ["Unattended", "Needs decision", "Manual", "Waiting"]
 # Every Status this script reads or writes. `init` checks the board carries them all, and
 # `provision` adds the ones it lacks with the color and description beside each here.
 STATUSES = ["Backlog", "Ready", "In progress", "In review", "Done"]
@@ -1897,7 +1897,7 @@ def promotion_state(repo, sha, _fetched=set()):
     production = repos[repo]
     if production is None:
         return (f"{repo} has no production branch — nothing here can say whether its code "
-                "is live, which is what Autonomy `Out of reach` is for")
+                "is live: hold the work with a Start date and a `Start only when` line instead")
     d = checkout(repo)
     if not os.path.isdir(d):
         return f"no checkout of {repo} at {d}, so promotion cannot be tested"
@@ -2106,12 +2106,13 @@ def cmd_next(a):
     # cannot be promoted into a rankable one — so triage sees both; only Ready ranks.
     untriaged = [i for i in backlog + parked if i["type"] == "Issue" and not triaged(i)]
     ranked = [i for i in backlog if triaged(i) and i["type"] == "Issue"]
-    # `Needs decision` blocks on a sentence from the author and `Out of reach` needs
-    # something no checkout reaches, so an agent alone cannot finish either one however
-    # carefully it is dispatched. `decisions` is where they go. `--allow-out-of-reach`
-    # is for a caller whose agents have somebody at hand to supply what the checkout
-    # cannot; a decision is never dispatched, since the answer is the author's to give.
-    dispatchable = {"Unattended"} | ({"Out of reach"} if a.allow_out_of_reach else set())
+    # `Needs decision` blocks on a sentence from the author, `Manual` on hands the author
+    # keeps — a console, a credential, a prod write — and `Waiting` on an outside party,
+    # so an agent alone cannot finish any of them however carefully it is dispatched.
+    # `decisions` is where they go. `--allow-manual` is for a caller whose agents have
+    # somebody at hand to lend those hands. A decision is never dispatched, since the
+    # answer is the author's to give, and nor is a wait, since nobody at hand can end it.
+    dispatchable = {"Unattended"} | ({"Manual"} if a.allow_manual else set())
     held = [i for i in ranked if i["autonomy"] not in dispatchable]
     ranked = [i for i in ranked if i["autonomy"] in dispatchable]
     # A type `--skip-type` names is left for a session with somebody in it. Unlike the
@@ -2516,18 +2517,24 @@ def cmd_decisions(a):
     """
     items = [i for i in board()
              if i["status"] != "Done" and i["type"] == "Issue"
-             and i["autonomy"] in ("Needs decision", "Out of reach")]
-    reach = sorted([i for i in items if i["autonomy"] == "Out of reach"], key=rank_key)
+             and i["autonomy"] in ("Needs decision", "Manual", "Waiting")]
+    manual = sorted([i for i in items if i["autonomy"] == "Manual"], key=rank_key)
+    waiting = sorted([i for i in items if i["autonomy"] == "Waiting"], key=rank_key)
     pending = sorted([i for i in items if i["autonomy"] == "Needs decision"], key=rank_key)
 
     def line(i, *extra):
         return "\t".join([f'{i["priority"]}/{i["effort"]}', f'{i["repo"]}#{i["n"]}',
                            i["status"], *extra, i["title"][:78]])
 
-    if a.out_of_reach:
-        print(f"## OUT OF REACH — {len(reach)} yours to do; no checkout reaches these")
-        for i in reach:
-            print(line(i, i["url"]))
+    if a.manual or a.waiting:
+        if a.manual:
+            print(f"## MANUAL — {len(manual)} yours to do; each needs hands no checkout has")
+            for i in manual:
+                print(line(i, i["url"]))
+        if a.waiting:
+            print(f"## WAITING — {len(waiting)} on an outside party; each body names who")
+            for i in waiting:
+                print(line(i, i["url"]))
         return 0
 
     # One body read and one judgement per item, none depending on another.
@@ -2589,7 +2596,7 @@ def cmd_decisions(a):
     if not show:
         print("(none — every Needs decision item needs a re-read first; see --unnamed)")
     print(f"\n{len(named) - len(show)} more named · {len(unnamed)} name no decision (--unnamed) "
-          f"· {len(reach)} out of reach (--out-of-reach)")
+          f"· {len(manual)} manual (--manual) · {len(waiting)} waiting (--waiting)")
 
 
 def hours_since(ts, now):
@@ -3597,8 +3604,8 @@ def main():
                         "hand-started item be judged by the agent named gh<n>")
     s.add_argument("--skip-type", action="append", dest="skip_type", default=[],
                    metavar="TYPE", help="leave this issue type to an attended session")
-    s.add_argument("--allow-out-of-reach", action="store_true",
-                   help="rank Autonomy `Out of reach` alongside `Unattended`")
+    s.add_argument("--allow-manual", action="store_true",
+                   help="rank Autonomy `Manual` alongside `Unattended`")
     s.add_argument("--repo", action="append", dest="scope", default=[], metavar="OWNER/NAME",
                    help="count flight and start work only in these repos; every repo when omitted")
     s.add_argument("--no-judge", action="store_true",
@@ -3607,7 +3614,8 @@ def main():
     s = sub.add_parser("decisions"); s.add_argument("n", nargs="?", type=int, default=5)
     s.add_argument("--lines", type=int, default=8)
     s.add_argument("--unnamed", action="store_true")
-    s.add_argument("--out-of-reach", action="store_true", dest="out_of_reach")
+    s.add_argument("--manual", action="store_true")
+    s.add_argument("--waiting", action="store_true")
     s.add_argument("--no-judge", action="store_true",
                    help="skip the System One judgement; the DECISION_NAMED regex only")
     s.set_defaults(fn=cmd_decisions)

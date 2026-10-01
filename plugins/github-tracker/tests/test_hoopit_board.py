@@ -249,7 +249,7 @@ def run_next(m, target=15, no_judge=False, max_active=None, max_review=None):
                                              no_judge=no_judge, max_active=max_active,
                                              max_review=max_review, live_agents=None,
                                              idle_agents=None, skip_type=[],
-                                             allow_out_of_reach=False))
+                                             allow_manual=False))
     return json.loads(out.getvalue()), code
 
 
@@ -517,7 +517,7 @@ def decisions(m, bodies, ask, **flags):
                         "autonomy": "Needs decision", "url": f"u{n}"} for n in bodies]
     m.gh = lambda *args, **kw: bodies[int(args[1].rsplit("/", 1)[1])]
     m.judge_decision.ask = ask
-    a = argparse.Namespace(**{"n": 5, "lines": 8, "unnamed": False, "out_of_reach": False,
+    a = argparse.Namespace(**{"n": 5, "lines": 8, "unnamed": False, "manual": False, "waiting": False,
                               "no_judge": False, **flags})
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
@@ -1053,7 +1053,7 @@ def board_answer(statuses=None, board_fields=None, org_fields=None, items=3, dis
     statuses = ["Backlog", "Ready", "In progress", "In review", "Done"] \
         if statuses is None else statuses
     org = {"Priority": ["P0", "P1", "P2", "P3"], "Effort": ["XS", "S", "M", "L", "XL"],
-           "Autonomy": ["Unattended", "Needs decision", "Out of reach"], "Start date": None}
+           "Autonomy": ["Unattended", "Needs decision", "Manual", "Waiting"], "Start date": None}
     org = org if org_fields is None else org_fields
     on_board = list(org) if board_fields is None else board_fields
     return {"organization": {
@@ -1109,7 +1109,8 @@ def test_init_lists_what_the_board_is_missing_and_creates_nothing():
     assert code == 1, (out, code)
     for line in ("Status has no option 'In review'",
                  "issue field 'Effort' is not added to the board",
-                 "Autonomy has no option 'Out of reach'",
+                 "Autonomy has no option 'Manual'",
+                 "Autonomy has no option 'Waiting'",
                  "acme has no issue field 'Start date'"):
         assert f"  {line}\n" in out, (line, out)
     assert "VERIFIED" not in out and "Nothing was created" in err, (out, err)
@@ -1286,7 +1287,7 @@ def test_provision_leaves_the_org_fields_to_an_admin():
         "--apply")
     assert writes == [] and code == 1, (writes, code)
     assert "MANUAL\torg issue field 'Autonomy'\tan org admin adds it to acme's issue fields, " \
-           "with the options Unattended, Needs decision, Out of reach" in lines, lines
+           "with the options Unattended, Needs decision, Manual, Waiting" in lines, lines
     assert "MANUAL\torg issue field 'Effort' option 'XL'\tan org admin adds it to acme's " \
            "issue field" in lines, lines
     assert lines[-1].startswith("NOT READY\t"), lines

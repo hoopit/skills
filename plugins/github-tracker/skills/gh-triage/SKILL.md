@@ -55,14 +55,16 @@ Where a backlog daemon runs with a dispatch ladder configured, **Effort also pic
 model**; either way the rubric prices the hunt along with the fix. This is the one pass
 that reads the issue closely enough to see the hunt — price it here.
 
-Autonomy is the axis with no default, and the two non-`Unattended` values owe the body a
+Autonomy is the axis with no default, and the three non-`Unattended` values owe the body a
 section:
 
 - `Needs decision` — a `## The decision` heading naming the question and the shapes it
   could take, so clearing it costs a sentence. Write it now where it is missing; an
   unnamed decision costs a re-read before anyone can answer it, and those pile up under
   `hoopit-board decisions --unnamed`.
-- `Out of reach` — what it needs that no checkout reaches. Where part of it *is*
+- `Waiting` — a `## Waiting on` section naming the party, what was asked, and when they
+  were last chased.
+- `Manual` — what it needs that no checkout has. Where part of it *is*
   reachable, file that part as its own `Unattended` issue. A command to write and run
   stays one issue (`create-gh-issue`, step 3).
 
@@ -103,8 +105,8 @@ Three defects strand an item silently. Fix them while you are in here:
 gate that still binds; `--not-before none` is for one that has stopped binding.
 
 **Done when** every item that was in `untriaged` carries all three fields, each
-`Needs decision` names its decision and each `Out of reach` names what it needs, and every
-`needs_judgement` entry has a footprint or a gate in its body.
+`Needs decision` names its decision, each `Manual` what it needs and each `Waiting` whom
+it waits on, and every `needs_judgement` entry has a footprint or a gate in its body.
 
 ## 3. Collapse
 
@@ -201,7 +203,7 @@ with each verdict stated, and every survivor names its decision.
 - What is now `Unattended` in Backlog and could be promoted, ranked as `hoopit-board
   slots --unattended` lists Backlog — the user picks which move to Ready; move none on
   your own.
-- The `Out of reach` count alone, and that `gh-followup` is what works that bucket.
+- The `Manual` and `Waiting` counts alone, and that `gh-followup` is what works those buckets.
 - Whether anything is draining the queue: check where a backlog daemon runs, and whether
   it is dispatching. A queue of `Unattended` items with nothing consuming it is the one
   way a clean triage run still leaves the backlog stopped. Report the fact; enabling it

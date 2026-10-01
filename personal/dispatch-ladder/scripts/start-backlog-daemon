@@ -12,7 +12,7 @@
 # `gh-triage` step 2.
 #
 # Judgement that needs a human is the `gh-triage` skill, and the items no agent can
-# finish — Autonomy `Needs decision` or `Out of reach` — are never started here at all;
+# finish — Autonomy `Needs decision`, `Manual` or `Waiting` — are never started here at all;
 # `hoopit-board decisions` is the queue for clearing those by hand. START_BACKLOG_SKIP_TYPES
 # can hold back a second set by issue type: work an agent could finish, kept for a session
 # with somebody in it. Those keep their place in Ready.
@@ -42,7 +42,7 @@
 #                        [--interval SEC] [--once] [--dry-run] [--attended]
 #
 # --attended says somebody is watching the tabs. It also dispatches Autonomy
-# `Out of reach`, and tells each agent to ask in its tab and wait rather than release.
+# `Manual`, and tells each agent to ask in its tab and wait rather than release.
 #
 # An agent working one of these repos reaches AWS, so a dead `aws login` session turns a
 # start into a run that fails late, with the slot claimed and the tab already open. Each
@@ -326,7 +326,7 @@ tick() {
   local scope=() r t
   for r in $REPOS; do scope+=(--repo "$r"); done
   for t in $SKIP_TYPES; do scope+=(--skip-type "$t"); done
-  [[ $ATTENDED == 1 ]] && scope+=(--allow-out-of-reach)
+  [[ $ATTENDED == 1 ]] && scope+=(--allow-manual)
   hoopit-board next $TARGET ${MAX_ACTIVE:+--max-active "$MAX_ACTIVE"} \
     ${MAX_REVIEW:+--max-review "$MAX_REVIEW"} "${live[@]}" \
     "${scope[@]}" "${excludes[@]}" > "$run"
