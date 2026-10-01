@@ -95,9 +95,10 @@ covers the state the user was shown, not whatever the target looks like later.
 ## 5. Execute — from the main worktree
 
 A worktree cannot remove itself, but git will remove it when the command runs against the
-main worktree, even if it is your current directory. Resolve `MAIN_ROOT` **first**, then
-use `git -C "$MAIN_ROOT"` for every command — after the removal this session's cwd no
-longer exists.
+main worktree. Resolve `MAIN_ROOT` **first**, `cd` into it before removing anything, and use
+`git -C "$MAIN_ROOT"` for every command. The shell must not stand in the directory it
+deletes: the harness reads the shell's cwd after each call, so a call that removes its own
+cwd fails even though the removal worked.
 
 Fill `BRANCH` and `WORKTREE` from the `TARGET_BRANCH` / `TARGET_WORKTREE` lines
 `inspect.sh` printed for the confirmed target. **Never re-derive them from the session**
@@ -111,6 +112,7 @@ the branch.
 MAIN_ROOT=$(git worktree list --porcelain | awk '/^worktree /{print substr($0, 10); exit}')
 BRANCH="<TARGET_BRANCH from inspect.sh>"
 WORKTREE="<TARGET_WORKTREE from inspect.sh, or - if none>"
+cd "$MAIN_ROOT" || exit 1
 
 if [[ $WORKTREE != "-" ]]; then
   # || exit: if removal fails, do NOT fall through to branch -D — that would leave a
