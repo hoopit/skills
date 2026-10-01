@@ -28,7 +28,8 @@ plugins and hooks would otherwise move the score, and nobody else could reproduc
 1. Run `claude setup-token` in a terminal, and save the token to
    `~/.config/skill-eval/oauth-token` (chmod 600).
 2. Run `"$E" setup --repo <checkout>` to install the plugins that repo enables into the eval
-   config. Do it once for each repo whose plugins differ.
+   config. Do it once for each repo whose plugins differ. Each run copies that store, with
+   auto-update off, so a run never changes the version the next one measures.
 
 `--as-me` runs under your own config instead. It is for debugging a suite before the token
 exists, and its scores are yours alone.

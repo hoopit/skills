@@ -305,7 +305,7 @@ def run_script(script, cwd, env, timeout=600):
 
 
 def run_config(rundir, fixture):
-    """This run's own config dir: `setup`'s files, its plugins shared, its fixture trusted.
+    """This run's own config dir: `setup`'s files, a copy of its plugins, its fixture trusted.
 
     Claude honours a project's `permissions.additionalDirectories` only in a trusted
     workspace, trust does not reach down from a parent dir, and every run's fixture is a
@@ -318,7 +318,7 @@ def run_config(rundir, fixture):
     config.mkdir()
     for item in CONFIG_DIR.iterdir():
         if item.name == "plugins":
-            (config / "plugins").symlink_to(item)
+            copy_plugins(item, config / "plugins")
         elif item.is_file():
             shutil.copy2(item, config / item.name)
     state = config / ".claude.json"
@@ -328,12 +328,45 @@ def run_config(rundir, fixture):
     return config
 
 
+def copy_plugins(shared, own):
+    """`setup`'s plugin store, copied for one run and pointed at the copy.
+
+    Claude writes the store as it runs: a project-scope entry for each fixture, and an
+    auto-update that installs a new version and repoints `installPath` through the
+    config path it runs under. Written through to the shared store, those writes change
+    the version the next run measures, and leave paths that resolve only while this run
+    exists. A copy keeps them in the run. Every path under some `claude-config/plugins/`
+    is re-rooted in the copy, and auto-update is off, so the run loads what `setup`
+    installed.
+    """
+    subprocess.run(["cp", "-a", "--reflink=auto", str(shared), str(own)], check=True)
+    def local(path):
+        rel = path.partition("/claude-config/plugins/")[2] if isinstance(path, str) else ""
+        return str(own / rel) if rel else path
+    installed = own / "installed_plugins.json"
+    if installed.is_file():
+        data = json.loads(installed.read_text())
+        for entries in (data.get("plugins") or {}).values():
+            for entry in entries:
+                entry["installPath"] = local(entry.get("installPath"))
+        installed.write_text(json.dumps(data, indent=2))
+    known = own / "known_marketplaces.json"
+    if known.is_file():
+        data = json.loads(known.read_text())
+        for market in data.values():
+            market["installLocation"] = local(market.get("installLocation"))
+            market["autoUpdate"] = False
+        known.write_text(json.dumps(data, indent=2))
+
+
 def agent_env(opts, rundir, shims, fixture):
     env = {k: v for k, v in os.environ.items()
            if k not in SCRUBBED and not k.startswith(("CLAUDE", "HERDR"))}
     env["PATH"] = f"{shims}{os.pathsep}{env.get('PATH', '')}"
     env["GH_CONFIG_DIR"] = str(rundir / "gh-empty")
     env["GIT_TERMINAL_PROMPT"] = "0"
+    # Claude and its plugins hold still for the run: the version measured is the one installed.
+    env["DISABLE_AUTOUPDATER"] = "1"
     if not opts.as_me:
         env["CLAUDE_CONFIG_DIR"] = str(run_config(rundir, fixture))
         env["CLAUDE_CODE_OAUTH_TOKEN"] = token()

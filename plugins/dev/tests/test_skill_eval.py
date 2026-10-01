@@ -86,7 +86,7 @@ def build(tmp):
     case(evals, "leaks", f"RUN: git -C {src} branch leaked-branch")
     case(evals, "pushes", "RUN: git push origin HEAD:refs/heads/pushed-branch")
     case(evals, "isolated", "RUN: gh issue view 1\nRUN: env\nRUN: hoopit-board config\nRUN: git status | tail -1\n"
-         "RUN: cat \"$CLAUDE_CONFIG_DIR/.claude.json\"; readlink \"$CLAUDE_CONFIG_DIR/plugins\"",
+         "RUN: cat \"$CLAUDE_CONFIG_DIR/.claude.json\"",
          check=textwrap.dedent('''\
             #!/usr/bin/env bash
             grep -q 'gh is disabled in a skill-eval run' "$EVAL_LOG" && echo "PASS gh_shimmed" || echo "FAIL gh_shimmed"
@@ -99,8 +99,29 @@ def build(tmp):
               && echo "PASS own_config" || echo "FAIL own_config"
             grep -q "$EVAL_FIXTURE"'\\\\"\\{1,\\}: *{\\\\"\\{1,\\}hasTrustDialogAccepted' "$EVAL_LOG" \\
               && echo "PASS fixture_trusted" || echo "FAIL fixture_trusted"
+            grep -q 'DISABLE_AUTOUPDATER=1' "$EVAL_LOG" && echo "PASS no_autoupdate" || echo "FAIL no_autoupdate"
+         '''))
+    # What Claude does to the plugin store as it runs: a project entry per fixture, an
+    # auto-update that installs a new version, a marketplace refresh.
+    plugins = '"$CLAUDE_CONFIG_DIR/plugins"'
+    case(evals, "plugin-store",
+         f"RUN: cat {plugins}/installed_plugins.json {plugins}/known_marketplaces.json\n"
+         f"RUN: echo '{{\"plugins\": {{}}}}' > {plugins}/installed_plugins.json\n"
+         f"RUN: echo changed >> {plugins}/cache/demo-market/demo-plugin/1/plugin.txt\n"
+         f"RUN: mkdir -p {plugins}/cache/demo-market/demo-plugin/2 && touch {plugins}/cache/demo-market/demo-plugin/2/new\n"
+         f"RUN: rm {plugins}/known_marketplaces.json",
+         check=textwrap.dedent('''\
+            #!/usr/bin/env bash
+            own="$EVAL_RUN_DIR/claude-config/plugins"
+            grep -q "$own/cache/demo-market/demo-plugin/1" "$EVAL_LOG" \\
+              && echo "PASS install_path_own" || echo "FAIL install_path_own"
+            grep -q "$own/cache/demo-market/unrelated/2" "$EVAL_LOG" \\
+              && echo "PASS dead_path_rerooted" || echo "FAIL dead_path_rerooted"
+            grep -q "$own/marketplaces/demo-market" "$EVAL_LOG" \\
+              && echo "PASS marketplace_own" || echo "FAIL marketplace_own"
+            grep -q 'autoUpdate[^,}]*false' "$EVAL_LOG" && echo "PASS marketplace_frozen" || echo "FAIL marketplace_frozen"
             grep -q "$SKILL_EVAL_HOME/claude-config/plugins" "$EVAL_LOG" \\
-              && echo "PASS plugins_shared" || echo "FAIL plugins_shared"
+              && echo "FAIL shared_unnamed" || echo "PASS shared_unnamed"
          '''))
     case(evals, "mocked",
          "RUN: printf 'Adds x.\\n\\ncloses #3\\n' | gh pr create --title 'BAC-12 Add x' --body-file -\n"
@@ -185,15 +206,37 @@ def build_plugin(tmp):
     return product, skill
 
 
+def eval_config(tmp):
+    """What `setup` leaves behind: the template every run's own config is cut from.
+
+    `unrelated` is installed through another run's config path, as a run that rewrote
+    the shared store leaves it.
+    """
+    config = tmp / "home" / "claude-config"
+    write(config / "settings.json", "{}")
+    write(config / ".claude.json", '{"projects": {}}')
+    cache = config / "plugins" / "cache" / "demo-market"
+    write(cache / "demo-plugin" / "1" / "plugin.txt", "v1\n")
+    write(cache / "unrelated" / "2" / "plugin.txt", "v2\n")
+    write(config / "plugins" / "installed_plugins.json", json.dumps({"plugins": {
+        "demo-plugin@other-market": [],
+        "demo-plugin@demo-market": [{"scope": "user", "installPath": str(cache / "demo-plugin" / "1")}],
+        "unrelated@demo-market": [{"scope": "user", "installPath":
+            str(tmp / "home" / "gone-run" / "case-1" / "claude-config" / "plugins" / "cache" / "demo-market" / "unrelated" / "2")}]}}))
+    write(config / "plugins" / "known_marketplaces.json", json.dumps({"demo-market": {
+        "installLocation": str(config / "plugins" / "marketplaces" / "demo-market"), "autoUpdate": True}}))
+    write(config / "plugins" / "marketplaces" / "demo-market" / "marketplace.json", '{"name": "demo-market"}')
+    return config / "plugins"
+
+
+def snapshot(root):
+    return {p.relative_to(root).as_posix(): p.read_bytes() if p.is_file() else None for p in sorted(root.rglob("*"))}
+
+
 def run(tmp, *args, cwd=None):
     fake = tmp / "claude"
     write(fake, FAKE_CLAUDE, 0o755)
-    # What `setup` leaves behind: the template every run's own config is cut from.
-    write(tmp / "home" / "claude-config" / "settings.json", "{}")
-    write(tmp / "home" / "claude-config" / ".claude.json", '{"projects": {}}')
-    (tmp / "home" / "claude-config" / "plugins").mkdir(exist_ok=True)
-    write(tmp / "home" / "claude-config" / "plugins" / "installed_plugins.json",
-          '{"plugins": {"demo-plugin@other-market": [], "unrelated@demo-market": []}}')
+    eval_config(tmp)
     # GIT_INDEX_FILE is what git exports to a hook, so every run here is a run from inside
     # pre-commit: the runner has to keep it away from the fixtures' git.
     env = {**os.environ, "SKILL_EVAL_HOME": str(tmp / "home"), "SKILL_EVAL_CLAUDE": str(fake),
@@ -223,10 +266,13 @@ def main():
         tmp = pathlib.Path(t)
         src, skill = build(tmp)
         out = tmp / "cand"
+        store = snapshot(eval_config(tmp))
         p = run(tmp, "run", str(skill), "--runs", "2", "--concurrency", "4", "--out", str(out))
         expect(p.returncode == 1, f"a suite with failing runs exits 1 (got {p.returncode}: {p.stderr[-400:]})")
         r = runs(out)
-        expect(len(r) == 16, f"8 cases x 2 runs recorded (got {len(r)})")
+        expect(len(r) == 18, f"9 cases x 2 runs recorded (got {len(r)})")
+        expect(snapshot(tmp / "home" / "claude-config" / "plugins") == store,
+               "a run's writes to its plugin store leave the shared store byte-identical")
 
         c = r[("creates", 1)]
         expect(c["_"]["passed"], "the passing case passes")
@@ -265,7 +311,14 @@ def main():
         expect(iso["token_scrubbed"]["status"] == "PASS", "GH_TOKEN never reaches the agent")
         expect(iso["own_config"]["status"] == "PASS", "the agent runs under a config dir of its own run")
         expect(iso["fixture_trusted"]["status"] == "PASS", "that config trusts the run's fixture")
-        expect(iso["plugins_shared"]["status"] == "PASS", "that config shares setup's plugins")
+        expect(iso["no_autoupdate"]["status"] == "PASS", "the agent runs with auto-update off")
+        ps = r[("plugin-store", 1)]
+        for check, what in (("install_path_own", "an installed plugin loads from the run's own copy of the store"),
+                            ("dead_path_rerooted", "a path through another run's config is re-rooted in the copy"),
+                            ("marketplace_own", "a marketplace reads from the run's own copy"),
+                            ("marketplace_frozen", "marketplace auto-update is off in the copy"),
+                            ("shared_unnamed", "the run's store never names the shared one")):
+            expect(ps[check]["status"] == "PASS", what)
         expect(iso["_"]["metrics"]["masked_exit"] == 1, "a `| tail` without pipefail is counted")
 
         m = r[("mocked", 1)]
