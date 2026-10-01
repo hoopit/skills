@@ -21,7 +21,7 @@ import json, subprocess, sys, time
 args = sys.argv[1:]
 prompt = args[args.index("-p") + 1]
 emit = lambda e: print(json.dumps(e), flush=True)
-emit({"type": "system", "subtype": "init", "model": "fake-model"})
+emit({"type": "system", "subtype": "init", "model": "fake-model", "argv": args})
 turns = 0
 for line in prompt.splitlines():
     if line.startswith("RUN: "):
@@ -82,7 +82,7 @@ def build(tmp):
     evals = skill / "evals"
     write(evals / "check.sh", SUITE_CHECK)
     case(evals, "creates", "RUN: git worktree add -q -b feat/x .worktrees/feat-x")
-    case(evals, "idle", "RUN: true")
+    case(evals, "idle", "RUN: true", meta="effort: high\n")
     case(evals, "leaks", f"RUN: git -C {src} branch leaked-branch")
     case(evals, "pushes", "RUN: git push origin HEAD:refs/heads/pushed-branch")
     case(evals, "isolated", "RUN: gh issue view 1\nRUN: env\nRUN: hoopit-board config\nRUN: git status | tail -1\n"
@@ -154,6 +154,10 @@ def run(tmp, *args, cwd=None):
     return subprocess.run([sys.executable, str(SCRIPT), *args], env=env, cwd=cwd, capture_output=True, text=True)
 
 
+def first_init(record):
+    return next(json.loads(l) for l in open(record["log"]) if '"init"' in l)
+
+
 def runs(out):
     recs = [json.loads(p.read_text()) for p in (out / "runs").glob("*.json")]
     return {(r["case"], r["run"]): {c["name"]: c for c in r["checks"]} | {"_": r} for r in recs}
@@ -184,6 +188,13 @@ def main():
         expect(c["slow_smoke"]["status"] == "SKIP", "slow checks skip unless --slow")
         expect(c["agent_finished"]["status"] == "PASS", "a clean result event is agent_finished")
         expect(c["_"]["metrics"]["model"] == "fake-model", "the model is read from the log")
+        expect(c["_"]["effort"] == "medium" and "'--effort', 'medium'" in str(first_init(c["_"])),
+               "the agent runs at medium effort by default, and the record says so")
+        idle = r[("idle", 1)]["_"]
+        expect(idle["effort"] == "high" and "'--effort', 'high'" in str(first_init(idle)),
+               "a case's effort: frontmatter sets the agent's effort")
+        expect(pathlib.Path(c["_"]["fixture"]).name == "src",
+               "the fixture is named after the repo")
         log = pathlib.Path(c["_"]["log"])
         expect(log.is_file() and log.is_relative_to(out) and "feat/x" in log.read_text(),
                "the run's log is kept with its results after the fixture is gone")
@@ -231,6 +242,9 @@ def main():
         summary = json.loads((out / "summary.json").read_text())
         expect(summary["cases"]["creates"]["checks"]["worktree"] == {"pass": 2, "scored": 2, "reasons": []},
                "the summary counts passes per check")
+        expect((summary["repo"], summary["model"], summary["effort"]) == ("src", "fake-model", "high, medium")
+               and (summary["cases"]["idle"]["model"], summary["cases"]["idle"]["effort"]) == ("fake-model", "high"),
+               f"the summary records the repo, and the model and effort per case (got {summary.get('effort')})")
 
         # Run from inside the source checkout, as `ab` is: its files must not stand in for the ref's.
         base = tmp / "base"
@@ -244,6 +258,21 @@ def main():
         expect(p.returncode == 0, "compare exits 0 when nothing got worse")
         p = run(tmp, "compare", str(out), str(base))
         expect("▼ 2/2 → 0/2  version" in p.stdout and p.returncode == 1, "compare marks a regression and exits 1")
+        run(tmp, "run", str(skill), "--effort", "low", "--case", "creates", "--runs", "1", "--out", str(tmp / "low"))
+        p = run(tmp, "compare", str(base), str(tmp / "low"))
+        expect(p.returncode and "refusing" in p.stderr and "medium" in p.stderr and "low" in p.stderr,
+               f"compare refuses two sets whose effort differs (got {p.returncode}: {p.stderr[-300:]})")
+
+        # Run from a git worktree of the source, whose dir carries a branch slug.
+        wt = tmp / "GH-1-some-branch"
+        sh("git", "worktree", "add", "-q", "-b", "GH-1-some-branch", str(wt), cwd=src)
+        wt_skill = wt / skill.relative_to(src)
+        write(wt_skill / "SKILL.md", (skill / "SKILL.md").read_text())
+        p = run(tmp, "run", str(wt_skill), "--case", "creates", "--runs", "1", cwd=wt)
+        rec = [json.loads(f.read_text()) for f in (tmp / "home" / "results").glob("src/demo/*/runs/*.json")]
+        expect(len(rec) == 1 and pathlib.Path(rec[0]["fixture"]).name == "src",
+               f"a run from a worktree keeps the repo's name for its fixture and results (got {p.stdout[-300:]} {p.stderr[-600:]})")
+        sh("git", "worktree", "remove", "--force", str(wt), cwd=src)
 
         # A branch about to get a PR has committed its edit, so the baseline's base trails HEAD.
         sh("git", "add", "-A", cwd=src)

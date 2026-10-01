@@ -48,7 +48,8 @@ GIT_REDIRECTS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIREC
                  "GIT_NAMESPACE", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT",
                  "GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_AUTHOR_DATE",
                  "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "GIT_COMMITTER_DATE", "GIT_EDITOR")
-DEFAULTS = {"runs": 3, "max_turns": 30, "timeout_seconds": 900, "model": "opus"}
+DEFAULTS = {"runs": 3, "max_turns": 30, "timeout_seconds": 900, "model": "opus", "effort": "medium"}
+EFFORTS = ("low", "medium", "high", "xhigh", "max")
 CHECK_LINE = re.compile(r"^(PASS|FAIL|SKIP)\s+(\S+)(?:\s+(.*))?$")
 MASKED_PIPE = re.compile(r"\|\s*(tail|head)\b")
 AUTHOR = {"GIT_AUTHOR_NAME": "skill-eval", "GIT_AUTHOR_EMAIL": "skill-eval@localhost",
@@ -114,7 +115,18 @@ def resolve_skill(skill_dir):
     head = git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD", cwd=src, check=False)
     branch = head.partition("/")[2] if head else git("branch", "--show-current", cwd=src) or "main"
     return {"dir": skill_dir, "name": skill_dir.name, "src": src, "rel": rel,
-            "branch": branch, "base_ref": head or branch}
+            "repo_name": repo_name(src), "branch": branch, "base_ref": head or branch}
+
+
+def repo_name(checkout):
+    """The repo's own name, which a git worktree's dir name is not: `api`, never `GH-1-fix`.
+
+    The fixture dir takes it, since an agent reads the repo name off its cwd, and so does
+    the results path, so that runs from different repos never share a directory.
+    """
+    common = git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=checkout)
+    common = pathlib.Path(common)
+    return (common.parent if common.name == ".git" else common.with_suffix("")).name
 
 
 def stage_version(skill, ref, stage):
@@ -275,10 +287,17 @@ def agent_env(opts, rundir, shims, fixture):
     return env
 
 
+def model_effort(case, opts):
+    meta = case["meta"]
+    return (opts.model or meta.get("model") or DEFAULTS["model"],
+            opts.effort or meta.get("effort") or DEFAULTS["effort"])
+
+
 def run_agent(case, opts, fixture, log, env):
     meta = case["meta"]
+    model, effort = model_effort(case, opts)
     cmd = [CLAUDE, "-p", case["prompt"], "--output-format", "stream-json", "--verbose",
-           "--model", opts.model or meta.get("model", DEFAULTS["model"]),
+           "--model", model, "--effort", effort,
            "--max-turns", str(meta.get("max_turns", DEFAULTS["max_turns"])),
            "--permission-mode", "bypassPermissions", "--no-session-persistence"]
     for d in opts.plugin_dir or ():
@@ -330,7 +349,7 @@ def one_run(job):
     rundir = ctx["rundir"] / f"{case['name']}-{i}"
     rundir.mkdir()
     (rundir / "gh-empty").mkdir()
-    fixture = rundir / skill["src"].name
+    fixture = rundir / skill["repo_name"]
     git("clone", "-q", "--shared", str(ctx["upstream"]), str(fixture))
     git("remote", "set-url", "--push", "origin", "/nonexistent/skill-eval-push-disabled", cwd=fixture)
     shims, calls = make_shims(rundir, case)
@@ -391,7 +410,9 @@ def one_run(job):
     if log.with_suffix(".stderr").exists():
         shutil.copy2(log.with_suffix(".stderr"), kept.with_suffix(".stderr"))
     shutil.copy2(calls, kept.with_suffix(".calls.jsonl"))
-    record = {"case": case["name"], "run": i, "fixture": str(fixture), "log": str(kept),
+    model, effort = model_effort(case, opts)
+    record = {"case": case["name"], "run": i, "model": model, "effort": effort,
+              "fixture": str(fixture), "log": str(kept),
               "calls": str(kept.with_suffix(".calls.jsonl")),
               "checks": [{"name": n, "status": s, "reason": r} for n, (s, r) in checks.items()],
               "passed": all(s != "FAIL" for s, _ in checks.values()), "metrics": metrics,
@@ -422,7 +443,12 @@ def summarise(records, header):
                 s["pass"] += ch["status"] == "PASS"
             if ch["status"] == "FAIL" and ch["reason"]:
                 s["reasons"].append(ch["reason"])
-    for c in cases.values():
+    for name, c in cases.items():
+        mine = [r for r in records if r["case"] == name]
+        # What was asked for, and what ran: an alias like `opus` does not pin the model.
+        c["requested_model"] = ", ".join(sorted({r.get("model") or "?" for r in mine}))
+        c["model"] = ", ".join(sorted({r["metrics"]["model"] for r in mine if r["metrics"].get("model")}))
+        c["effort"] = ", ".join(sorted({r.get("effort") or "?" for r in mine}))
         ms = c.pop("metrics")
         c["metrics"] = {k: median([m.get(k) for m in ms]) for k in ("seconds", "turns", "cost_usd", "tool_calls")}
         c["metrics"]["skill_tool_runs"] = sum(bool(m.get("skill_tool")) for m in ms)
@@ -437,7 +463,8 @@ def median(values):
 
 
 def print_summary(s):
-    print(f"\n{s['skill']} — {s['label']} ({s['version']}), model {s['model']}, {s['started']}")
+    print(f"\n{s['skill']} in {s['repo']} — {s['label']} ({s['version']}), "
+          f"model {s['model']}, effort {s['effort']}, {s['started']}")
     for name, c in s["cases"].items():
         m = c["metrics"]
         print(f"\n{name}: {c['passed']}/{c['runs']} runs passed  "
@@ -450,7 +477,22 @@ def print_summary(s):
 
 
 def compare(a, b):
-    print(f"\n{a['skill']}: A = {a['label']} ({a['version']})   B = {b['label']} ({b['version']})")
+    """Print what moved between two result sets, and return how many checks got worse.
+
+    Two sets whose model or effort differ for a case measure the setting as much as the
+    skill, so they are refused rather than compared.
+    """
+    setting = lambda c: f"{c.get('model') or c.get('requested_model')} at {c.get('effort')} effort"
+    differ = [f"  {name}: A {setting(ca)}, B {setting(cb)}"
+              for name in sorted(set(a["cases"]) & set(b["cases"]))
+              for ca, cb in [(a["cases"][name], b["cases"][name])]
+              if (ca.get("requested_model"), ca.get("effort")) != (cb.get("requested_model"), cb.get("effort"))
+              or ca.get("model") and cb.get("model") and ca["model"] != cb["model"]]
+    if differ:
+        sys.exit("refusing to compare: the model or effort differs (a set without either predates "
+                 "their recording; rerun it)\n" + "\n".join(differ))
+    print(f"\n{a['skill']}: A = {a['label']} ({a['version']}, {a.get('repo', '?')})"
+          f"   B = {b['label']} ({b['version']}, {b.get('repo', '?')})")
     print("A check that moved by two runs or more is marked ▲ (better) or ▼ (worse);"
           " smaller moves are inside the noise of a few runs.\n")
     worse = 0
@@ -534,7 +576,8 @@ def run_suite(opts, ref, label):
     started = datetime.datetime.now().strftime("%Y%m%dT%H%M%S")
     HOME.mkdir(parents=True, exist_ok=True)
     rundir = pathlib.Path(tempfile.mkdtemp(prefix=f"{skill['name']}-{label}-", dir=HOME))
-    out = pathlib.Path(opts.out) if opts.out else HOME / "results" / skill["name"] / f"{started}-{label}"
+    out = pathlib.Path(opts.out) if opts.out else \
+        HOME / "results" / skill["repo_name"] / skill["name"] / f"{started}-{label}"
     out.mkdir(parents=True, exist_ok=True)
     upstream, commit, base_sha = make_upstream(skill, ref, opts.base or skill["base_ref"], rundir, label)
     version = ref or "working tree"
@@ -542,16 +585,17 @@ def run_suite(opts, ref, label):
            "commit": commit, "out": out}
     jobs = [{"case": c, "i": i, "ctx": ctx}
             for c in cases for i in range(1, (opts.runs or c["meta"].get("runs") or DEFAULTS["runs"]) + 1)]
-    print(f"{skill['name']} ({version}) on {skill['src'].name}@{base_sha[:10]}: "
+    print(f"{skill['name']} ({version}) on {skill['repo_name']}@{base_sha[:10]}: "
           f"{len(cases)} cases, {len(jobs)} runs, concurrency {opts.concurrency}", flush=True)
     with concurrent.futures.ThreadPoolExecutor(opts.concurrency) as pool:
         records = list(pool.map(one_run, jobs))
     if not opts.keep:
         shutil.rmtree(rundir, ignore_errors=True)
-    models = sorted({r["metrics"]["model"] for r in records if r["metrics"].get("model")})
-    summary = summarise(records, {"skill": skill["name"], "label": label, "version": version,
-                                  "base": base_sha, "model": ", ".join(models) or opts.model or "?",
-                                  "started": started, "results": str(out)})
+    summary = summarise(records, {"skill": skill["name"], "repo": skill["repo_name"], "label": label,
+                                  "version": version, "base": base_sha, "started": started,
+                                  "results": str(out)})
+    for key in ("model", "effort"):
+        summary[key] = ", ".join(sorted({c[key] for c in summary["cases"].values() if c[key]})) or "?"
     (out / "summary.json").write_text(json.dumps(summary, indent=2))
     print_summary(summary)
     print(f"\nresults: {out}")
@@ -592,6 +636,8 @@ def main():
         s.add_argument("--tag", action="append", help="only cases with this tag (repeatable)")
         s.add_argument("--runs", type=int, help="runs per case (default: the case's, else 3)")
         s.add_argument("--model", help="override every case's model (default: the case's, else opus)")
+        s.add_argument("--effort", choices=EFFORTS,
+                       help="override every case's effort (default: the case's, else medium)")
         s.add_argument("--concurrency", type=int, default=2)
         s.add_argument("--base", help="commit the fixture starts from (default: origin/HEAD)")
         s.add_argument("--slow", action="store_true", help="also run the checks marked slow")

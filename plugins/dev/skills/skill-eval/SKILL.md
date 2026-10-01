@@ -17,7 +17,7 @@ E="${CLAUDE_PLUGIN_ROOT}/skills/skill-eval/scripts/skill-eval"
 "$E" compare <results-a> <results-b>
 ```
 
-`"$E" <command> --help` lists the rest: `--case`, `--runs`, `--model`, `--slow`, `--keep`.
+`"$E" <command> --help` lists the rest: `--case`, `--runs`, `--model`, `--effort`, `--slow`, `--keep`.
 
 ## Once per machine
 
@@ -34,12 +34,15 @@ exists, and its scores are yours alone.
 
 ## Reading a result
 
+- **Model and effort.** Every run pins both: `opus` at `medium` effort unless the case or
+  `--model` / `--effort` says otherwise. `compare` refuses two sets that differ in either,
+  and a set taken before effort was recorded.
 - **Noise.** `compare` marks a check that moved by two runs or more with `▲` or `▼`. A
   smaller move is noise at 3–5 runs. A suite cannot see a rare failure get rarer; it sees
   cases written so that the old skill fails often.
 - **`source_repo_untouched` FAIL.** The agent wrote to your real checkout. Read that run's
   log before anything else.
-- **Files.** Results go under `~/.cache/skill-evals/results/<skill>/`, and each run's JSON names
+- **Files.** Results go under `~/.cache/skill-evals/results/<repo>/<skill>/`, and each run's JSON names
   its log.
 - **Cost.** Every run is a full agent session, so `ab` costs cases × runs × 2.
 - **`--keep`.** It leaves every fixture on disk, installed dependencies included.
@@ -85,7 +88,7 @@ F="${CLAUDE_PLUGIN_ROOT}/skills/skill-eval/scripts/field-report"
   answers from the first entry in `mocks/<tool>.json` whose `match` regex finds the
   space-joined argv: `[{"match": "^pr create", "stdout": "https://…/pull/7\n", "exit": 0}]`.
   A call nothing matches, a tool without a file included, fails with `no mock for: <argv>`.
-- **Frontmatter.** It takes `runs`, `max_turns`, `timeout_seconds`, `model` and `tags`.
+- **Frontmatter.** It takes `runs`, `max_turns`, `timeout_seconds`, `model`, `effort` and `tags`.
   `expect_<name>` reaches the checks as `EVAL_EXPECT_<NAME>`.
 - **`check.sh` grades state, not wording.** A tracker write is state: grade the recorded
   call, such as the `gh pr create` title, never what the agent says it did. It prints one line per check:
