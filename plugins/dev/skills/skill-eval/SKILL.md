@@ -44,6 +44,26 @@ exists, and its scores are yours alone.
 - **Cost.** Every run is a full agent session, so `ab` costs cases × runs × 2.
 - **`--keep`.** It leaves every fixture on disk, installed dependencies included.
 
+## Field report
+
+`field-report` reads your Claude Code transcripts and prints, per skill, how real sessions
+reach it and what it costs them: turns, wall time, tokens, failed calls, redos and the user
+stepping in. Run it for a baseline before a change, and again a week after it ships.
+
+```bash
+F="${CLAUDE_PLUGIN_ROOT}/skills/skill-eval/scripts/field-report"
+"$F" --since 2026-09-01 --until 2026-09-30 [--by week|repo] [--skill <name>] [--json]
+```
+
+- A use is a `Skill` call, a slash command or a read of the skill's `SKILL.md`. The skill
+  listing never counts. Sessions that edit the skill, review-gate probes and eval runs are
+  left out.
+- A span runs from a use to the next skill or the end of the turn, so a skill the agent
+  leaves without loading another carries the work after it. Compare a skill with itself
+  over time, not with another skill.
+- Claude Code deletes transcripts after `cleanupPeriodDays` (30 by default). Keep the
+  `--json` output of a baseline you will need later.
+
 ## Writing a suite
 
 ```
