@@ -79,6 +79,13 @@ is exact: `blockedBy`, where the blocker is an issue someone closes, and a decla
 proxy date where it is not. A rollout is the second kind — nothing on GitHub represents
 a release, and the issue that ships the code closes at merge, days before promotion.
 
+Status says where the work is; the board's own `Agent` field says what the Claude Code
+session working it is doing right now — Working, Needs you, Idle or Gone — with the open
+question in `Agent note`. Nothing asks the agent to report it: the plugin's hooks call
+`agent-hook` on each edge, which records it in a local file per session, and a detached
+`agents --sync` writes the board only what changed. `start` and `bind`, run inside a
+session, tie it to the items it works.
+
   slots [X] [--unattended]       what to start, to reach X in flight (default 15)
   next [X] [--max-active N] [--max-review M] [--live-agents A,B] [--idle-agents C,D]
        [--repo R]... [--skip-type TYPE]...
@@ -90,7 +97,13 @@ a release, and the issue that ships the code closes at merge, days before promot
   scan [--no-judge]              every open item, with curation signals and judged duplicate pairs
   check <repo> <n>               is this issue startable?  exit 0 yes / 1 no
   claim <repo> <n> --agent A [--tab T]    status -> In progress, then comment
-  start <repo> <n>               the same, for work taken in this session
+  start <repo> <n>               the same, for work taken in this session; work already in
+                                 flight is left as it is. Binds the session either way
+  bind <repo> <n> [--pr]         tie this session to the item (or to every issue the PR
+                                 closes), so its Agent field follows the session
+  agents [--sync]                the sessions tied to items here; --sync reaps the dead
+                                 and writes the board what changed
+  agent-hook                     the plugin hooks' entry point: one hook event on stdin
   release <repo> <n> --reason R [--ready]  status -> Backlog (or Ready), so the slot frees up
   ready <repo> <n>               status -> Ready: the dispatch pool. Committed work, or the user's ask
   footprint <repo>...            paths the open PRs of each repo are touching
@@ -108,7 +121,8 @@ a release, and the issue that ships the code closes at merge, days before promot
                                  person can add; a dry run without --apply. Needs no config
   config                         the config as resolved
 """
-import argparse, hashlib, json, math, os, re, subprocess, sys, textwrap, time, urllib.error, urllib.request
+import argparse, contextlib, fcntl, hashlib, json, math, os, re, subprocess, sys, textwrap, time
+import urllib.error, urllib.request
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
@@ -627,8 +641,10 @@ LOCATE_QUERY = """query($login:String!,$number:Int!,$url:URI!){
       ... on ProjectV2FieldCommon{ id name }
       ... on ProjectV2SingleSelectField{ options{ id name } } } } } }
   resource(url:$url){ __typename
-    ... on Issue{ id projectItems(first:20){ nodes{ id project{ id } } } }
-    ... on PullRequest{ id projectItems(first:20){ nodes{ id project{ id } } } } } }"""
+    ... on Issue{ id projectItems(first:20){ nodes{ id project{ id }
+      fieldValueByName(name:"Status"){ ... on ProjectV2ItemFieldSingleSelectValue{ name } } } } }
+    ... on PullRequest{ id projectItems(first:20){ nodes{ id project{ id }
+      fieldValueByName(name:"Status"){ ... on ProjectV2ItemFieldSingleSelectValue{ name } } } } } } }"""
 
 
 def locate(repo, number):
@@ -642,6 +658,14 @@ def locate(repo, number):
     fields = {f["name"]: f for f in proj["fields"]["nodes"] if f.get("name")}
     item = next((n["id"] for n in res["projectItems"]["nodes"] if n["project"]["id"] == proj["id"]), None)
     return proj["id"], fields, res, item
+
+
+def item_status(res, project_id):
+    """The Status `locate` read for the resource's item on this project, or None."""
+    for n in (res or {}).get("projectItems", {}).get("nodes") or []:
+        if n["project"]["id"] == project_id:
+            return (n.get("fieldValueByName") or {}).get("name")
+    return None
 
 
 def set_status(project_id, fields, item_id, value):
@@ -1077,12 +1101,24 @@ def cmd_claim(a):
 
 
 def cmd_start(a):
-    """claim, for a session that is its own agent: same marker, no agent to name."""
-    project_id, fields, _, item_id = ensure_item(a.repo, a.number)
-    set_status(project_id, fields, item_id, "In progress")
-    gh("api", f"repos/{a.repo}/issues/{a.number}/comments",
-       "-f", "body=Started in a Claude Code session.", parse=False)
-    print(f"STARTED\t{a.repo}#{a.number}")
+    """claim, for a session that is its own agent: same marker, no agent to name.
+
+    Work already in flight is left as it is — the daemon claimed it before its agent
+    existed, or an earlier step of this run started it — so a second `start` writes no
+    Status and posts no second marker. Either way the session is bound to the item
+    (`bind`), which is what lets every skill on the way run it unconditionally."""
+    project_id, fields, res, item_id = locate(a.repo, a.number)
+    status = item_status(res, project_id) if item_id else None
+    if status in IN_FLIGHT:
+        print(f"IN-FLIGHT\t{a.repo}#{a.number}\t{status}")
+    else:
+        if not item_id:
+            project_id, fields, res, item_id = ensure_item(a.repo, a.number)
+        set_status(project_id, fields, item_id, "In progress")
+        gh("api", f"repos/{a.repo}/issues/{a.number}/comments",
+           "-f", "body=Started in a Claude Code session.", parse=False)
+        print(f"STARTED\t{a.repo}#{a.number}")
+    print(bind_line(a.repo, a.number, project_id, item_id))
 
 
 def cmd_release(a):
@@ -1118,6 +1154,501 @@ def cmd_ready(a):
     if added:
         _, _, _, item_id = ensure_item(a.repo, a.number)
     make_ready(a.repo, a.number, project_id, fields, item_id, added)
+
+
+# --- the Agent field -----------------------------------------------------------------------
+#
+# Status is ownership: every cap `next` counts reads it, and the board's own workflows write
+# it. What the session working an item is doing right now is a second fact, so it is a second
+# field — written into Status it would collide with both, and something would have to remember
+# which Status to put back.
+#
+# Nothing here asks the agent to report. Claude Code's hooks see each edge and `agent-hook`
+# records it in a file per session, with no network: a question opened and answered, a prompt
+# typed, a turn ending with or without background work still running, the session ending.
+# `agents --sync`, spawned detached, turns those files into the board's values and writes only
+# what changed — one mutation per change, never a heartbeat. A PR watch's 30-minute expiry is
+# the liveness probe: it wakes the agent, and the turn that follows ends with the watch
+# re-armed (still Working, nothing written) or without it (Idle, one write).
+#
+# A session is tied to its items by `start` or `bind` run inside it: `CLAUDE_CODE_SESSION_ID`
+# names the session to the Bash tool, and the hook payload's `session_id` is the same id.
+AGENT_FIELD = "Agent"
+AGENT_NOTE_FIELD = "Agent note"
+AGENT_STATES = ["Working", "Needs you", "Idle", "Gone"]
+AGENT_STYLE = {"Working": ("GREEN", "At work, or waiting on its own background work"),
+               "Needs you": ("RED", "A question to you is open"),
+               "Idle": ("ORANGE", "At its prompt, with nothing running and nothing asked"),
+               "Gone": ("GRAY", "The session that worked this has ended")}
+# Several sessions on one item — a fresh `/monitor-pr` beside the run that opened the PR —
+# show the state that most needs a look, and anything still working outranks a dead one.
+AGENT_RANK = {"Needs you": 3, "Working": 2, "Idle": 1, "Gone": 0}
+# The option the user's ask-in-chat convention names: chosen, the turn is the user's again.
+ANSWER_IN_CHAT = re.compile(r"\s*answer in chat\b", re.I)
+# How a Monitor event, a finished background job or subagent reaches the session: as a
+# prompt nobody typed. It wakes the agent and answers no question.
+TASK_NOTIFICATION = "<task-notification>"
+TERMINAL_TASK = ("completed", "failed", "killed", "stopped")
+AGENT_NOTE_MAX = 200
+# An item's issue is read for a close at most this often, and at once when its last session
+# ends: a closed item has nothing left to show, so its values are cleared and it is unbound.
+AGENT_CLOSED_RECHECK = 3600
+AGENT_KEEP_DAYS = 7
+AGENT_FIELDS_TTL = 86400
+AGENT_LOG_MAX = 1 << 20
+AGENT_FIELDS_QUERY = """query($id:ID!){ node(id:$id){ ... on ProjectV2{ fields(first:50){ nodes{
+  ... on ProjectV2FieldCommon{ id name }
+  ... on ProjectV2SingleSelectField{ options{ id name } } } } } } }"""
+
+
+def agents_dir(*parts):
+    """Where the session files live: per machine, beside nothing the config names, since a
+    session's process is only ever visible from the machine it runs on."""
+    base = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
+    d = os.path.join(base, "github-tracker", "agents")
+    os.makedirs(os.path.join(d, "sessions"), exist_ok=True)
+    return os.path.join(d, *parts)
+
+
+@contextlib.contextmanager
+def agents_lock(name=".lock", block=True):
+    """An exclusive lock on a file in the agents directory; yields False when `block` is off
+    and another process holds it. Closing the file releases it, so a crash never strands it."""
+    with open(agents_dir(name), "a") as fh:
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX | (0 if block else fcntl.LOCK_NB))
+        except BlockingIOError:
+            yield False
+            return
+        yield True
+
+
+def agents_log(name, text):
+    path = agents_dir(name)
+    with contextlib.suppress(OSError):
+        mode = "w" if os.path.exists(path) and os.path.getsize(path) > AGENT_LOG_MAX else "a"
+        with open(path, mode) as fh:
+            fh.write(f"{datetime.now().isoformat(timespec='seconds')} {text}\n")
+
+
+def session_file(sid):
+    """The record's path, or None for an id that is not one — a hook payload is input."""
+    return agents_dir("sessions", f"{sid}.json") if re.fullmatch(r"[\w-]{1,80}", sid or "") else None
+
+
+def session_load(sid):
+    path = session_file(sid)
+    try:
+        with open(path) as fh:
+            return json.load(fh)
+    except (TypeError, OSError, ValueError):
+        return None
+
+
+def session_save(s):
+    path = session_file(s["session"])
+    with open(path + ".tmp", "w") as fh:
+        json.dump(s, fh)
+    os.replace(path + ".tmp", path)
+
+
+def sessions_load():
+    out = []
+    for name in sorted(os.listdir(agents_dir("sessions"))):
+        if name.endswith(".json"):
+            s = session_load(name[:-5])
+            if s:
+                out.append(s)
+    return out
+
+
+def pushed_load():
+    """What the board was last sent per item id: `state` and `note` (None is cleared), and
+    `checked`, when its issue was last read for a close."""
+    try:
+        with open(agents_dir("pushed.json")) as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return {}
+
+
+def pushed_save(pushed):
+    path = agents_dir("pushed.json")
+    with open(path + ".tmp", "w") as fh:
+        json.dump(pushed, fh)
+    os.replace(path + ".tmp", path)
+
+
+def claude_pid():
+    """The Claude Code process this runs under: `CLAUDE_PID` where the harness sets it, else
+    the nearest ancestor running claude. None when there is none to find."""
+    env = os.environ.get("CLAUDE_PID", "")
+    if env.isdigit():
+        return int(env)
+    pid = os.getppid()
+    while pid > 1:
+        r = subprocess.run(["ps", "-o", "ppid=,args=", "-p", str(pid)],
+                           capture_output=True, text=True)
+        parts = r.stdout.split()
+        if len(parts) < 2:
+            return None
+        if any(os.path.basename(t) == "claude" for t in parts[1:3]):
+            return pid
+        pid = int(parts[0])
+    return None
+
+
+def pid_alive(pid):
+    """Whether the session's process still runs. A pid nobody recorded cannot be judged, so it
+    counts as alive: such a session is Gone only through its own SessionEnd. Where /proc
+    exists, a recycled pid running something else is not mistaken for the session."""
+    if not isinstance(pid, int) or pid <= 1:
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        pass
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as fh:
+            return b"claude" in fh.read()
+    except OSError:
+        return True
+
+
+def question_note(tool_input):
+    """The note a question leaves on the board: its header and text, and how many more."""
+    qs = tool_input.get("questions") or []
+    if not qs:
+        return ""
+    head = str(qs[0].get("header") or "").strip()
+    text = " ".join(str(qs[0].get("question") or "").split())
+    note = f"{head}: {text}" if head and text else head or text
+    if len(qs) > 1:
+        note += f" (+{len(qs) - 1} more)"
+    return note[:AGENT_NOTE_MAX]
+
+
+def agent_transition(s, ev):
+    """Apply one hook event to a session record, in place. The whole state machine:
+
+    - a question opens (`PreToolUse` on AskUserQuestion): Needs you, its header and text the
+      note;
+    - it is answered (`PostToolUse`): Working — unless every answer is *Answer in chat*,
+      which hands the turn back to the user, so it stays Needs you until they type, or the
+      dialog closed itself on an idle timeout, which answered nothing;
+    - a prompt arrives (`UserPromptSubmit`): one the user typed answers whatever was open and
+      is Working; a `<task-notification>` wakes the agent and answers nothing, so an open
+      question stays Needs you;
+    - the turn ends (`Stop`): Needs you while a question is open; Working while background
+      work is in flight — a PR watch, a subagent, a long test — or a session cron is set,
+      since either will wake it; Idle when neither is and nothing was asked, since nothing
+      happens until someone types;
+    - the turn fails on an API error (`StopFailure`): Idle, unless a question is open;
+    - the session is resumed (`SessionStart`, source `resume`): Idle, at its prompt;
+    - it ends (`SessionEnd`): Gone.
+    """
+    name, tool = ev.get("hook_event_name"), ev.get("tool_name")
+    if name == "PreToolUse" and tool == "AskUserQuestion":
+        s.update(asked=True, state="Needs you", note=question_note(ev.get("tool_input") or {}))
+    elif name == "PostToolUse" and tool == "AskUserQuestion":
+        response = ev.get("tool_response") or {}
+        if response.get("afkTimeoutMs"):
+            return   # the dialog closed itself with nobody there: nothing was answered
+        answers = response.get("answers") or (ev.get("tool_input") or {}).get("answers") or {}
+        if answers and all(ANSWER_IN_CHAT.match(str(v)) for v in answers.values()):
+            return
+        s.update(asked=False, state="Working", note="")
+    elif name == "UserPromptSubmit":
+        if not str(ev.get("prompt") or "").lstrip().startswith(TASK_NOTIFICATION):
+            s.update(asked=False, state="Working", note="")
+        elif not s.get("asked"):
+            s.update(state="Working", note="")
+    elif name == "Stop":
+        # Claude Code lists only work in flight, pending included; a session cron will wake
+        # the session just as surely.
+        waking = [t for t in ev.get("background_tasks") or []
+                  if t.get("status") not in TERMINAL_TASK] + list(ev.get("session_crons") or [])
+        if s.get("asked"):
+            s["state"] = "Needs you"
+        else:
+            s.update(state="Working" if waking else "Idle", note="")
+    elif name == "StopFailure":
+        if not s.get("asked"):
+            s.update(state="Idle", note="its last turn failed on an API error")
+    elif name == "SessionStart" and ev.get("source") == "resume":
+        s.update(asked=False, state="Idle", note="", ended=None)
+    elif name == "SessionEnd":
+        s.update(asked=False, state="Gone", note="", ended=time.time())
+
+
+def spawn_sync():
+    """Run `agents --sync` detached, in a session of its own: no hook waits on GitHub, and
+    SessionEnd's hooks get 1.5 seconds before the session that ran them is gone."""
+    log = agents_dir("sync.log")
+    with contextlib.suppress(OSError):
+        if os.path.getsize(log) > AGENT_LOG_MAX:
+            os.remove(log)
+    with open(log, "a") as out:
+        subprocess.Popen([sys.executable, os.path.realpath(__file__), "agents", "--sync"],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=out,
+                         start_new_session=True, close_fds=True)
+
+
+def agent_hook(ev):
+    if ev.get("agent_id"):
+        # A subagent's tool call, or an internal agent stopping: the session's own state is
+        # the main agent's.
+        return
+    path, changed = session_file(ev.get("session_id") or ""), False
+    if path and os.path.exists(path):
+        with agents_lock():
+            s = session_load(ev["session_id"])
+            if s is not None:
+                before = (s["state"], s["note"])
+                if ev.get("hook_event_name") != "SessionEnd":
+                    s["pid"] = claude_pid() or s.get("pid")
+                agent_transition(s, ev)
+                session_save(s)
+                changed = (s["state"], s["note"]) != before
+    # A starting session is the cheapest clock there is for noticing one that died: the sync
+    # reaps every session whose process is gone, and touches GitHub only if one is.
+    if changed or ev.get("hook_event_name") == "SessionStart":
+        spawn_sync()
+
+
+def cmd_agent_hook(a):
+    """`hooks/hooks.json`'s entry point: one hook event on stdin. Prints nothing and exits 0
+    whatever happens — on UserPromptSubmit and SessionStart a hook's stdout lands in the
+    agent's context, and a non-zero exit shows as an error in the session. For a session no
+    `start` or `bind` tied to an item, an event costs one file lookup, and its SessionStart
+    a detached reaping sync besides. Failures go to `hook.log`."""
+    try:
+        agent_hook(json.load(sys.stdin))
+    except Exception as e:
+        with contextlib.suppress(Exception):
+            agents_log("hook.log", f"{type(e).__name__}: {e}")
+    return 0
+
+
+def bind_line(repo, number, project_id, item_id):
+    """Tie the running Claude Code session to a board item, and say how it went in one
+    output line. The record starts Working: the session is mid-turn, running this."""
+    key = f"{repo}#{number}"
+    sid = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+    if not item_id:
+        return f"NOT-ON-BOARD\t{key}"
+    if not session_file(sid):
+        return f"UNBOUND\t{key}\tnot inside a Claude Code session"
+    with agents_lock():
+        s = session_load(sid) or {"session": sid, "items": {}}
+        s["items"][key] = {"repo": repo, "n": number, "project": project_id, "item": item_id}
+        s.update(pid=claude_pid() or s.get("pid"), state="Working", note="", asked=False,
+                 ended=None)
+        session_save(s)
+    spawn_sync()
+    return f"BOUND\t{key}\tsession {sid}"
+
+
+def closing_issues(repo, pr):
+    """The issues a PR's description closes, one `closes #<n>` line each."""
+    body = gh("api", f"repos/{repo}/pulls/{pr}", "--jq", ".body // \"\"", parse=False)
+    return [(r or repo, int(n)) for r, n in CLOSES.findall(body)]
+
+
+def cmd_bind(a):
+    """Tie this Claude Code session to a board item, so the item's Agent field follows the
+    session from here on. `--pr` takes a pull request instead and binds every issue its
+    description closes. Changes nothing on the board but the Agent fields: no Status, no
+    comment — `start` is the one that moves work into flight.
+
+    Prints BOUND, NOT-ON-BOARD (nothing to show it on) or UNBOUND (run outside a session)
+    per item, and exits 0 for all three: binding is never a reason to stop a run."""
+    targets = closing_issues(a.repo, a.number) if a.pr else [(a.repo, a.number)]
+    if not targets:
+        print(f"NONE\t{a.repo}#{a.number} closes no issue")
+    for repo, n in targets:
+        project_id, _, _, item_id = locate(repo, n)
+        print(bind_line(repo, n, project_id, item_id))
+
+
+def agent_values(recs):
+    """item id -> what its Agent fields should read: the most urgent state among the
+    sessions bound to it (AGENT_RANK), with that session's note."""
+    out = {}
+    for s in recs:
+        for it in s["items"].values():
+            cur = out.get(it["item"])
+            if cur is None or AGENT_RANK[s["state"]] > AGENT_RANK[cur["state"]]:
+                out[it["item"]] = {"state": s["state"], "note": s.get("note") or "",
+                                   "project": it["project"], "repo": it["repo"], "n": it["n"]}
+    return out
+
+
+def gh_soft(*args):
+    """gh's stdout, or None on any failure: the sync runs with nobody watching, and one
+    unreadable issue must not stop the rest."""
+    r = subprocess.run(["gh", *args], capture_output=True, text=True,
+                       env={**os.environ, "MISE_QUIET": "1"})
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+def fields_cache(update=None):
+    """`fields.json`: project id -> {"at", "ids"}. With `update`, applies it and writes."""
+    try:
+        with open(agents_dir("fields.json")) as fh:
+            cache = json.load(fh)
+    except (OSError, ValueError):
+        cache = {}
+    if update is not None:
+        update(cache)
+        with open(agents_dir("fields.json") + ".tmp", "w") as fh:
+            json.dump(cache, fh)
+        os.replace(agents_dir("fields.json") + ".tmp", agents_dir("fields.json"))
+    return cache
+
+
+def agent_field_ids(project_id, now):
+    """{"agent": id, "options": {name: id}, "note": id or None} for a project, None when it
+    has no Agent field. Cached a day: a field changes only when someone edits the board, and
+    a write that fails drops the entry. A board without the field is never cached, so the
+    first sync after `provision` finds it."""
+    hit = fields_cache().get(project_id)
+    if hit and hit.get("ids") and now - hit["at"] < AGENT_FIELDS_TTL:
+        return hit["ids"]
+    try:
+        nodes = gql(AGENT_FIELDS_QUERY, id=project_id)["node"]["fields"]["nodes"]
+    except SystemExit as e:
+        agents_log("sync.log", f"fields of {project_id}: {e}")
+        return None
+    by = {f["name"]: f for f in nodes if f.get("name")}
+    agent = by.get(AGENT_FIELD)
+    if agent is None or "options" not in agent:
+        agents_log("sync.log", f"{project_id} has no {AGENT_FIELD!r} field: "
+                               "run `hoopit-board provision --apply`")
+        return None
+    ids = {"agent": agent["id"], "options": {o["name"]: o["id"] for o in agent["options"]},
+           "note": (by.get(AGENT_NOTE_FIELD) or {}).get("id")}
+    fields_cache(lambda c: c.__setitem__(project_id, {"at": now, "ids": ids}))
+    return ids
+
+
+def agent_write(project_id, item_id, values):
+    """One request writing `values` ({field id: option literal, or None to clear}) on one
+    item. Returns None on success, or the error text."""
+    parts = []
+    for k, (field, value) in enumerate(values.items()):
+        where = f'projectId:"{project_id}", itemId:"{item_id}", fieldId:"{field}"'
+        parts.append(f"f{k}: clearProjectV2ItemFieldValue(input:{{{where}}}){{ clientMutationId }}"
+                     if value is None else
+                     f"f{k}: updateProjectV2ItemFieldValue(input:{{{where}, value:{value}}})"
+                     "{ clientMutationId }")
+    return gql_write("mutation{ " + " ".join(parts) + " }")
+
+
+def agents_sync_once(now=None):
+    """One pass: reap the dead, read closes that are due, write what differs."""
+    now = time.time() if now is None else now
+    with agents_lock():
+        recs = sessions_load()
+        for s in recs:
+            if s.get("ended") is None and not pid_alive(s.get("pid")):
+                s.update(state="Gone", note="", asked=False, ended=now)
+                session_save(s)
+        pushed = pushed_load()
+    want, closed = agent_values(recs), set()
+    for item_id, w in want.items():
+        p = pushed.setdefault(item_id, {})
+        ending = w["state"] == "Gone" and p.get("state") != "Gone"
+        if ending or now - p.get("checked", 0) >= AGENT_CLOSED_RECHECK:
+            state = gh_soft("api", f'repos/{w["repo"]}/issues/{w["n"]}', "--jq", ".state")
+            if state is not None:
+                p["checked"] = now
+            if state == "closed":
+                closed.add(item_id)
+                w["state"] = w["note"] = None
+        ids = agent_field_ids(w["project"], now)
+        if ids is None:
+            continue
+        # An item never sent anything may still show what an earlier session left there,
+        # so its first write sets both fields.
+        values, unsent = {}, object()
+        if p.get("state", unsent) != w["state"]:
+            if w["state"] is not None and w["state"] not in ids["options"]:
+                agents_log("sync.log", f'{AGENT_FIELD} has no option {w["state"]!r}: '
+                                       "run `hoopit-board provision --apply`")
+                continue
+            values[ids["agent"]] = None if w["state"] is None else \
+                f'{{singleSelectOptionId:{json.dumps(ids["options"][w["state"]])}}}'
+        if ids["note"] and p.get("note", unsent) != w["note"]:
+            values[ids["note"]] = f'{{text:{json.dumps(w["note"])}}}' if w["note"] else None
+        if not values:
+            continue
+        err = agent_write(w["project"], item_id, values)
+        if err:
+            agents_log("sync.log", f'{w["repo"]}#{w["n"]}: {err}')
+            fields_cache(lambda c: c.pop(w["project"], None))
+            continue
+        p.update(state=w["state"], note=w["note"])
+        agents_log("sync.log", f'{w["repo"]}#{w["n"]}: {w["state"] or "cleared"}'
+                               + (f' — {w["note"]}' if w["note"] else ""))
+    # A closed item is unbound once its clear has landed; until then it stays, to be retried.
+    cleared = {i for i in closed if pushed[i].get("state", "") is None}
+    with agents_lock():
+        # Re-read: a hook may have written since the read above, and its record wins.
+        keep = []
+        for s in sessions_load():
+            s["items"] = {k: it for k, it in s["items"].items() if it["item"] not in cleared}
+            ended = s.get("ended")
+            if ended is not None and (not s["items"] or now - ended > AGENT_KEEP_DAYS * 86400):
+                with contextlib.suppress(FileNotFoundError):
+                    os.remove(session_file(s["session"]))
+                continue
+            session_save(s)
+            keep.append(s)
+        bound = {it["item"] for s in keep for it in s["items"].values()}
+        pushed_save({k: v for k, v in pushed.items() if k in bound})
+
+
+def agents_sync():
+    """Bring the board's Agent fields in line with the session files, one writer at a time.
+    A sync that finds another running leaves `.dirty` for it instead of waiting, and the
+    running one goes round again before letting go — so a burst of hook events costs one
+    pass, and the last event is never the one left unwritten."""
+    dirty, flagged = agents_dir(".dirty"), False
+    while True:
+        with agents_lock(".sync.lock", block=False) as held:
+            if held:
+                while True:
+                    with contextlib.suppress(FileNotFoundError):
+                        os.remove(dirty)
+                    agents_sync_once()
+                    if not os.path.exists(dirty):
+                        break
+        if held:
+            # A sync that missed the lock while this one let go left the flag: go round.
+            if not os.path.exists(dirty):
+                return
+        elif flagged:
+            return
+        else:
+            # The holder may have made its last check before the flag lands, so take one
+            # more try at the lock: either it is free now, or its holder sees the flag.
+            open(dirty, "a").close()
+            flagged = True
+
+
+def cmd_agents(a):
+    """The sessions on this machine tied to board items: session, state, whether its process
+    runs, its items and its note. `--sync` first reaps the dead and writes the board what
+    changed — the hooks spawn it on every change, and the backlog daemon runs it each tick."""
+    if a.sync:
+        agents_sync()
+    for s in sessions_load():
+        alive = "ended" if s.get("ended") else ("live" if pid_alive(s.get("pid")) else "dead")
+        print("\t".join([s["session"], s["state"], alive, ",".join(s["items"]),
+                         s.get("note") or ""]))
 
 
 def migration_app(path):
@@ -2609,7 +3140,7 @@ VERIFY_QUERY = """query($login:String!,$number:Int!){ organization(login:$login)
     items(archivedStates:[ARCHIVED, NOT_ARCHIVED]){ totalCount }
     workflows(first:50){ nodes{ name enabled } }
     fields(first:50){ nodes{
-      ... on ProjectV2FieldCommon{ id name isIssueField }
+      ... on ProjectV2FieldCommon{ id name isIssueField dataType }
       ... on ProjectV2SingleSelectField{ options{ id name color description } } } } }
   issueFields(first:50){ nodes{
     ... on IssueFieldSingleSelect{ id name options{ name } }
@@ -2685,6 +3216,8 @@ def verify_board(owner, number):
         if options:
             have = {o["name"] for o in org_fields[field].get("options") or []}
             missing += [f"{field} has no option {o!r}" for o in options if o not in have]
+    missing += [f"{what}: {how}" if how else f"the board lacks {what}"
+                for kind, what, how, _ in agent_field_plan(proj["id"], on_board) if kind != "OK"]
     enabled = {w["name"] for w in proj["workflows"]["nodes"] if w["enabled"]}
     missing += [f"workflow {name!r} is not enabled (it must set Status to {status!r})"
                 for name, status in REQUIRED_WORKFLOWS if name not in enabled]
@@ -2743,6 +3276,48 @@ def status_plan(field, items):
     return (options if any(k == "FIX" for k, _ in lines) else None), lines
 
 
+def agent_field_plan(project_id, on_board):
+    """What the board needs for the Agent fields: `(kind, what, how, mutation)` per line,
+    kind OK, FIX (the mutation adds it) or MANUAL (`how` says what a person must do).
+
+    `Agent` is a single-select of AGENT_STATES and `Agent note` a text field, both the
+    project's own. Options already there keep their ids, so no item loses its value."""
+    out, pid = [], json.dumps(project_id)
+    agent = on_board.get(AGENT_FIELD)
+    styled = [{"name": n, "color": c, "description": d} for n, (c, d) in AGENT_STYLE.items()]
+    what = f"field {AGENT_FIELD!r}"
+    if agent is None:
+        out.append(("FIX", f"{what} with the options {', '.join(AGENT_STATES)}", "",
+                    f'mutation{{ createProjectV2Field(input:{{projectId:{pid}, '
+                    f'dataType:SINGLE_SELECT, name:{json.dumps(AGENT_FIELD)}, singleSelectOptions:'
+                    f'[{", ".join(option_literal(o) for o in styled)}]}}){{ clientMutationId }} }}'))
+    elif "options" not in agent or agent.get("isIssueField"):
+        out.append(("MANUAL", what, f"the board has a field named {AGENT_FIELD!r} that is not "
+                    "its own single-select: rename or delete it, then run this again", None))
+    else:
+        have = {o["name"] for o in agent["options"]}
+        lacking = [o for o in styled if o["name"] not in have]
+        write = None if not lacking else (
+            f'mutation{{ updateProjectV2Field(input:{{fieldId:{json.dumps(agent["id"])}, '
+            f'singleSelectOptions:[{", ".join(option_literal(o) for o in agent["options"] + lacking)}]}})'
+            '{ clientMutationId } }')
+        out.append(("FIX" if lacking else "OK",
+                    f"{what} option{'s' if len(lacking) != 1 else ''} "
+                    f"{', '.join(o['name'] for o in lacking)}" if lacking else what, "", write))
+    note = on_board.get(AGENT_NOTE_FIELD)
+    what = f"field {AGENT_NOTE_FIELD!r}"
+    if note is None:
+        out.append(("FIX", f"{what}, as text", "",
+                    f'mutation{{ createProjectV2Field(input:{{projectId:{pid}, dataType:TEXT, '
+                    f'name:{json.dumps(AGENT_NOTE_FIELD)}}}){{ clientMutationId }} }}'))
+    elif note.get("dataType", "TEXT") != "TEXT":
+        out.append(("MANUAL", what, f"the board has a field named {AGENT_NOTE_FIELD!r} that is "
+                    "not text: rename or delete it, then run this again", None))
+    else:
+        out.append(("OK", what, "", None))
+    return out
+
+
 def option_literal(o):
     """One `ProjectV2SingleSelectFieldOptionInput` literal. Strings go through
     `json.dumps`, whose escapes GraphQL's string syntax shares."""
@@ -2755,7 +3330,8 @@ def cmd_provision(a):
     """Make a board carry what this script reads, and name what no call of this token can
     add. Needs no config: it runs before one exists.
 
-    Adds the Status options and puts the org's issue fields on the board. The org fields
+    Adds the Status options and the Agent fields, and puts the org's issue fields on the
+    board. The org fields
     themselves and their options are an org admin's to add, and no API enables a built-in
     workflow, so those come back as MANUAL with how. Writes only with `--apply`, and
     issues no request at all when the board already has what it adds.
@@ -2809,6 +3385,11 @@ def cmd_provision(a):
                             None))
         else:
             entries.append(("OK", what, "", None))
+
+    for kind, what, how, write in agent_field_plan(proj["id"], on_board):
+        if write:
+            writes[what] = write
+        entries.append((kind, what, how, what if write else None))
 
     enabled = {w["name"] for w in proj["workflows"]["nodes"] if w["enabled"]}
     for name, target in REQUIRED_WORKFLOWS:
@@ -2959,8 +3540,22 @@ def main():
                    choices=["low", "medium", "high", "xhigh", "max"],
                    help="the model's effort level, not the board's Effort axis")
     s.set_defaults(fn=cmd_claim)
-    s = sub.add_parser("start"); s.add_argument("repo"); s.add_argument("number", type=int)
+    s = sub.add_parser("start", description=cmd_start.__doc__)
+    s.add_argument("repo"); s.add_argument("number", type=int)
     s.set_defaults(fn=cmd_start)
+    s = sub.add_parser("bind", description=cmd_bind.__doc__,
+                       help="tie this session to an item, so its Agent field follows it")
+    s.add_argument("repo"); s.add_argument("number", type=int)
+    s.add_argument("--pr", action="store_true",
+                   help="NUMBER is a pull request: bind every issue its description closes")
+    s.set_defaults(fn=cmd_bind)
+    s = sub.add_parser("agents", description=cmd_agents.__doc__,
+                       help="the sessions tied to board items on this machine")
+    s.add_argument("--sync", action="store_true",
+                   help="reap the dead and write the board what changed, first")
+    s.set_defaults(fn=cmd_agents)
+    s = sub.add_parser("agent-hook", description=cmd_agent_hook.__doc__)
+    s.set_defaults(fn=cmd_agent_hook)
     s = sub.add_parser("release"); s.add_argument("repo"); s.add_argument("number", type=int)
     s.add_argument("--reason", required=True)
     s.add_argument("--ready", action="store_true",
@@ -3026,7 +3621,9 @@ def main():
     s = sub.add_parser("archive-done"); s.add_argument("--older-than", type=int, default=7)
     s.add_argument("--apply", action="store_true"); s.set_defaults(fn=cmd_archive_done)
     a = p.parse_args()
-    if a.cmd not in ("init", "provision"):
+    # The Agent commands read only the session files, which carry their own board ids, and
+    # a hook must never fail a session for want of a config.
+    if a.cmd not in ("init", "provision", "agents", "agent-hook"):
         config()
     if a.cmd == "dispatches" and a.repos is None:
         a.repos = list(config()["repos"])

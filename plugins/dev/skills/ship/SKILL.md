@@ -38,6 +38,12 @@ Every other fact this skill needs is read at runtime from `TARGET_REPO` —
 `DEFAULT_BRANCH` and tracker config from its `AGENTS.md` *Workflow skills config*,
 conventions from the repo itself.
 
+Where `WORK_ITEM` is a GitHub issue and `hoopit-board` is on `PATH` (the `github-tracker`
+plugin), run `hoopit-board start <owner/repo> <n>` before Step 1. It moves the item into
+flight unless a caller already has, and ties this session to it, so the board shows what
+the run is doing — Working, Needs you, Idle, Gone — through every step after. A failure is
+never fatal: note it and go on.
+
 ## Step 1 — Investigate against the code
 
 Confirm the brief in `TARGET_REPO` before changing anything: locate the code it points

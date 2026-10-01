@@ -48,6 +48,13 @@ Under `--started` the claim is the caller's own, so run `check` for its other
 gates and disregard `already started` alone — every other reason still ends the
 run, and ending it there means releasing the slot (step 6).
 
+Once the gate passes, tie this session to the issue, so its Agent field on the board
+follows the run from the assessment on — a question it ends in shows as Needs you:
+
+```bash
+hoopit-board bind <repo> <n>
+```
+
 The board's own triage — Priority, Effort, Autonomy — is in `hoopit-board open`.
 Read it as the filer's estimate, and expect to correct it: this run is the
 first time anyone has measured.

@@ -102,7 +102,10 @@ hoopit-board provision --owner <org> --number <n> --apply
 The dry run lists what `--apply` would change. On a board already in use, say what that
 means before applying: missing statuses are added and a differently-cased one renamed,
 every existing option keeps its id — so no item loses its status — and nothing is
-deleted except GitHub's default `Todo` on an empty board.
+deleted except GitHub's default `Todo` on an empty board. It also creates the `Agent` and
+`Agent note` fields, which the plugin's hooks keep in step with the session working each
+item. Showing them is a view setting `provision` leaves alone, so suggest it to the
+developer: a column in their views, or *Slice by* `Agent`.
 
 Then re-run the dry run and work every `MANUAL` line:
 

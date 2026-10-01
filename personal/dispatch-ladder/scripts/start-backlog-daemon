@@ -469,6 +469,9 @@ fi
 
 log "start-backlog daemon: target=${TARGET:-none} max_active=${MAX_ACTIVE:-none} max_review=${MAX_REVIEW:-none} quiet_after=${QUIET_MINUTES}m interval=${INTERVAL}s dry=$DRY aws_check=$AWS_CHECK repos=$REPOS skip_types=${SKIP_TYPES:-none} attended=$ATTENDED"
 while :; do
+  # The board's Agent field: a session that died without its SessionEnd hook — a crash, a
+  # kill — is noticed here, and reads Gone. Needs neither herdr nor AWS.
+  (( DRY )) || hoopit-board agents --sync >/dev/null 2>&1 || log "warning: agents --sync failed"
   if ! herdr_up; then
     log "herdr server unreachable — holding"
   elif ! aws_ok; then

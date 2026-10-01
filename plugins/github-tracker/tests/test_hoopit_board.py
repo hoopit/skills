@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Pins `hoopit-board batch`'s write loop, `next`'s collision judgement, `decisions`'
 naming judgement, `scan`'s duplicate judgement, the deploy gate, the per-user config
-(`init`, `config`, and the refusal without one) and what `provision` writes to a board.
+(`init`, `config`, and the refusal without one), what `provision` writes to a board, and the
+Agent field: the hook's state machine, `start` and `bind`, and the sync that writes the board.
 Run it by hand after editing any of them:
 
     python3 scripts/test_hoopit_board.py
@@ -30,6 +31,9 @@ LADDER = SCRIPT.parents[3] / "personal" / "dispatch-ladder" / "ladder.json"
 # must never read or write the developer's own config.
 SCRATCH = tempfile.TemporaryDirectory(prefix="hoopit-board-test-")
 TMP = pathlib.Path(SCRATCH.name)
+# The Agent field's session files resolve against this; a test must never touch the
+# developer's own sessions.
+os.environ["XDG_STATE_HOME"] = str(TMP / "state")
 
 
 def write_config(name="config.json", **over):
@@ -1037,10 +1041,14 @@ GITHUB_DEFAULTS = [status("Todo", "todo-id", "GREEN", "This item hasn't been sta
                    status("Done", "done-id", "PURPLE", "This has been completed")]
 
 
+AGENT_STATES = ["Working", "Needs you", "Idle", "Gone"]
+
+
 def board_answer(statuses=None, board_fields=None, org_fields=None, items=3, disabled=(),
-                 own_fields=()):
+                 own_fields=(), agent=AGENT_STATES, note=True):
     """A VERIFY_QUERY answer. The defaults are a board carrying everything. `statuses`
-    are names or `status()` dicts; `own_fields` are board fields of the project's own."""
+    are names or `status()` dicts; `own_fields` are board fields of the project's own;
+    `agent` the Agent field's options (None: no field), `note` whether Agent note exists."""
     statuses = ["Backlog", "Ready", "In progress", "In review", "Done"] \
         if statuses is None else statuses
     org = {"Priority": ["P0", "P1", "P2", "P3"], "Effort": ["XS", "S", "M", "L", "XL"],
@@ -1058,7 +1066,13 @@ def board_answer(statuses=None, board_fields=None, org_fields=None, items=3, dis
                 *[{"id": f"F_{f}", "name": f, "isIssueField": True, "options": []}
                   for f in on_board],
                 *[{"id": f"F_own_{f}", "name": f, "isIssueField": False, "options": []}
-                  for f in own_fields]]}},
+                  for f in own_fields],
+                *([{"id": "F_agent", "name": "Agent", "isIssueField": False,
+                    "dataType": "SINGLE_SELECT",
+                    "options": [status(o, f"agent-{o}") for o in agent]}]
+                  if agent is not None else []),
+                *([{"id": "F_note", "name": "Agent note", "isIssueField": False,
+                    "dataType": "TEXT"}] if note else [])]}},
         "issueFields": {"nodes": [
             {"id": f"IF_{f}", "name": f,
              **({"options": [{"name": o} for o in opts]} if opts else {})}
@@ -1486,6 +1500,346 @@ def test_the_typesafe_key_comes_from_the_environment_only():
             os.environ.pop(k, None)
             if v is not None:
                 os.environ[k] = v
+
+
+# --- the Agent field -----------------------------------------------------------------------
+
+STATE_DIRS = iter(range(1000))
+
+
+def agent_module():
+    """A module with a state directory of its own, no process spawned and no pid to judge:
+    `spawned` counts the syncs a hook would have started."""
+    os.environ["XDG_STATE_HOME"] = str(TMP / f"state-{next(STATE_DIRS)}")
+    m = load()
+    m.spawned = []
+    m.spawn_sync = lambda: m.spawned.append(1)
+    m.claude_pid = lambda: None
+    return m
+
+
+def hook(m, sid, name, **kw):
+    """One hook event through `agent-hook`, which must print nothing and exit 0. Returns the
+    session's (state, note), or None for a session nothing bound."""
+    sys.stdin = io.StringIO(json.dumps({"session_id": sid, "hook_event_name": name, **kw}))
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        code = m.cmd_agent_hook(None)
+    assert out.getvalue() == "" and code == 0, (out.getvalue(), code)
+    rec = m.session_load(sid)
+    return rec and (rec["state"], rec["note"])
+
+
+def bound(m, sid="s1", repo="hoopit/api", n=5, item="I5"):
+    os.environ["CLAUDE_CODE_SESSION_ID"] = sid
+    try:
+        return m.bind_line(repo, n, "PVT_7", item)
+    finally:
+        del os.environ["CLAUDE_CODE_SESSION_ID"]
+
+
+ASK = {"tool_name": "AskUserQuestion", "tool_input": {"questions": [
+    {"question": "PR #12 — 2 questions from round 3", "header": "Monitoring",
+     "options": [{"label": "Answer in chat (recommended)"}, {"label": "Take all your recommendations"}]}]}}
+WATCH = [{"id": "b1", "type": "shell", "status": "running", "description": "monitor-pr #12",
+          "command": "bash watch-pr.sh hoopit/api 12 60"}]
+
+
+def answered(label):
+    return {**ASK, "tool_response": {"answers": {"PR #12 — 2 questions from round 3": label}}}
+
+
+def test_agent_states_styles_and_ranks_agree():
+    m = load()
+    assert m.AGENT_STATES == AGENT_STATES == list(m.AGENT_STYLE) and set(m.AGENT_RANK) == set(AGENT_STATES)
+
+
+def test_an_unbound_session_costs_a_lookup_and_a_reap_at_start():
+    m = agent_module()
+    for name, kw in (("UserPromptSubmit", {"prompt": "hi"}), ("PreToolUse", ASK),
+                     ("Stop", {"background_tasks": []}), ("SessionEnd", {"reason": "other"})):
+        assert hook(m, "nobody", name, **kw) is None
+    assert m.spawned == [] and m.sessions_load() == []
+    # A starting session is the clock that reaps the dead, bound or not.
+    hook(m, "nobody", "SessionStart", source="startup")
+    assert m.spawned == [1], m.spawned
+    print("  no record made, no sync spawned, except the reap a session start buys")
+
+
+def test_a_question_answered_in_chat_stays_yours_until_you_type():
+    m = agent_module()
+    assert bound(m) == "BOUND\thoopit/api#5\tsession s1"
+    assert m.session_load("s1")["state"] == "Working" and m.spawned == [1]
+    assert hook(m, "s1", "PreToolUse", **ASK) == \
+        ("Needs you", "Monitoring: PR #12 — 2 questions from round 3")
+    note = "Monitoring: PR #12 — 2 questions from round 3"
+    assert hook(m, "s1", "PostToolUse", **answered("Answer in chat (recommended)")) == ("Needs you", note)
+    assert hook(m, "s1", "Stop", background_tasks=WATCH) == ("Needs you", note)
+    # The watch wakes the agent; that is no answer.
+    assert hook(m, "s1", "UserPromptSubmit",
+                prompt="<task-notification>\n<task-id>b1</task-id>") == ("Needs you", note)
+    assert hook(m, "s1", "UserPromptSubmit", prompt="go with option 2") == ("Working", "")
+    assert hook(m, "s1", "Stop", background_tasks=[]) == ("Idle", "")
+    print("  Needs you through the chat answer, the stop and a watch event; typing clears it")
+
+
+def test_a_question_answered_in_the_dialog_is_working_again():
+    m = agent_module()
+    bound(m)
+    hook(m, "s1", "PreToolUse", **ASK)
+    assert hook(m, "s1", "PostToolUse", **answered("Take all your recommendations")) == ("Working", "")
+    # A turn that ends with the PR watch armed is still the agent's.
+    assert hook(m, "s1", "Stop", background_tasks=WATCH) == ("Working", "")
+    assert hook(m, "s1", "UserPromptSubmit", prompt="<task-notification>…") == ("Working", "")
+    # Pending is in flight too, and a session cron wakes it as surely as a watch.
+    assert hook(m, "s1", "Stop", background_tasks=[{**WATCH[0], "status": "pending"}]) == ("Working", "")
+    assert hook(m, "s1", "Stop", background_tasks=[], session_crons=[{"id": "c1"}]) == ("Working", "")
+    # The watch expired and nothing re-armed it: the run went quiet without asking.
+    assert hook(m, "s1", "Stop", background_tasks=[]) == ("Idle", "")
+    assert hook(m, "s1", "StopFailure") == ("Idle", "its last turn failed on an API error")
+    print("  answered in the dialog is Working; a watch keeps it Working; a lapsed one is Idle")
+
+
+def test_a_dialog_that_closed_itself_answered_nothing():
+    m = agent_module()
+    bound(m)
+    hook(m, "s1", "PreToolUse", **ASK)
+    assert hook(m, "s1", "PostToolUse", **ASK, tool_response={"answers": {}, "afkTimeoutMs": 60000}) \
+        == ("Needs you", "Monitoring: PR #12 — 2 questions from round 3")
+    assert hook(m, "s1", "Stop", background_tasks=[])[0] == "Needs you"
+
+
+def test_a_subagent_never_moves_the_session():
+    m = agent_module()
+    bound(m)
+    assert hook(m, "s1", "PreToolUse", agent_id="a1", agent_type="worker", **ASK) == ("Working", "")
+    assert hook(m, "s1", "SubagentStop", agent_id="a1") == ("Working", "")
+
+
+def test_an_ended_session_is_gone_and_a_resumed_one_idle():
+    m = agent_module()
+    bound(m)
+    hook(m, "s1", "PreToolUse", **ASK)
+    assert hook(m, "s1", "SessionEnd", reason="other") == ("Gone", "")
+    assert m.session_load("s1")["ended"] is not None
+    assert hook(m, "s1", "SessionStart", source="compact") == ("Gone", "")
+    assert hook(m, "s1", "SessionStart", source="resume") == ("Idle", "")
+    assert m.session_load("s1")["ended"] is None
+
+
+def test_the_hook_swallows_garbage_and_logs_it():
+    m = agent_module()
+    sys.stdin = io.StringIO("not json")
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        assert m.cmd_agent_hook(None) == 0
+    assert out.getvalue() == ""
+    assert "JSONDecodeError" in pathlib.Path(m.agents_dir("hook.log")).read_text()
+
+
+IDS = {"agent": "F_agent", "options": {s: f"O_{s}" for s in AGENT_STATES}, "note": "F_note"}
+
+
+def sync_module(issue_state="open"):
+    """agent_module with the board stubbed: `writes` collects each mutation sent, and every
+    issue reads as `issue_state`."""
+    m = agent_module()
+    m.writes, m.reads = [], []
+    m.agent_field_ids = lambda project_id, now: IDS
+    m.gql_write = lambda q: m.writes.append(q)
+    def gh_soft(*args):
+        m.reads.append(args[1])
+        return issue_state
+    m.gh_soft = gh_soft
+    return m
+
+
+def sent(m):
+    """Per mutation: the field ids it sets (with the value) or clears."""
+    out = [sorted([(f, json.loads(v)) for f, v in
+                   re.findall(r'fieldId:"(\w+)", value:\{\w+:("(?:[^"\\]|\\.)*")\}', q)]
+                  + [(f, None) for f in re.findall(r'clearProjectV2ItemFieldValue\(input:\{[^}]*fieldId:"(\w+)"', q)])
+           for q in m.writes]
+    m.writes.clear()
+    return out
+
+
+def test_the_sync_writes_only_what_changed():
+    m = sync_module()
+    bound(m)
+    m.agents_sync()
+    assert sent(m) == [[("F_agent", "O_Working"), ("F_note", None)]], m.writes
+    m.agents_sync()
+    assert sent(m) == [] and m.reads == ["repos/hoopit/api/issues/5"], m.reads
+    hook(m, "s1", "PreToolUse", **ASK)
+    m.agents_sync()
+    assert sent(m) == [[("F_agent", "O_Needs you"),
+                        ("F_note", "Monitoring: PR #12 — 2 questions from round 3")]]
+    hook(m, "s1", "PostToolUse", **answered("Take all your recommendations"))
+    m.agents_sync()
+    assert sent(m) == [[("F_agent", "O_Working"), ("F_note", None)]]
+    print("  one mutation per change, the issue read once an hour, nothing sent twice")
+
+
+def test_a_dead_session_is_reaped_and_its_closed_issue_cleared():
+    m = sync_module(issue_state="closed")
+    bound(m)
+    rec = m.session_load("s1")
+    dead = subprocess.Popen(["true"])
+    dead.wait()
+    rec["pid"] = dead.pid
+    m.session_save(rec)
+    m.agents_sync()
+    # Closed: nothing left to show, so both values go and the session lets go of the item.
+    assert sent(m) == [[("F_agent", None), ("F_note", None)]], m.writes
+    assert m.sessions_load() == [] and m.pushed_load() == {}
+    print("  a dead pid reaps to Gone, a closed issue clears instead, and the record goes")
+
+
+def test_a_dead_session_on_open_work_shows_gone():
+    m = sync_module()
+    bound(m)
+    m.agents_sync()
+    sent(m)
+    hook(m, "s1", "SessionEnd", reason="other")
+    m.agents_sync()
+    # An ending reads the issue at once rather than waiting out the hour.
+    assert sent(m) == [[("F_agent", "O_Gone")]] and len(m.reads) == 2, (m.writes, m.reads)
+    assert [s["state"] for s in m.sessions_load()] == ["Gone"]
+
+
+def test_the_most_urgent_session_on_an_item_wins():
+    m = sync_module()
+    bound(m, "old")
+    bound(m, "new")
+    hook(m, "old", "SessionEnd", reason="other")
+    m.agents_sync()
+    assert sent(m) == [[("F_agent", "O_Working"), ("F_note", None)]], m.writes
+    hook(m, "new", "PreToolUse", **ASK)
+    m.agents_sync()
+    assert sent(m)[0][0] == ("F_agent", "O_Needs you")
+
+
+def test_a_sync_already_running_is_left_a_dirty_flag():
+    m = sync_module()
+    bound(m)
+    with m.agents_lock(".sync.lock"):
+        m.agents_sync()
+        assert m.writes == [] and os.path.exists(m.agents_dir(".dirty"))
+
+
+def test_field_ids_are_cached_only_once_the_board_has_them():
+    m = agent_module()
+    answers = [[], [{"id": "F_agent", "name": "Agent", "options": [{"id": "O_W", "name": "Working"}]},
+                    {"id": "F_note", "name": "Agent note"}]]
+    asked = []
+    def gql(q, **v):
+        asked.append(v["id"])
+        return {"node": {"fields": {"nodes": answers[min(len(asked) - 1, 1)]}}}
+    m.gql = gql
+    assert m.agent_field_ids("PVT_7", 100) is None
+    ids = {"agent": "F_agent", "options": {"Working": "O_W"}, "note": "F_note"}
+    # Provisioned since: the next sync finds the field rather than a cached absence.
+    assert m.agent_field_ids("PVT_7", 101) == ids and m.agent_field_ids("PVT_7", 102) == ids
+    assert asked == ["PVT_7", "PVT_7"], asked
+    # A failed write drops the entry, so stale ids are read again.
+    m.gh_soft = lambda *a: "open"
+    m.gql_write = lambda q: "Could not resolve to a node"
+    bound(m)
+    m.agents_sync_once(now=103)
+    assert "PVT_7" not in m.fields_cache() and len(asked) == 2, asked
+    assert m.agent_field_ids("PVT_7", 104) == ids and len(asked) == 3, asked
+    print("  absence never cached; ids cached until a write fails on them")
+
+
+def start_module(status):
+    """A module whose issue #5 sits on the board in `status` (None: off the board)."""
+    m = agent_module()
+    m.calls = []
+    res = {"id": "C5", "projectItems": {"nodes": [] if status is None else [
+        {"id": "I5", "project": {"id": "PVT_7"}, "fieldValueByName": {"name": status}}]}}
+    m.locate = lambda repo, n: ("PVT_7", {"Status": {}}, res, None if status is None else "I5")
+    m.ensure_item = lambda repo, n: ("PVT_7", {"Status": {}}, res, "I5")
+    m.set_status = lambda pid, f, item, value: m.calls.append(("status", item, value))
+    m.gh = lambda *a, **k: m.calls.append(("comment", a[1]))
+    return m
+
+
+def test_start_leaves_work_in_flight_alone_and_binds_the_session():
+    for status, lines, calls in (
+            ("In progress", ["IN-FLIGHT\thoopit/api#5\tIn progress"], []),
+            ("In review", ["IN-FLIGHT\thoopit/api#5\tIn review"], []),
+            ("Ready", ["STARTED\thoopit/api#5"],
+             [("status", "I5", "In progress"), ("comment", "repos/hoopit/api/issues/5/comments")]),
+            (None, ["STARTED\thoopit/api#5"],
+             [("status", "I5", "In progress"), ("comment", "repos/hoopit/api/issues/5/comments")])):
+        m = start_module(status)
+        os.environ["CLAUDE_CODE_SESSION_ID"] = "s9"
+        try:
+            out, _, code = main(m, "start", "hoopit/api", "5")
+        finally:
+            del os.environ["CLAUDE_CODE_SESSION_ID"]
+        assert code == 0 and out.splitlines() == [*lines, "BOUND\thoopit/api#5\tsession s9"], (status, out)
+        assert m.calls == calls, (status, m.calls)
+        assert m.session_load("s9")["items"]["hoopit/api#5"]["item"] == "I5"
+    print("  in flight: no Status, no marker; otherwise both; bound every time")
+
+
+def test_bind_outside_a_session_or_off_the_board_changes_nothing():
+    m = start_module(None)
+    out, _, code = main(m, "bind", "hoopit/api", "5")
+    assert code == 0 and out == "NOT-ON-BOARD\thoopit/api#5\n", out
+    m = start_module("Backlog")
+    os.environ.pop("CLAUDE_CODE_SESSION_ID", None)
+    out, _, code = main(m, "bind", "hoopit/api", "5")
+    assert code == 0 and out.startswith("UNBOUND\thoopit/api#5"), out
+    assert m.calls == [] and m.sessions_load() == []
+
+
+def test_bind_pr_binds_every_issue_the_description_closes():
+    m = start_module("In review")
+    m.gh = lambda *a, **k: "Fixes the thing.\n\ncloses #5\ncloses hoopit/web-admin#7\n"
+    os.environ["CLAUDE_CODE_SESSION_ID"] = "s3"
+    try:
+        out, _, code = main(m, "bind", "hoopit/api", "12", "--pr")
+    finally:
+        del os.environ["CLAUDE_CODE_SESSION_ID"]
+    assert code == 0 and out.splitlines() == ["BOUND\thoopit/api#5\tsession s3",
+                                              "BOUND\thoopit/web-admin#7\tsession s3"], out
+    assert sorted(m.session_load("s3")["items"]) == ["hoopit/api#5", "hoopit/web-admin#7"]
+
+
+def test_the_agent_commands_need_no_config():
+    m = refusing(str(TMP / "nowhere" / "config.json"))
+    os.environ["XDG_STATE_HOME"] = str(TMP / f"state-{next(STATE_DIRS)}")
+    out, err, code = main(m, "agents")
+    assert code == 0 and out == "" and err == "", (out, err, code)
+    sys.stdin = io.StringIO(json.dumps({"session_id": "x", "hook_event_name": "Stop"}))
+    out, err, code = main(m, "agent-hook")
+    assert code == 0 and out == "" and err == "", (out, err, code)
+
+
+def test_provision_adds_the_agent_fields():
+    lines, _, code, writes = run_provision(board_answer(agent=None, note=False), "--apply")
+    assert code == 0 and len(writes) == 2, (code, writes)
+    agent = next(w for w in writes if "SINGLE_SELECT" in w)
+    assert re.findall(r'name:"([^"]*)", color:(\w+)', agent) == [
+        ("Working", "GREEN"), ("Needs you", "RED"), ("Idle", "ORANGE"), ("Gone", "GRAY")], agent
+    assert 'name:"Agent"' in agent and any("dataType:TEXT" in w and 'name:"Agent note"' in w
+                                           for w in writes), writes
+    assert "ADDED\tfield 'Agent' with the options Working, Needs you, Idle, Gone" in lines, lines
+
+    lines, _, code, writes = run_provision(board_answer(agent=["Working", "Custom"]), "--apply")
+    assert code == 0 and len(writes) == 1, writes
+    assert [(i, n) for i, n, _ in sent_options(writes[0])] == [
+        ("agent-Working", "Working"), ("agent-Custom", "Custom"), ("", "Needs you"),
+        ("", "Idle"), ("", "Gone")], writes[0]
+    assert "ADDED\tfield 'Agent' options Needs you, Idle, Gone" in lines, lines
+
+    lines, _, code, writes = run_provision(board_answer(own_fields=[], note=True,
+                                                        agent=AGENT_STATES), "--apply")
+    assert code == 0 and writes == [] and "OK\tfield 'Agent'" in lines, lines
+    print("  both created on a bare board; missing options appended on their ids; a full one is OK")
 
 
 if __name__ == "__main__":

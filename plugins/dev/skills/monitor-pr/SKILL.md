@@ -85,13 +85,27 @@ PR"`. A failure here is never fatal — note it and arm the watch anyway.
 bash <SKILL_DIR>/scripts/pr-labels.sh <OWNER_REPO> <PR> +monitored
 ```
 
+Where `hoopit-board` is on `PATH` (the `github-tracker` plugin), tie this session to the
+issues the PR closes, so each one's Agent field on the board follows the watch. It changes
+nothing else, and a failure is never fatal:
+
+```bash
+hoopit-board bind <OWNER_REPO> <PR> --pr
+```
+
 ```
 Monitor(
   command: "bash <SKILL_DIR>/scripts/watch-pr.sh <OWNER_REPO> <PR> 60",
   description: "monitor-pr #<PR>",
-  persistent: true,
+  timeout_ms: 1800000,
 )
 ```
+
+A monitor lives 30 minutes at most. Its expiry notice is not a stop: re-arm at once with
+the same call, the command prefixed `WATCH_RESUME=1`, and say nothing more than that it
+re-armed. The resumed watch keeps the threads, checks and `GREEN` it already fired on, so
+nothing fires twice. Every other arm starts fresh. A turn that ends without the watch
+re-armed leaves the PR unwatched, and the board reads the issue as Idle.
 
 A **gate** is a reviewer a head must hear from before it goes `GREEN`: `codex-review`,
 read as a check, and `CodeRabbit`, which posts no check and is read from its summary
@@ -116,7 +130,8 @@ The script polls every 60 s and prints only:
   row (expired auth, network, deleted PR); the script exits non-zero. The watch is dead:
   go to Step 5.
 
-The script runs on until the session `TaskStop`s it when the watch ends.
+The script runs on until the session `TaskStop`s it when the watch ends, or the Monitor's
+30-minute expiry ends it — which is no ending: re-arm it as above.
 
 Tell the user in one line that the watch is armed and what opens a round.
 
@@ -256,7 +271,7 @@ decline the user takes back rides into its next round as `ANSWERED`.
 **A stop** — the watch ended on something going wrong. Ask immediately, on its own, once
 the label is dropped. A stop covers: a back-merge head (Step 1), a PR branch the round
 could not put in a worktree, `WATCH_ERROR`, `PR_CLOSED state=CLOSED`, the same check failing two rounds running, the `Monitor` task
-exiting or being killed, and any round that errors out beyond working around (auth
+exiting or being killed short of its expiry (Step 2 re-arms that), and any round that errors out beyond working around (auth
 expired, worktree gone, push rejected, the worker dying twice). The question names the real reason.
 
 The chat round carries the substance; `AskUserQuestion` carries the attention. Fire it

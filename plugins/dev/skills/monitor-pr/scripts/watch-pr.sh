@@ -20,6 +20,12 @@
 #                          re-asked only when the head or pr_meta's review marker moves. A
 #                          thread resolved in the UI without a reply moves neither; this bounds
 #                          how late the watch sees it.
+#        WATCH_RESUME    — 1 to pick up where the last watch on this PR left off: the threads,
+#                          checks, conflict and GREEN it already fired on stay fired. A Monitor
+#                          is killed after 30 minutes at most, and a re-arm that started fresh
+#                          would fire every open thread as a new ROUND and the same head GREEN
+#                          again. Any other start forgets that state, so a watch armed anew —
+#                          after a stop or a hard fork — sees everything still open as work.
 #
 # A round fires on the *first* feedback of any kind — the actionable set holding something not in
 # the previously fired round: a thread key (id:commentCount, so a reply in an old thread counts), a
@@ -43,6 +49,24 @@ REVIEW_MAX_AGE=${REVIEW_MAX_AGE:-600}
 fired_threads=""; fired_fail=""; fired_conflict=0; fired_head=""; fired_green=""; fetch_fails=0
 gate_wait_start=0
 threads=""; review_key=""; review_read_at=0
+STATE_DIR=${XDG_STATE_HOME:-$HOME/.local/state}/monitor-pr
+STATE=$STATE_DIR/${REPO//\//_}-$PR
+mkdir -p "$STATE_DIR"
+if [ "${WATCH_RESUME:-0}" = 1 ] && [ -r "$STATE" ]; then
+  # shellcheck disable=SC1090  # written by save_state below, from this script's own variables
+  . "$STATE"
+else
+  rm -f "$STATE"
+fi
+# Written whenever a fired_* value changes — on a ROUND or GREEN, and when a check leaves the
+# fail bucket — so a resumed watch fires again on exactly what this one would have.
+saved_state=""
+save_state() {
+  local now
+  now=$(declare -p fired_threads fired_fail fired_conflict fired_head fired_green)
+  [ "$now" = "$saved_state" ] && return
+  printf '%s\n' "$now" > "$STATE.tmp" && mv "$STATE.tmp" "$STATE" && saved_state=$now
+}
 while true; do
   if ! meta=$(pr_meta "$REPO" "$PR" 2>&1); then
     fetch_fails=$((fetch_fails + 1))
@@ -53,7 +77,7 @@ while true; do
     sleep "$INTERVAL"; continue
   fi
   read -r state conflicting head review_marker <<<"$meta"
-  if [ "$state" != "OPEN" ]; then echo "PR_CLOSED state=$state"; exit 0; fi
+  if [ "$state" != "OPEN" ]; then rm -f "$STATE"; echo "PR_CLOSED state=$state"; exit 0; fi
 
   if [ "$head" != "$fired_head" ]; then fired_fail=""; fired_conflict=0; fired_head=$head; gate_wait_start=0; fi
 
@@ -101,6 +125,7 @@ while true; do
   # A fired check that left the fail bucket is forgotten, so a re-run or re-review that comes
   # back red on the same head fires again instead of reading as already seen.
   fired_fail=$(comm -12 <(printf '%s\n' "$fired_fail") <(printf '%s\n' "$failing") | grep .)
+  save_state
   new_fail=$(comm -13 <(printf '%s\n' "$fired_fail") <(printf '%s\n' "$failing") | grep . | paste -sd, -)
   new_conflict=0; [ "$conflicting" = 1 ] && [ "$fired_conflict" = 0 ] && new_conflict=1
   actionable=0; { [ "$new_threads" -gt 0 ] || [ -n "$new_fail" ] || [ "$new_conflict" = 1 ]; } && actionable=1
@@ -109,6 +134,7 @@ while true; do
     gate_wait_start=0
     echo "ROUND head=${head:0:7} unresolved=$(grep -c . <<<"$threads") new_threads=$new_threads failing=${failing:+$(paste -sd, - <<<"$failing")} conflicting=$conflicting${pending_gates:+ pending_gates=$pending_gates}"
     fired_threads=$threads; fired_fail=$failing; fired_conflict=$conflicting
+    save_state
   elif [ "$fired_green" != "$head" ] && [ -z "$threads" ] && [ -z "$failing" ] \
        && [ "$running" = 0 ] && [ "$conflicting" = 0 ]; then
     # Nothing pending means a closed gate is a reviewer that never reported at all; give it
@@ -121,6 +147,7 @@ while true; do
     gate_wait_start=0
     echo "GREEN head=${head:0:7}${pending_gates:+ pending_gates=$pending_gates}"
     fired_green=$head
+    save_state
   else
     gate_wait_start=0
   fi
