@@ -13,11 +13,9 @@ Step 4a of [SKILL.md](SKILL.md). Four steps, in order, attended or `--unattended
    - questions this session asked and the user never came back to;
    - TODOs and follow-ups written into the PR description outside the ledger block.
 
-   Decide each item yourself. File it where this repo's `AGENTS.md` says work items live —
-   a sure item as itself, one whose worth is a judgement in `Backlog` marked as needing the
-   user's decision, that decision named in its body — or drop one the merge already
-   settled, saying why. Ask, as Step 5 asks, only what you cannot decide even that far:
-   which repo it belongs to, whether it is real at all. Done when every item is filed
+   Decide each item yourself, filing where this repo's `AGENTS.md` says work items live:
+   file what you are fairly sure is worth it, drop what you are fairly sure is not, saying
+   why, and ask, as Step 5 asks, only a 50/50. Done when every item is filed
    (listed with its number and priority), dropped with its reason, or asked — or the sweep
    says *nothing left open*.
 
