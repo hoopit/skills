@@ -1,0 +1,66 @@
+[
+ {
+  "match": "^pr list --head GH\\-18301/fix/guardian\\-invite\\-resend --state open .*--jq",
+  "stdout": ""
+ },
+ {
+  "match": "^pr list --head GH\\-18301/fix/guardian\\-invite\\-resend --state all .*--jq",
+  "stdout": "18305\tMERGED\t2026-10-02T07:41:03Z\ta5f49ad519e129e16073f6f9cb7b9c8f0df1eb6b\thttps://github.com/hoopit/api/pull/18305\tGH-18301: Resend a guardian invite that bounced\n"
+ },
+ {
+  "match": "^pr list (?=.*(--head|-H) GH\\-18301/fix/guardian\\-invite\\-resend\\b)(?=.*--state open\\b)",
+  "stdout": "[]\n"
+ },
+ {
+  "match": "^pr list (?=.*(--head|-H) GH\\-18301/fix/guardian\\-invite\\-resend\\b)(?=.*--state merged\\b)",
+  "stdout": "[{\"number\": 18305, \"state\": \"MERGED\", \"mergedAt\": \"2026-10-02T07:41:03Z\", \"headRefOid\": \"a5f49ad519e129e16073f6f9cb7b9c8f0df1eb6b\", \"headRefName\": \"GH-18301/fix/guardian-invite-resend\", \"url\": \"https://github.com/hoopit/api/pull/18305\", \"title\": \"GH-18301: Resend a guardian invite that bounced\", \"baseRefName\": \"master\", \"isDraft\": false}]\n"
+ },
+ {
+  "match": "^pr list (?=.*(--head|-H) GH\\-18301/fix/guardian\\-invite\\-resend\\b)(?=.*--state closed\\b)",
+  "stdout": "[]\n"
+ },
+ {
+  "match": "^pr list (?=.*(--head|-H) GH\\-18301/fix/guardian\\-invite\\-resend\\b)(?=.*--state all\\b)",
+  "stdout": "[{\"number\": 18305, \"state\": \"MERGED\", \"mergedAt\": \"2026-10-02T07:41:03Z\", \"headRefOid\": \"a5f49ad519e129e16073f6f9cb7b9c8f0df1eb6b\", \"headRefName\": \"GH-18301/fix/guardian-invite-resend\", \"url\": \"https://github.com/hoopit/api/pull/18305\", \"title\": \"GH-18301: Resend a guardian invite that bounced\", \"baseRefName\": \"master\", \"isDraft\": false}]\n"
+ },
+ {
+  "match": "^pr list (.* )?(--head|-H) GH\\-18301/fix/guardian\\-invite\\-resend\\b",
+  "stdout": "[]\n"
+ },
+ {
+  "match": "^pr view (18305|GH\\-18301/fix/guardian\\-invite\\-resend|https://github\\.com/hoopit/api/pull/18305)\\b",
+  "stdout": "{\"number\": 18305, \"state\": \"MERGED\", \"mergedAt\": \"2026-10-02T07:41:03Z\", \"headRefOid\": \"a5f49ad519e129e16073f6f9cb7b9c8f0df1eb6b\", \"headRefName\": \"GH-18301/fix/guardian-invite-resend\", \"url\": \"https://github.com/hoopit/api/pull/18305\", \"title\": \"GH-18301: Resend a guardian invite that bounced\", \"baseRefName\": \"master\", \"isDraft\": false}\n"
+ },
+ {
+  "match": "^pr list --head GH\\-18270/fix/attendance\\-export\\-timezone --state open .*--jq",
+  "stdout": ""
+ },
+ {
+  "match": "^pr list --head GH\\-18270/fix/attendance\\-export\\-timezone --state all .*--jq",
+  "stdout": "18288\tMERGED\t2026-10-01T14:02:11Z\td3695912dac06a915b805e803e59ae598e874ba5\thttps://github.com/hoopit/api/pull/18288\tGH-18270: Export attendance in the club's timezone\n"
+ },
+ {
+  "match": "^pr list (?=.*(--head|-H) GH\\-18270/fix/attendance\\-export\\-timezone\\b)(?=.*--state open\\b)",
+  "stdout": "[]\n"
+ },
+ {
+  "match": "^pr list (?=.*(--head|-H) GH\\-18270/fix/attendance\\-export\\-timezone\\b)(?=.*--state merged\\b)",
+  "stdout": "[{\"number\": 18288, \"state\": \"MERGED\", \"mergedAt\": \"2026-10-01T14:02:11Z\", \"headRefOid\": \"d3695912dac06a915b805e803e59ae598e874ba5\", \"headRefName\": \"GH-18270/fix/attendance-export-timezone\", \"url\": \"https://github.com/hoopit/api/pull/18288\", \"title\": \"GH-18270: Export attendance in the club's timezone\", \"baseRefName\": \"master\", \"isDraft\": false}]\n"
+ },
+ {
+  "match": "^pr list (?=.*(--head|-H) GH\\-18270/fix/attendance\\-export\\-timezone\\b)(?=.*--state closed\\b)",
+  "stdout": "[]\n"
+ },
+ {
+  "match": "^pr list (?=.*(--head|-H) GH\\-18270/fix/attendance\\-export\\-timezone\\b)(?=.*--state all\\b)",
+  "stdout": "[{\"number\": 18288, \"state\": \"MERGED\", \"mergedAt\": \"2026-10-01T14:02:11Z\", \"headRefOid\": \"d3695912dac06a915b805e803e59ae598e874ba5\", \"headRefName\": \"GH-18270/fix/attendance-export-timezone\", \"url\": \"https://github.com/hoopit/api/pull/18288\", \"title\": \"GH-18270: Export attendance in the club's timezone\", \"baseRefName\": \"master\", \"isDraft\": false}]\n"
+ },
+ {
+  "match": "^pr list (.* )?(--head|-H) GH\\-18270/fix/attendance\\-export\\-timezone\\b",
+  "stdout": "[]\n"
+ },
+ {
+  "match": "^pr view (18288|GH\\-18270/fix/attendance\\-export\\-timezone|https://github\\.com/hoopit/api/pull/18288)\\b",
+  "stdout": "{\"number\": 18288, \"state\": \"MERGED\", \"mergedAt\": \"2026-10-01T14:02:11Z\", \"headRefOid\": \"d3695912dac06a915b805e803e59ae598e874ba5\", \"headRefName\": \"GH-18270/fix/attendance-export-timezone\", \"url\": \"https://github.com/hoopit/api/pull/18288\", \"title\": \"GH-18270: Export attendance in the club's timezone\", \"baseRefName\": \"master\", \"isDraft\": false}\n"
+ }
+]

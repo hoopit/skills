@@ -25,8 +25,9 @@ copy disabled.
 
 The agent runs under a dedicated config dir with its own OAuth token (`setup`), never
 your own `~/.claude`: your CLAUDE.md, memory, plugins and hooks would otherwise move the
-score. `gh`, `hoopit-board`, `acli` and `linear-gql` are shimmed and the fixture's push URL
-is dead, because a ship-style prompt would otherwise write to the real tracker and remote.
+score. `gh`, `hoopit-board`, `acli`, `linear-gql` and `herdr` are shimmed and the fixture's
+push URL is dead, because a ship-style prompt would otherwise write to the real tracker,
+remote and tabs.
 Each shim records its calls for the checks to grade, and fails unless the case's `mocks/`
 answers it.
 """
@@ -41,7 +42,8 @@ HOME = pathlib.Path(os.environ.get("SKILL_EVAL_HOME") or XDG_CACHE / "skill-eval
 CONFIG_DIR = HOME / "claude-config"
 TOKEN_FILE = XDG_CONFIG / "skill-eval" / "oauth-token"
 CLAUDE = os.environ.get("SKILL_EVAL_CLAUDE", "claude")
-SHIMMED = ("gh", "hoopit-board", "acli", "linear-gql")
+# herdr too: with HERDR_* scrubbed it still finds the real server on its default socket.
+SHIMMED = ("gh", "hoopit-board", "acli", "linear-gql", "herdr")
 # Credentials the agent must not inherit: a ship-style prompt reaches for the tracker.
 SCRUBBED = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "LINEAR_API_KEY",
             "JIRA_API_TOKEN", "ATLASSIAN_API_TOKEN", "SENTRY_AUTH_TOKEN")
@@ -268,7 +270,7 @@ sys.exit(f"{TOOL}: no mock for: {line}")
 
 
 def make_shims(rundir, case):
-    """`gh`, `hoopit-board`, `acli` and `linear-gql` for one run: each records its calls.
+    """`gh`, `hoopit-board`, `acli`, `linear-gql` and `herdr` for one run: each records its calls.
 
     Without a `mocks/` dir in the case every call fails. With one, a call answers from the
     first entry of `mocks/<tool>.json` whose `match` regex finds the space-joined argv,

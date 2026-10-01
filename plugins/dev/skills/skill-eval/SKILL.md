@@ -76,7 +76,7 @@ F="${CLAUDE_PLUGIN_ROOT}/skills/skill-eval/scripts/field-report"
 <skill>/evals/setup.sh                    shapes every fixture before the agent starts
 <skill>/evals/<case>/prompt.md            frontmatter, then the prompt
 <skill>/evals/<case>/setup.sh, check.sh   the same, for one case
-<skill>/evals/<case>/mocks/<tool>.json    answers for gh, hoopit-board, acli, linear-gql
+<skill>/evals/<case>/mocks/<tool>.json    answers for gh, hoopit-board, acli, linear-gql, herdr
 ```
 
 - **Cases come from real sessions.** Mirror how the skill is actually reached (usually a
@@ -84,7 +84,8 @@ F="${CLAUDE_PLUGIN_ROOT}/skills/skill-eval/scripts/field-report"
   seen. A case nobody fails measures nothing.
 - **The prompt carries everything.** Paste in what the agent would fetch, such as the issue
   text, and say where to stop. A fixture has no tracker access: `gh`, `hoopit-board`, `acli`
-  and `linear-gql` are shims, and the push URL is dead.
+  and `linear-gql` are shims, and the push URL is dead. So is `herdr`, which would otherwise
+  reach your real tabs.
 - **Shims record, mocks answer.** Every shim call lands in `EVAL_CALLS`, one JSON line of
   `tool`, `argv`, `stdin` and `cwd`. Without `mocks/` every call fails. With it, a call
   answers from the first entry in `mocks/<tool>.json` whose `match` regex finds the

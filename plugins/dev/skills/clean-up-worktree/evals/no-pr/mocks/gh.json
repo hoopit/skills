@@ -1,0 +1,67 @@
+[
+ {
+  "match": "^pr list --head GH\\-18320/chore/stale\\-push\\-tokens --state open .*--jq",
+  "stdout": ""
+ },
+ {
+  "match": "^pr list --head GH\\-18320/chore/stale\\-push\\-tokens --state all .*--jq",
+  "stdout": ""
+ },
+ {
+  "match": "^pr list (?=.*(--head|-H) GH\\-18320/chore/stale\\-push\\-tokens\\b)(?=.*--state open\\b)",
+  "stdout": "[]\n"
+ },
+ {
+  "match": "^pr list (?=.*(--head|-H) GH\\-18320/chore/stale\\-push\\-tokens\\b)(?=.*--state merged\\b)",
+  "stdout": "[]\n"
+ },
+ {
+  "match": "^pr list (?=.*(--head|-H) GH\\-18320/chore/stale\\-push\\-tokens\\b)(?=.*--state closed\\b)",
+  "stdout": "[]\n"
+ },
+ {
+  "match": "^pr list (?=.*(--head|-H) GH\\-18320/chore/stale\\-push\\-tokens\\b)(?=.*--state all\\b)",
+  "stdout": "[]\n"
+ },
+ {
+  "match": "^pr list (.* )?(--head|-H) GH\\-18320/chore/stale\\-push\\-tokens\\b",
+  "stdout": "[]\n"
+ },
+ {
+  "match": "^pr view GH\\-18320/chore/stale\\-push\\-tokens\\b",
+  "stderr": "no pull requests found for branch \"GH-18320/chore/stale-push-tokens\"\n",
+  "exit": 1
+ },
+ {
+  "match": "^pr list --head GH\\-18270/fix/attendance\\-export\\-timezone --state open .*--jq",
+  "stdout": ""
+ },
+ {
+  "match": "^pr list --head GH\\-18270/fix/attendance\\-export\\-timezone --state all .*--jq",
+  "stdout": "18288\tMERGED\t2026-10-01T14:02:11Z\td3695912dac06a915b805e803e59ae598e874ba5\thttps://github.com/hoopit/api/pull/18288\tGH-18270: Export attendance in the club's timezone\n"
+ },
+ {
+  "match": "^pr list (?=.*(--head|-H) GH\\-18270/fix/attendance\\-export\\-timezone\\b)(?=.*--state open\\b)",
+  "stdout": "[]\n"
+ },
+ {
+  "match": "^pr list (?=.*(--head|-H) GH\\-18270/fix/attendance\\-export\\-timezone\\b)(?=.*--state merged\\b)",
+  "stdout": "[{\"number\": 18288, \"state\": \"MERGED\", \"mergedAt\": \"2026-10-01T14:02:11Z\", \"headRefOid\": \"d3695912dac06a915b805e803e59ae598e874ba5\", \"headRefName\": \"GH-18270/fix/attendance-export-timezone\", \"url\": \"https://github.com/hoopit/api/pull/18288\", \"title\": \"GH-18270: Export attendance in the club's timezone\", \"baseRefName\": \"master\", \"isDraft\": false}]\n"
+ },
+ {
+  "match": "^pr list (?=.*(--head|-H) GH\\-18270/fix/attendance\\-export\\-timezone\\b)(?=.*--state closed\\b)",
+  "stdout": "[]\n"
+ },
+ {
+  "match": "^pr list (?=.*(--head|-H) GH\\-18270/fix/attendance\\-export\\-timezone\\b)(?=.*--state all\\b)",
+  "stdout": "[{\"number\": 18288, \"state\": \"MERGED\", \"mergedAt\": \"2026-10-01T14:02:11Z\", \"headRefOid\": \"d3695912dac06a915b805e803e59ae598e874ba5\", \"headRefName\": \"GH-18270/fix/attendance-export-timezone\", \"url\": \"https://github.com/hoopit/api/pull/18288\", \"title\": \"GH-18270: Export attendance in the club's timezone\", \"baseRefName\": \"master\", \"isDraft\": false}]\n"
+ },
+ {
+  "match": "^pr list (.* )?(--head|-H) GH\\-18270/fix/attendance\\-export\\-timezone\\b",
+  "stdout": "[]\n"
+ },
+ {
+  "match": "^pr view (18288|GH\\-18270/fix/attendance\\-export\\-timezone|https://github\\.com/hoopit/api/pull/18288)\\b",
+  "stdout": "{\"number\": 18288, \"state\": \"MERGED\", \"mergedAt\": \"2026-10-01T14:02:11Z\", \"headRefOid\": \"d3695912dac06a915b805e803e59ae598e874ba5\", \"headRefName\": \"GH-18270/fix/attendance-export-timezone\", \"url\": \"https://github.com/hoopit/api/pull/18288\", \"title\": \"GH-18270: Export attendance in the club's timezone\", \"baseRefName\": \"master\", \"isDraft\": false}\n"
+ }
+]

@@ -85,13 +85,15 @@ def build(tmp):
     case(evals, "idle", "RUN: true", meta="effort: high\n")
     case(evals, "leaks", f"RUN: git -C {src} branch leaked-branch")
     case(evals, "pushes", "RUN: git push origin HEAD:refs/heads/pushed-branch")
-    case(evals, "isolated", "RUN: gh issue view 1\nRUN: env\nRUN: hoopit-board config\nRUN: git status | tail -1\n"
+    case(evals, "isolated", "RUN: gh issue view 1\nRUN: env\nRUN: hoopit-board config\nRUN: herdr tab list\nRUN: git status | tail -1\n"
          "RUN: cat \"$CLAUDE_CONFIG_DIR/.claude.json\"",
          check=textwrap.dedent('''\
             #!/usr/bin/env bash
             grep -q 'gh is disabled in a skill-eval run' "$EVAL_LOG" && echo "PASS gh_shimmed" || echo "FAIL gh_shimmed"
             grep -q 'hoopit-board is disabled in a skill-eval run' "$EVAL_LOG" \\
               && echo "PASS board_shimmed" || echo "FAIL board_shimmed"
+            grep -q 'herdr is disabled in a skill-eval run' "$EVAL_LOG" \\
+              && echo "PASS herdr_shimmed" || echo "FAIL herdr_shimmed"
             grep -q '"argv": \\["issue", "view", "1"\\]' "$EVAL_CALLS" \\
               && echo "PASS unmocked_recorded" || echo "FAIL unmocked_recorded"
             grep -q 'GH_TOKEN=' "$EVAL_LOG" && echo "FAIL token_scrubbed" || echo "PASS token_scrubbed"
@@ -331,6 +333,7 @@ def main():
         iso = r[("isolated", 1)]
         expect(iso["gh_shimmed"]["status"] == "PASS", "gh is shimmed to fail")
         expect(iso["board_shimmed"]["status"] == "PASS", "hoopit-board is shimmed to fail")
+        expect(iso["herdr_shimmed"]["status"] == "PASS", "herdr is shimmed to fail, so no run reaches the real server")
         expect(iso["unmocked_recorded"]["status"] == "PASS", "a case without mocks/ still records its calls")
         expect(iso["token_scrubbed"]["status"] == "PASS", "GH_TOKEN never reaches the agent")
         expect(iso["own_config"]["status"] == "PASS", "the agent runs under a config dir of its own run")
