@@ -2947,7 +2947,7 @@ def main():
     s.add_argument("--unattended", action="store_true"); s.set_defaults(fn=cmd_slots)
     s = sub.add_parser("open"); s.set_defaults(fn=cmd_open)
     s.add_argument("--type", action="append", default=[], metavar="TYPE",
-                   help="only this issue type, e.g. Follow-up")
+                   help="only this issue type, e.g. Ops")
     s = sub.add_parser("scan"); s.set_defaults(fn=cmd_scan)
     s.add_argument("--no-judge", action="store_true",
                    help="skip the duplicate judgement; print the title-overlap pairs instead")

@@ -134,7 +134,7 @@ Close only on something you can print:
 
 Everything else ships, small and dull included.
 
-A `Follow-up` whose deliverable is an answer — a verification, a measurement, logs to
+An `Ops` issue whose deliverable is an answer — a verification, a measurement, logs to
 read once something is live — has a third ending: **answered**. Run the check, and
 where it comes back as expected, close with the findings (step 6) under `--reason
 completed`. Where it does not, the finding is the work: ship the fix, or, when what to

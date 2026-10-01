@@ -85,7 +85,7 @@ parent named too (step 4).
     two issues, not one longer one. The two phases have different gates and different
     actors, and the board cannot represent "merged but not yet done": the PR closes what
     it delivers, so an item held open past its merge freezes at `In progress` with nobody
-    on it. File the operational half separately, as a `Follow-up` carrying `Gate:
+    on it. File the operational half separately, as an `Ops` issue carrying `Gate:
     deployed` (step 5), and let the first close at its merge.
   - An acceptance line that only needs the Sentry issue to go **quiet** resolves it
     directly, no follow-up: `sentry issue resolve <ID>` once the fix reaches the branch
@@ -119,11 +119,11 @@ gh issue create --repo <repo> --assignee @me --type <Type> \
 | `Bug` | An unexpected problem or behaviour. Something is broken. |
 | `Feature` | A request, an idea, new functionality. |
 | `Task` | Default. A specific piece of work that is neither of the above — a refactor, a chore, a cleanup, a spike. |
-| `Follow-up` | **Operational** work an **earlier issue** leaves behind: a verification, logs to read once it is live, a measurement, an existing script or repair command to run. |
+| `Ops` | **Operational** work, not a diff: a verification, logs to read once it is live, a measurement, an existing script or repair command to run, a console change. |
 
 Type on the **deliverable**. A diff is a `Bug`, `Feature` or `Task`, whatever it waits
 on — a shim to drop, a flag to remove, a migration once the earlier issue merges, a repair
-command still to write. An answer or an operational action is a `Follow-up`. The wait
+command still to write. An answer or an operational action is `Ops`. The wait
 itself rides on a `blockedBy` link to the earlier issue or a `Gate: deployed` line
 (step 5), which leaves the type free to say what the work is. An epic is being
 decomposed rather than shipped, so its rows are typed on their own merits too. Name the

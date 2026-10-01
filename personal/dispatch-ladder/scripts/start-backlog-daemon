@@ -97,7 +97,7 @@ REPOS_DIR=${START_BACKLOG_REPOS_DIR:-$HOME/Dev/Hoopit}
 # rewrites the skills every other agent is running on.
 REPOS=${START_BACKLOG_REPOS:-hoopit/api hoopit/web-admin hoopit/flutter-app}
 # Issue types left to a session with somebody in it, space-separated. Empty, the default,
-# dispatches every type: a `Follow-up` whose deliverable is an answer ends in a findings
+# dispatches every type: an `Ops` issue whose deliverable is an answer ends in a findings
 # comment, and one whose answer needs the author ends in a question on the issue.
 SKIP_TYPES=${START_BACKLOG_SKIP_TYPES:-}
 # 0 for a board whose work never touches AWS.
