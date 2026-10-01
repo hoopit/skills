@@ -1,9 +1,9 @@
 # Keeps README.md's "Skills by plugin" block in sync with the source of truth, and
-# runs hoopit-board's tests whenever the script or its tests change, before each
-# commit. Enable once per clone with:  pre-commit install
+# runs hoopit-board's and skill-eval's tests whenever the script or its tests change,
+# before each commit. Enable once per clone with:  pre-commit install
 #
-# Both hooks are OFFLINE: the README block is regenerated from marketplace.json and the
-# local SKILL.md files, and the tests stub every network call.
+# Every hook is OFFLINE: the README block is regenerated from marketplace.json and the
+# local SKILL.md files, and the tests stub every network call and every model.
 repos:
   - repo: local
     hooks:
@@ -19,3 +19,9 @@ repos:
         language: system
         pass_filenames: false
         files: '^(plugins/github-tracker/(bin|tests)/|personal/dispatch-ladder/ladder\.json$)'
+      - id: test-skill-eval
+        name: Test skill-eval
+        entry: python3 -B plugins/dev/tests/test_skill_eval.py
+        language: system
+        pass_filenames: false
+        files: '^plugins/dev/(skills/skill-eval/scripts/|tests/test_skill_eval\.py$)'

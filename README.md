@@ -79,6 +79,7 @@ Day-to-day dev workflows and CLIs: Jira/Sentry issues, PR review, Atlassian, Cir
 | `review-github-comments` | Auto | Handle all review comments on a GitHub PR. |
 | `review-jira-attachments` | Auto | Download and analyze the files attached to a Jira issue. |
 | `ship` | Auto | Take one understood piece of work in one repo from a branch to a monitored PR. |
+| `skill-eval` | Auto | Measure a skill change against its eval suite. |
 | `update-plugins` | Manual | Update hoopit-dev and mattpocock-skills in every local Hoopit repo. |
 
 #### `hoopit-misc`

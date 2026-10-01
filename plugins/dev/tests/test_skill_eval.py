@@ -1,0 +1,192 @@
+#!/usr/bin/env python3
+"""Pins `skill-eval`'s fixture, isolation and grading. Run it by hand after editing either:
+
+    python3 plugins/dev/tests/test_skill_eval.py
+
+No network, no model and no pytest: a fake `claude` replays the `RUN:` lines of each
+case's prompt as Bash tool calls and writes the stream-json log a real one would, so the
+whole file runs offline in a few seconds.
+
+What it guards is the runner's promises to whoever reads a score. The agent sees the
+version under test and never the suite; the agent's writes stay out of the real repo
+and off the real remote and tracker; and a run that times out, fails its setup or
+reaches for the real repo is graded as such rather than as a pass.
+"""
+import json, os, pathlib, subprocess, sys, tempfile, textwrap
+
+SCRIPT = pathlib.Path(__file__).resolve().parent.parent / "skills" / "skill-eval" / "scripts" / "skill-eval"
+
+FAKE_CLAUDE = r'''#!/usr/bin/env python3
+import json, subprocess, sys, time
+args = sys.argv[1:]
+prompt = args[args.index("-p") + 1]
+emit = lambda e: print(json.dumps(e), flush=True)
+emit({"type": "system", "subtype": "init", "model": "fake-model"})
+turns = 0
+for line in prompt.splitlines():
+    if line.startswith("RUN: "):
+        cmd = line[5:]
+        emit({"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "Bash", "input": {"command": cmd}}]}})
+        p = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True)
+        emit({"type": "user", "message": {"content": [
+            {"type": "tool_result", "content": p.stdout + p.stderr}]}})
+        turns += 1
+    elif line.startswith("SLEEP: "):
+        time.sleep(float(line[7:]))
+emit({"type": "result", "subtype": "success", "is_error": False,
+      "num_turns": turns, "total_cost_usd": 0.01})
+'''
+
+SUITE_CHECK = textwrap.dedent('''\
+    #!/usr/bin/env bash
+    cd "$EVAL_FIXTURE"
+    if grep -q "$EVAL_EXPECT_VERSION" .claude/skills/demo/SKILL.md; then echo "PASS version"
+    else echo "FAIL version got $(cat .claude/skills/demo/SKILL.md)"; fi
+    if [ -e .claude/skills/demo/evals ]; then echo "FAIL evals_hidden"; else echo "PASS evals_hidden"; fi
+    if git worktree list | grep -q '/.worktrees/feat-x '; then echo "PASS worktree"
+    else echo "FAIL worktree none under .worktrees/"; fi
+    if [ "$(git rev-parse origin/master)" = "$EVAL_BASE" ]; then echo "PASS origin_is_base"
+    else echo "FAIL origin_is_base"; fi
+    if [ "$EVAL_SLOW" = 1 ]; then echo "PASS slow_smoke"; else echo "SKIP slow_smoke not asked"; fi
+''')
+
+
+def sh(*args, cwd=None):
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    subprocess.run(args, cwd=cwd, env=env, check=True, capture_output=True)
+
+
+def write(path, text, mode=None):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+    if mode:
+        path.chmod(mode)
+
+
+def case(evals, name, prompt, meta="", check=None, setup=None):
+    write(evals / name / "prompt.md", f"---\nexpect_version: v2-working-tree\n{meta}---\n\n{prompt}\n")
+    if check:
+        write(evals / name / "check.sh", check)
+    if setup:
+        write(evals / name / "setup.sh", setup)
+
+
+def build(tmp):
+    """A source repo whose `demo` skill has an uncommitted edit, and a suite for it."""
+    src = tmp / "src"
+    skill = src / ".claude" / "skills" / "demo"
+    write(skill / "SKILL.md", "---\nname: demo\n---\nv1-committed\n")
+    evals = skill / "evals"
+    write(evals / "check.sh", SUITE_CHECK)
+    case(evals, "creates", "RUN: git worktree add -q -b feat/x .worktrees/feat-x")
+    case(evals, "idle", "RUN: true")
+    case(evals, "leaks", f"RUN: git -C {src} branch leaked-branch")
+    case(evals, "pushes", "RUN: git push origin HEAD:refs/heads/pushed-branch")
+    case(evals, "isolated", "RUN: gh issue view 1\nRUN: env\nRUN: git status | tail -1",
+         check=textwrap.dedent('''\
+            #!/usr/bin/env bash
+            grep -q 'gh is disabled in a skill-eval run' "$EVAL_LOG" && echo "PASS gh_shimmed" || echo "FAIL gh_shimmed"
+            grep -q 'GH_TOKEN=' "$EVAL_LOG" && echo "FAIL token_scrubbed" || echo "PASS token_scrubbed"
+            grep -q "CLAUDE_CONFIG_DIR=$SKILL_EVAL_HOME/claude-config" "$EVAL_LOG" \\
+              && echo "PASS own_config" || echo "FAIL own_config"
+         '''))
+    case(evals, "slow", "SLEEP: 30", meta="timeout_seconds: 2\n")
+    case(evals, "bad-setup", "RUN: touch should-not-run", setup="#!/usr/bin/env bash\nexit 3\n")
+    sh("git", "init", "-q", "-b", "master", cwd=src)
+    sh("git", "add", "-A", cwd=src)
+    sh("git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init", cwd=src)
+    write(skill / "SKILL.md", "---\nname: demo\n---\nv2-working-tree\n")
+    return src, skill
+
+
+def run(tmp, *args):
+    fake = tmp / "claude"
+    write(fake, FAKE_CLAUDE, 0o755)
+    # GIT_INDEX_FILE is what git exports to a hook, so every run here is a run from inside
+    # pre-commit: the runner has to keep it away from the fixtures' git.
+    env = {**os.environ, "SKILL_EVAL_HOME": str(tmp / "home"), "SKILL_EVAL_CLAUDE": str(fake),
+           "CLAUDE_CODE_OAUTH_TOKEN": "fake-token", "GH_TOKEN": "secret-must-not-leak",
+           "GIT_INDEX_FILE": ".git/index"}
+    return subprocess.run([sys.executable, str(SCRIPT), *args], env=env, capture_output=True, text=True)
+
+
+def runs(out):
+    recs = [json.loads(p.read_text()) for p in (out / "runs").glob("*.json")]
+    return {(r["case"], r["run"]): {c["name"]: c for c in r["checks"]} | {"_": r} for r in recs}
+
+
+def main():
+    failures = []
+
+    def expect(ok, what):
+        print(("ok    " if ok else "FAIL  ") + what)
+        if not ok:
+            failures.append(what)
+
+    with tempfile.TemporaryDirectory() as t:
+        tmp = pathlib.Path(t)
+        src, skill = build(tmp)
+        out = tmp / "cand"
+        p = run(tmp, "run", str(skill), "--runs", "2", "--concurrency", "4", "--out", str(out))
+        expect(p.returncode == 1, f"a suite with failing runs exits 1 (got {p.returncode}: {p.stderr[-400:]})")
+        r = runs(out)
+        expect(len(r) == 14, f"7 cases x 2 runs recorded (got {len(r)})")
+
+        c = r[("creates", 1)]
+        expect(c["_"]["passed"], "the passing case passes")
+        expect(c["version"]["status"] == "PASS", "the fixture carries the working-tree SKILL.md")
+        expect(c["evals_hidden"]["status"] == "PASS", "the fixture has no evals/ for the agent to read")
+        expect(c["origin_is_base"]["status"] == "PASS", "origin and the local branch both carry the version under test")
+        expect(c["slow_smoke"]["status"] == "SKIP", "slow checks skip unless --slow")
+        expect(c["agent_finished"]["status"] == "PASS", "a clean result event is agent_finished")
+        expect(c["_"]["metrics"]["model"] == "fake-model", "the model is read from the log")
+
+        expect(r[("idle", 1)]["worktree"]["status"] == "FAIL", "a missing worktree fails the check")
+
+        leak = r[("leaks", 1)]["source_repo_untouched"]
+        expect(leak["status"] == "FAIL" and "leaked-branch" in leak["reason"],
+               "a branch the agent made in the real repo fails source_repo_untouched")
+        sh("git", "branch", "-D", "leaked-branch", cwd=src)
+
+        heads = subprocess.run(["git", "for-each-ref", "refs/heads"], cwd=src, capture_output=True, text=True).stdout
+        expect("pushed-branch" not in heads, "a push from the fixture never reaches the real repo")
+        expect(r[("pushes", 1)]["source_repo_untouched"]["status"] == "PASS", "a refused push leaves the real repo untouched")
+
+        iso = r[("isolated", 1)]
+        expect(iso["gh_shimmed"]["status"] == "PASS", "gh is shimmed to fail")
+        expect(iso["token_scrubbed"]["status"] == "PASS", "GH_TOKEN never reaches the agent")
+        expect(iso["own_config"]["status"] == "PASS", "the agent runs under the eval config dir")
+        expect(iso["_"]["metrics"]["masked_exit"] == 1, "a `| tail` without pipefail is counted")
+
+        slow = r[("slow", 1)]["agent_finished"]
+        expect(slow["status"] == "FAIL" and "timed out" in slow["reason"], "a run past timeout_seconds fails agent_finished")
+
+        bad = r[("bad-setup", 1)]
+        expect(bad["setup"]["status"] == "FAIL" and "agent_finished" not in bad,
+               "a failing setup.sh fails the run without starting the agent")
+
+        summary = json.loads((out / "summary.json").read_text())
+        expect(summary["cases"]["creates"]["checks"]["worktree"] == {"pass": 2, "scored": 2, "reasons": []},
+               "the summary counts passes per check")
+
+        base = tmp / "base"
+        p = run(tmp, "run", str(skill), "--ref", "HEAD", "--case", "creates", "--runs", "2", "--out", str(base))
+        rb = runs(base)
+        expect(rb[("creates", 1)]["version"]["status"] == "FAIL", "--ref HEAD measures the committed SKILL.md")
+
+        p = run(tmp, "compare", str(base), str(out))
+        expect("▲ 0/2 → 2/2  version" in p.stdout, f"compare marks a two-run improvement (got:\n{p.stdout})")
+        expect(p.returncode == 0, "compare exits 0 when nothing got worse")
+        p = run(tmp, "compare", str(out), str(base))
+        expect("▼ 2/2 → 0/2  version" in p.stdout and p.returncode == 1, "compare marks a regression and exits 1")
+
+        left = [d for d in (tmp / "home").iterdir() if d.name not in ("results",)]
+        expect(not left, f"fixtures are removed after the run (left: {left})")
+
+    print(f"\n{len(failures)} failed" if failures else "\nall passed")
+    sys.exit(1 if failures else 0)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,541 @@
+#!/usr/bin/env python3
+"""Run a skill's eval suite in throwaway clones of its repo, and compare two versions.
+
+A suite lives next to the skill it measures:
+
+    <skill>/evals/check.sh           grades one run's end state (required)
+    <skill>/evals/setup.sh           shapes every fixture before the agent starts (optional)
+    <skill>/evals/<case>/prompt.md   frontmatter + the prompt the agent gets
+    <skill>/evals/<case>/setup.sh    shapes this case's fixture (optional)
+    <skill>/evals/<case>/check.sh    extra checks for this case (optional)
+
+Each run gets its own fixture: a `git clone --shared` of the skill's repo at its default
+branch, with the skill under test committed over it and `evals/` taken out, so the agent
+cannot read the answers. `claude -p` runs in the fixture, then the checks grade what it
+left behind. A check script prints one line per check — `PASS <name>`, `FAIL <name>
+<reason>` or `SKIP <name> <reason>` — and the runner adds two of its own:
+`agent_finished`, and `source_repo_untouched`, which fails when a branch or worktree the
+run's log names appears in the real repo.
+
+The agent runs under a dedicated config dir with its own OAuth token (`setup`), never
+your own `~/.claude`: your CLAUDE.md, memory, plugins and hooks would otherwise move the
+score. `gh`, `acli` and `linear-gql` are shimmed to fail and the fixture's push URL is
+dead, because a ship-style prompt would otherwise write to the real tracker and remote.
+"""
+import argparse, concurrent.futures, datetime, fnmatch, json, os, pathlib, re, shutil
+import signal, statistics, subprocess, sys, tarfile, tempfile, time
+
+XDG_CACHE = pathlib.Path(os.environ.get("XDG_CACHE_HOME") or pathlib.Path.home() / ".cache")
+XDG_CONFIG = pathlib.Path(os.environ.get("XDG_CONFIG_HOME") or pathlib.Path.home() / ".config")
+# Fixtures sit on the same filesystem as the uv / pnpm caches: on a tmpfs /tmp their
+# hardlinks fail across devices and every install silently turns into a full copy.
+HOME = pathlib.Path(os.environ.get("SKILL_EVAL_HOME") or XDG_CACHE / "skill-evals")
+CONFIG_DIR = HOME / "claude-config"
+TOKEN_FILE = XDG_CONFIG / "skill-eval" / "oauth-token"
+CLAUDE = os.environ.get("SKILL_EVAL_CLAUDE", "claude")
+SHIMMED = ("gh", "acli", "linear-gql")
+# Credentials the agent must not inherit: a ship-style prompt reaches for the tracker.
+SCRUBBED = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "LINEAR_API_KEY",
+            "JIRA_API_TOKEN", "ATLASSIAN_API_TOKEN", "SENTRY_AUTH_TOKEN")
+# What git exports to a hook or alias. Inherited, they point every git call the runner,
+# the agent and the checks make at the caller's repo: `GIT_INDEX_FILE=.git/index` alone
+# sends a fixture's `git worktree add` to the wrong index.
+GIT_REDIRECTS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
+                 "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_PREFIX",
+                 "GIT_NAMESPACE", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT",
+                 "GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_AUTHOR_DATE",
+                 "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "GIT_COMMITTER_DATE", "GIT_EDITOR")
+DEFAULTS = {"runs": 3, "max_turns": 30, "timeout_seconds": 900, "model": "opus"}
+CHECK_LINE = re.compile(r"^(PASS|FAIL|SKIP)\s+(\S+)(?:\s+(.*))?$")
+MASKED_PIPE = re.compile(r"\|\s*(tail|head)\b")
+AUTHOR = {"GIT_AUTHOR_NAME": "skill-eval", "GIT_AUTHOR_EMAIL": "skill-eval@localhost",
+          "GIT_COMMITTER_NAME": "skill-eval", "GIT_COMMITTER_EMAIL": "skill-eval@localhost"}
+
+
+def git(*args, cwd=None, env=None, check=True):
+    p = subprocess.run(["git", *args], cwd=cwd, env=env, capture_output=True, text=True)
+    if check and p.returncode:
+        sys.exit(f"git {' '.join(args)} failed:\n{p.stderr.strip()}")
+    return p.stdout.strip()
+
+
+# ---- the suite --------------------------------------------------------------------
+
+def parse_prompt(path):
+    """`prompt.md` → (frontmatter, body). Frontmatter is flat `key: value` lines."""
+    text = path.read_text()
+    meta = {}
+    if text.startswith("---\n"):
+        head, _, text = text[4:].partition("\n---\n")
+        for line in head.splitlines():
+            key, sep, value = line.partition(":")
+            if not sep or not key.strip() or line.lstrip().startswith("#"):
+                continue
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+                value = value[1:-1]
+            meta[key.strip()] = value
+    for key in ("runs", "max_turns", "timeout_seconds"):
+        if key in meta:
+            meta[key] = int(meta[key])
+    if "tags" in meta:
+        meta["tags"] = [t.strip() for t in meta["tags"].strip("[]").split(",") if t.strip()]
+    return meta, text.strip()
+
+
+def load_cases(evals, patterns, tags):
+    if not (evals / "check.sh").is_file():
+        sys.exit(f"{evals}/check.sh is missing: a suite needs a checker")
+    cases = []
+    for prompt in sorted(evals.glob("*/prompt.md")):
+        name = prompt.parent.name
+        meta, body = parse_prompt(prompt)
+        if patterns and not any(fnmatch.fnmatch(name, p) for p in patterns):
+            continue
+        if tags and not set(tags) & set(meta.get("tags", [])):
+            continue
+        cases.append({"name": name, "dir": prompt.parent, "meta": meta, "prompt": body})
+    if not cases:
+        sys.exit(f"no cases matched under {evals}")
+    return cases
+
+
+# ---- the repo and the skill under test ---------------------------------------------
+
+def resolve_skill(skill_dir):
+    skill_dir = pathlib.Path(skill_dir).resolve()
+    if not (skill_dir / "SKILL.md").is_file():
+        sys.exit(f"{skill_dir} has no SKILL.md")
+    src = pathlib.Path(git("rev-parse", "--show-toplevel", cwd=skill_dir)).resolve()
+    rel = skill_dir.relative_to(src).as_posix()
+    head = git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD", cwd=src, check=False)
+    branch = head.partition("/")[2] if head else git("branch", "--show-current", cwd=src) or "main"
+    return {"dir": skill_dir, "name": skill_dir.name, "src": src, "rel": rel,
+            "branch": branch, "base_ref": head or branch}
+
+
+def stage_version(skill, ref, stage):
+    """Lay the skill under test out at `stage/<rel>`: from `ref`, or the working tree."""
+    target = stage / skill["rel"]
+    if ref:
+        tar = subprocess.run(["git", "archive", "--format=tar", ref, "--", skill["rel"]],
+                             cwd=skill["src"], capture_output=True)
+        if tar.returncode:
+            sys.exit(f"{skill['rel']} is not at {ref}: {tar.stderr.decode().strip()}")
+        with tempfile.TemporaryFile() as fh:
+            fh.write(tar.stdout)
+            fh.seek(0)
+            with tarfile.open(fileobj=fh) as t:
+                t.extractall(stage, filter="tar")
+    else:
+        shutil.copytree(skill["dir"], target, symlinks=True,
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    shutil.rmtree(target / "evals", ignore_errors=True)
+
+
+def make_upstream(skill, ref, base, rundir, label):
+    """A bare stand-in for origin: `base` with the skill under test committed over it.
+
+    The fixture's local branch and its origin both point at that commit, so a worktree
+    branched from either carries the version being measured. Built with plumbing in a
+    scratch index — no checkout of the source repo.
+    """
+    up = rundir / "upstream.git"
+    git("clone", "-q", "--bare", "--shared", str(skill["src"]), str(up))
+    # The source's remote branches too: a skill told to mirror `git branch -r` needs the
+    # names the real origin carries, not only the branches checked out locally.
+    remote = git("for-each-ref", "--format=%(refname:lstrip=3) %(objectname)",
+                 "refs/remotes/origin", cwd=skill["src"], check=False)
+    updates = "".join(f"update refs/heads/{name} {sha}\n" for name, sha in
+                      (l.split(" ", 1) for l in remote.splitlines()) if name != "HEAD")
+    if updates:
+        subprocess.run(["git", "--git-dir", str(up), "update-ref", "--stdin"], input=updates,
+                       text=True, check=True, capture_output=True)
+    stage = rundir / "stage"
+    stage.mkdir()
+    stage_version(skill, ref, stage)
+    env = {**os.environ, **AUTHOR, "GIT_INDEX_FILE": str(rundir / "stage.index")}
+    gw = ["--git-dir", str(up), "--work-tree", str(stage)]
+    base_sha = git("rev-parse", "--verify", f"{base}^{{commit}}", cwd=skill["src"])
+    git(*gw, "read-tree", base_sha, env=env)
+    git(*gw, "rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", skill["rel"], env=env)
+    git(*gw, "add", "-f", "--", skill["rel"], env=env)
+    tree = git(*gw, "write-tree", env=env)
+    commit = git(*gw, "commit-tree", tree, "-p", base_sha, "-m",
+                 f"skill-eval: {skill['name']} under test ({label})", env=env)
+    git("--git-dir", str(up), "update-ref", f"refs/heads/{skill['branch']}", commit)
+    git("--git-dir", str(up), "symbolic-ref", "HEAD", f"refs/heads/{skill['branch']}")
+    shutil.rmtree(stage)
+    return up, commit, base_sha
+
+
+def make_shims(rundir):
+    shims = rundir / "shims"
+    shims.mkdir()
+    for name in SHIMMED:
+        path = shims / name
+        path.write_text(f"#!/bin/sh\necho '{name} is disabled in a skill-eval run' >&2\nexit 1\n")
+        path.chmod(0o755)
+    return shims
+
+
+# ---- one run ----------------------------------------------------------------------
+
+def source_state(src):
+    trees = git("worktree", "list", "--porcelain", cwd=src, check=False)
+    heads = git("for-each-ref", "--format=%(refname:short)", "refs/heads", cwd=src, check=False)
+    return ({l[9:] for l in trees.splitlines() if l.startswith("worktree ")}, set(heads.splitlines()))
+
+
+def run_script(script, cwd, env, timeout=600):
+    try:
+        p = subprocess.run(["bash", str(script)], cwd=cwd, env=env, capture_output=True,
+                           text=True, timeout=timeout)
+        return p.returncode, p.stdout, p.stderr
+    except subprocess.TimeoutExpired:
+        return 124, "", f"{script.name} timed out after {timeout}s"
+
+
+def agent_env(opts, rundir, shims):
+    env = {k: v for k, v in os.environ.items()
+           if k not in SCRUBBED and not k.startswith(("CLAUDE", "HERDR"))}
+    env["PATH"] = f"{shims}{os.pathsep}{env.get('PATH', '')}"
+    env["GH_CONFIG_DIR"] = str(rundir / "gh-empty")
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    if not opts.as_me:
+        env["CLAUDE_CONFIG_DIR"] = str(CONFIG_DIR)
+        env["CLAUDE_CODE_OAUTH_TOKEN"] = token()
+        env.pop("ANTHROPIC_API_KEY", None)
+    return env
+
+
+def run_agent(case, opts, fixture, log, env):
+    meta = case["meta"]
+    cmd = [CLAUDE, "-p", case["prompt"], "--output-format", "stream-json", "--verbose",
+           "--model", opts.model or meta.get("model", DEFAULTS["model"]),
+           "--max-turns", str(meta.get("max_turns", DEFAULTS["max_turns"])),
+           "--permission-mode", "bypassPermissions", "--no-session-persistence"]
+    for d in opts.plugin_dir or ():
+        cmd += ["--plugin-dir", d]
+    timeout = meta.get("timeout_seconds", DEFAULTS["timeout_seconds"])
+    with open(log, "w") as out, open(log.with_suffix(".stderr"), "w") as err:
+        proc = subprocess.Popen(cmd, cwd=fixture, env=env, stdout=out, stderr=err,
+                                stdin=subprocess.DEVNULL, start_new_session=True)
+        try:
+            proc.wait(timeout=timeout)
+            return None
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait()
+            return f"timed out after {timeout}s"
+
+
+def read_log(log, skill):
+    events = []
+    for line in log.read_text(errors="replace").splitlines():
+        try:
+            events.append(json.loads(line))
+        except ValueError:
+            pass
+    result = next((e for e in reversed(events) if e.get("type") == "result"), None)
+    model = next((e.get("model") for e in events if e.get("type") == "system" and e.get("model")), None)
+    uses = [c for e in events if e.get("type") == "assistant"
+            for c in (e.get("message") or {}).get("content") or []
+            if isinstance(c, dict) and c.get("type") == "tool_use"]
+    bash = [str((u.get("input") or {}).get("command", "")) for u in uses if u.get("name") == "Bash"]
+    skill_md = f"{skill['name']}/SKILL.md"
+    return result, {
+        "model": model,
+        "turns": result.get("num_turns") if result else None,
+        "cost_usd": result.get("total_cost_usd") if result else None,
+        "tool_calls": len(uses),
+        "skill_tool": any(u.get("name") == "Skill" and
+                          str((u.get("input") or {}).get("skill", "")).split(":")[-1] == skill["name"]
+                          for u in uses),
+        "skill_read": any(skill_md in str((u.get("input") or {}).get("file_path", "")) for u in uses)
+                      or any(skill_md in c for c in bash),
+        "masked_exit": sum(1 for c in bash if MASKED_PIPE.search(c) and "pipefail" not in c),
+    }
+
+
+def one_run(job):
+    case, i, ctx = job["case"], job["i"], job["ctx"]
+    skill, opts = ctx["skill"], ctx["opts"]
+    rundir = ctx["rundir"] / f"{case['name']}-{i}"
+    rundir.mkdir()
+    (rundir / "gh-empty").mkdir()
+    fixture = rundir / skill["src"].name
+    git("clone", "-q", "--shared", str(ctx["upstream"]), str(fixture))
+    git("remote", "set-url", "--push", "origin", "/nonexistent/skill-eval-push-disabled", cwd=fixture)
+    env = agent_env(opts, rundir, ctx["shims"])
+    expects = {f"EVAL_EXPECT_{k[7:].upper()}": v for k, v in case["meta"].items() if k.startswith("expect_")}
+    script_env = {**env, **expects, "EVAL_FIXTURE": str(fixture), "EVAL_RUN_DIR": str(rundir),
+                  "EVAL_SOURCE": str(skill["src"]), "EVAL_UPSTREAM": str(ctx["upstream"]),
+                  "EVAL_CASE": case["name"], "EVAL_CASE_DIR": str(case["dir"]),
+                  "EVAL_SUITE_DIR": str(ctx["evals"]), "EVAL_BRANCH": skill["branch"],
+                  "EVAL_BASE": ctx["commit"], "EVAL_SLOW": "1" if opts.slow else "0"}
+    checks, notes = {}, []
+    for setup in (ctx["evals"] / "setup.sh", case["dir"] / "setup.sh"):
+        if setup.is_file():
+            code, _, err = run_script(setup, fixture, script_env)
+            if code:
+                checks["setup"] = ("FAIL", f"{setup.relative_to(ctx['evals'])} exited {code}: {err.strip()[-300:]}")
+    log = rundir / "agent.jsonl"
+    before = source_state(skill["src"])
+    started = time.monotonic()
+    timed_out = None if "setup" in checks else run_agent(case, opts, fixture, log, env)
+    seconds = round(time.monotonic() - started, 1)
+    after = source_state(skill["src"])
+    if not log.exists():
+        log.write_text("")
+    result, metrics = read_log(log, skill)
+    metrics["seconds"] = seconds
+    if "setup" not in checks:
+        if timed_out:
+            checks["agent_finished"] = ("FAIL", timed_out)
+        elif not result:
+            err = log.with_suffix(".stderr").read_text(errors="replace").strip()
+            checks["agent_finished"] = ("FAIL", f"no result event: {err[-300:]}")
+        elif result.get("is_error") or result.get("subtype") != "success":
+            checks["agent_finished"] = ("FAIL", str(result.get("subtype")))
+        else:
+            checks["agent_finished"] = ("PASS", "")
+        for check in (ctx["evals"] / "check.sh", case["dir"] / "check.sh"):
+            if not check.is_file():
+                continue
+            code, out, err = run_script(check, fixture, {**script_env, "EVAL_LOG": str(log)})
+            lines = [m for m in map(CHECK_LINE.match, out.splitlines()) if m]
+            for m in lines:
+                checks[m.group(2)] = (m.group(1), (m.group(3) or "").strip())
+            if code and not lines:
+                checks[f"{check.parent.name}/check.sh"] = ("FAIL", f"exited {code}: {err.strip()[-300:]}")
+    text = log.read_text(errors="replace")
+    leaked = [p for p in after[0] - before[0] if p in text] + \
+             [b for b in after[1] - before[1] if b in text]
+    checks["source_repo_untouched"] = ("FAIL", f"appeared in {skill['src']}: {', '.join(leaked)}") \
+        if leaked else ("PASS", "")
+    if ((after[0] - before[0]) or (after[1] - before[1])) and not leaked:
+        notes.append("the source repo changed during the run, by something this run's log never names")
+    record = {"case": case["name"], "run": i, "fixture": str(fixture), "log": str(log),
+              "checks": [{"name": n, "status": s, "reason": r} for n, (s, r) in checks.items()],
+              "passed": all(s != "FAIL" for s, _ in checks.values()), "metrics": metrics,
+              "notes": notes}
+    (ctx["out"] / "runs").mkdir(exist_ok=True)
+    (ctx["out"] / "runs" / f"{case['name']}-{i}.json").write_text(json.dumps(record, indent=2))
+    if not opts.keep:
+        shutil.rmtree(rundir, ignore_errors=True)
+    mark = "✔" if record["passed"] else "✘"
+    failed = [n for n, (s, _) in checks.items() if s == "FAIL"]
+    print(f"  {mark} {case['name']} #{i}  {seconds}s  {metrics['turns']} turns"
+          + (f"  failed: {', '.join(failed)}" if failed else ""), flush=True)
+    return record
+
+
+# ---- aggregate and compare ----------------------------------------------------------
+
+def summarise(records, header):
+    cases = {}
+    for r in sorted(records, key=lambda r: (r["case"], r["run"])):
+        c = cases.setdefault(r["case"], {"runs": 0, "passed": 0, "checks": {}, "metrics": []})
+        c["runs"] += 1
+        c["passed"] += r["passed"]
+        c["metrics"].append(r["metrics"])
+        for ch in r["checks"]:
+            s = c["checks"].setdefault(ch["name"], {"pass": 0, "scored": 0, "reasons": []})
+            if ch["status"] != "SKIP":
+                s["scored"] += 1
+                s["pass"] += ch["status"] == "PASS"
+            if ch["status"] == "FAIL" and ch["reason"]:
+                s["reasons"].append(ch["reason"])
+    for c in cases.values():
+        ms = c.pop("metrics")
+        c["metrics"] = {k: median([m.get(k) for m in ms]) for k in ("seconds", "turns", "cost_usd", "tool_calls")}
+        c["metrics"]["skill_tool_runs"] = sum(bool(m.get("skill_tool")) for m in ms)
+        c["metrics"]["skill_read_runs"] = sum(bool(m.get("skill_read")) for m in ms)
+        c["metrics"]["masked_exit_runs"] = sum(bool(m.get("masked_exit")) for m in ms)
+    return {**header, "cases": cases}
+
+
+def median(values):
+    values = [v for v in values if isinstance(v, (int, float))]
+    return round(statistics.median(values), 3) if values else None
+
+
+def print_summary(s):
+    print(f"\n{s['skill']} — {s['label']} ({s['version']}), model {s['model']}, {s['started']}")
+    for name, c in s["cases"].items():
+        m = c["metrics"]
+        print(f"\n{name}: {c['passed']}/{c['runs']} runs passed  "
+              f"(median {m['seconds']}s, {m['turns']} turns, ${m['cost_usd']})")
+        for check, v in c["checks"].items():
+            line = f"  {v['pass']}/{v['scored']}  {check}" if v["scored"] else f"  skip  {check}"
+            if v["reasons"]:
+                line += f"  — {v['reasons'][0][:120]}"
+            print(line)
+
+
+def compare(a, b):
+    print(f"\n{a['skill']}: A = {a['label']} ({a['version']})   B = {b['label']} ({b['version']})")
+    print("A check that moved by two runs or more is marked ▲ (better) or ▼ (worse);"
+          " smaller moves are inside the noise of a few runs.\n")
+    worse = 0
+    for name in sorted(set(a["cases"]) | set(b["cases"])):
+        ca, cb = a["cases"].get(name), b["cases"].get(name)
+        if not ca or not cb:
+            print(f"{name}: only in {'A' if ca else 'B'}")
+            continue
+        print(f"{name}: runs passed {ca['passed']}/{ca['runs']} → {cb['passed']}/{cb['runs']}")
+        for check in sorted(set(ca["checks"]) | set(cb["checks"])):
+            va, vb = ca["checks"].get(check), cb["checks"].get(check)
+            if not va or not vb or not va["scored"] or not vb["scored"]:
+                continue
+            moved = (vb["pass"] / vb["scored"] - va["pass"] / va["scored"]) * min(va["scored"], vb["scored"])
+            mark = "▲" if moved >= 2 else "▼" if moved <= -2 else " "
+            worse += mark == "▼"
+            print(f"  {mark} {va['pass']}/{va['scored']} → {vb['pass']}/{vb['scored']}  {check}")
+        for k in ("seconds", "turns", "cost_usd"):
+            print(f"    median {k}: {ca['metrics'][k]} → {cb['metrics'][k]}")
+    return worse
+
+
+# ---- commands ---------------------------------------------------------------------
+
+def token():
+    if os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
+        return os.environ["CLAUDE_CODE_OAUTH_TOKEN"]
+    if TOKEN_FILE.is_file():
+        return TOKEN_FILE.read_text().strip()
+    sys.exit(f"no eval token: run `claude setup-token` and save the token to {TOKEN_FILE} "
+             "(chmod 600), or export CLAUDE_CODE_OAUTH_TOKEN")
+
+
+def cmd_setup(opts):
+    """Install the plugins the repo enables into the eval config, once."""
+    tok = token()
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    src = pathlib.Path(git("rev-parse", "--show-toplevel", cwd=opts.repo))
+    settings = {}
+    for name in ("settings.json", "settings.local.json"):
+        path = src / ".claude" / name
+        if path.is_file():
+            data = json.loads(path.read_text())
+            for key in ("extraKnownMarketplaces", "enabledPlugins"):
+                settings.setdefault(key, {}).update(data.get(key) or {})
+    env = {**{k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")},
+           "CLAUDE_CONFIG_DIR": str(CONFIG_DIR), "CLAUDE_CODE_OAUTH_TOKEN": tok}
+    ok = True
+    for name, spec in (settings.get("extraKnownMarketplaces") or {}).items():
+        source = spec.get("source") or {}
+        where = source.get("repo") or source.get("url") or source.get("path")
+        p = subprocess.run([CLAUDE, "plugin", "marketplace", "add", where], env=env,
+                           capture_output=True, text=True)
+        print(f"marketplace {name} ({where}): {'ok' if not p.returncode else p.stderr.strip() or p.stdout.strip()}")
+    for plugin, enabled in (settings.get("enabledPlugins") or {}).items():
+        if not enabled:
+            continue
+        p = subprocess.run([CLAUDE, "plugin", "install", plugin], env=env, capture_output=True, text=True)
+        ok &= not p.returncode
+        print(f"plugin {plugin}: {'ok' if not p.returncode else p.stderr.strip() or p.stdout.strip()}")
+    print(f"eval config: {CONFIG_DIR}")
+    return 0 if ok else 1
+
+
+def run_suite(opts, ref, label):
+    skill = resolve_skill(opts.skill)
+    evals = skill["dir"] / "evals"
+    cases = load_cases(evals, opts.case, opts.tag)
+    if not opts.as_me:
+        token()
+    started = datetime.datetime.now().strftime("%Y%m%dT%H%M%S")
+    HOME.mkdir(parents=True, exist_ok=True)
+    rundir = pathlib.Path(tempfile.mkdtemp(prefix=f"{skill['name']}-{label}-", dir=HOME))
+    out = pathlib.Path(opts.out) if opts.out else HOME / "results" / skill["name"] / f"{started}-{label}"
+    out.mkdir(parents=True, exist_ok=True)
+    upstream, commit, base_sha = make_upstream(skill, ref, opts.base or skill["base_ref"], rundir, label)
+    version = ref or "working tree"
+    ctx = {"skill": skill, "opts": opts, "evals": evals, "rundir": rundir, "upstream": upstream,
+           "commit": commit, "shims": make_shims(rundir), "out": out}
+    jobs = [{"case": c, "i": i, "ctx": ctx}
+            for c in cases for i in range(1, (opts.runs or c["meta"].get("runs") or DEFAULTS["runs"]) + 1)]
+    print(f"{skill['name']} ({version}) on {skill['src'].name}@{base_sha[:10]}: "
+          f"{len(cases)} cases, {len(jobs)} runs, concurrency {opts.concurrency}", flush=True)
+    with concurrent.futures.ThreadPoolExecutor(opts.concurrency) as pool:
+        records = list(pool.map(one_run, jobs))
+    if not opts.keep:
+        shutil.rmtree(rundir, ignore_errors=True)
+    models = sorted({r["metrics"]["model"] for r in records if r["metrics"].get("model")})
+    summary = summarise(records, {"skill": skill["name"], "label": label, "version": version,
+                                  "base": base_sha, "model": ", ".join(models) or opts.model or "?",
+                                  "started": started, "results": str(out)})
+    (out / "summary.json").write_text(json.dumps(summary, indent=2))
+    print_summary(summary)
+    print(f"\nresults: {out}")
+    return summary
+
+
+def cmd_run(opts):
+    s = run_suite(opts, opts.ref, opts.label or (opts.ref or "worktree").replace("/", "-"))
+    return 0 if all(c["passed"] == c["runs"] for c in s["cases"].values()) else 1
+
+
+def cmd_ab(opts):
+    base_ref = opts.against or resolve_skill(opts.skill)["base_ref"]
+    a = run_suite(opts, base_ref, "baseline")
+    b = run_suite(opts, None, "candidate")
+    worse = compare(a, b)
+    return 1 if worse else 0
+
+
+def cmd_compare(opts):
+    load = lambda p: json.loads((pathlib.Path(p) / "summary.json").read_text())
+    return 1 if compare(load(opts.a), load(opts.b)) else 0
+
+
+def main():
+    for key in [k for k in os.environ if k in GIT_REDIRECTS or k.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"))]:
+        del os.environ[key]
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    s = sub.add_parser("setup", help="install the repo's plugins into the eval config")
+    s.add_argument("--repo", default=".", help="a checkout of the repo whose plugins to install")
+    s.set_defaults(fn=cmd_setup)
+
+    def run_args(s):
+        s.add_argument("skill", help="the skill's directory, in a checkout of its repo")
+        s.add_argument("--case", action="append", help="case-name glob (repeatable)")
+        s.add_argument("--tag", action="append", help="only cases with this tag (repeatable)")
+        s.add_argument("--runs", type=int, help="runs per case (default: the case's, else 3)")
+        s.add_argument("--model", help="override every case's model (default: the case's, else opus)")
+        s.add_argument("--concurrency", type=int, default=2)
+        s.add_argument("--base", help="commit the fixture starts from (default: origin/HEAD)")
+        s.add_argument("--slow", action="store_true", help="also run the checks marked slow")
+        s.add_argument("--keep", action="store_true", help="keep fixtures for inspection")
+        s.add_argument("--plugin-dir", action="append", help="pass --plugin-dir to the agent")
+        s.add_argument("--as-me", action="store_true",
+                       help="run under your own ~/.claude, for debugging a suite: scores then "
+                            "depend on your CLAUDE.md, memory and plugins")
+
+    s = sub.add_parser("run", help="run the suite against one version of the skill")
+    run_args(s)
+    s.add_argument("--ref", help="take the skill from this git ref (default: the working tree)")
+    s.add_argument("--label", help="name for this result set")
+    s.add_argument("--out", help="results directory")
+    s.set_defaults(fn=cmd_run)
+
+    s = sub.add_parser("ab", help="run the skill at a ref and in the working tree, then compare")
+    run_args(s)
+    s.add_argument("--against", help="baseline ref (default: origin/HEAD)")
+    s.set_defaults(fn=cmd_ab, out=None, ref=None, label=None)
+
+    s = sub.add_parser("compare", help="compare two result directories")
+    s.add_argument("a")
+    s.add_argument("b")
+    s.set_defaults(fn=cmd_compare)
+
+    opts = p.parse_args()
+    sys.exit(opts.fn(opts))
+
+
+if __name__ == "__main__":
+    main()
