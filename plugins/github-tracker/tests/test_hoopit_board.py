@@ -1378,7 +1378,8 @@ def test_config_prints_the_board_repos_and_ladder():
 def test_next_without_a_ladder_still_picks_and_names_no_model():
     m = next_module([item(1, effort="L")], bodies={1: "touch `a.py`"}, paths=["a.py"])
     d, code = run_next(m, no_judge=True)
-    assert d["startable"][0]["model"] == "fable" and d["ladder"] == str(LADDER), d
+    rung = json.loads(LADDER.read_text())["rungs"]["L"]
+    assert d["startable"][0]["model"] == rung["model"] and d["ladder"] == str(LADDER), d
 
     m = next_module([item(1, effort="L"), item(2, effort="XS")], bodies={1: "a", 2: "b"},
                     config=write_config("next-no-ladder.json", ladder=None))
