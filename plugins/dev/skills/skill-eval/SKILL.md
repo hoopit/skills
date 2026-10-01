@@ -51,22 +51,29 @@ exists, and its scores are yours alone.
 <skill>/evals/setup.sh                    shapes every fixture before the agent starts
 <skill>/evals/<case>/prompt.md            frontmatter, then the prompt
 <skill>/evals/<case>/setup.sh, check.sh   the same, for one case
+<skill>/evals/<case>/mocks/<tool>.json    answers for gh, hoopit-board, acli, linear-gql
 ```
 
 - **Cases come from real sessions.** Mirror how the skill is actually reached (usually a
   parent skill's instruction, rarely a slash command), and target the failures already
   seen. A case nobody fails measures nothing.
 - **The prompt carries everything.** Paste in what the agent would fetch, such as the issue
-  text, and say where to stop. A fixture has no tracker access: `gh`, `acli` and
-  `linear-gql` fail, and the push URL is dead.
+  text, and say where to stop. A fixture has no tracker access: `gh`, `hoopit-board`, `acli`
+  and `linear-gql` are shims, and the push URL is dead.
+- **Shims record, mocks answer.** Every shim call lands in `EVAL_CALLS`, one JSON line of
+  `tool`, `argv`, `stdin` and `cwd`. Without `mocks/` every call fails. With it, a call
+  answers from the first entry in `mocks/<tool>.json` whose `match` regex finds the
+  space-joined argv: `[{"match": "^pr create", "stdout": "https://…/pull/7\n", "exit": 0}]`.
+  A call nothing matches, a tool without a file included, fails with `no mock for: <argv>`.
 - **Frontmatter.** It takes `runs`, `max_turns`, `timeout_seconds`, `model` and `tags`.
   `expect_<name>` reaches the checks as `EVAL_EXPECT_<NAME>`.
-- **`check.sh` grades state, not wording.** It prints one line per check:
+- **`check.sh` grades state, not wording.** A tracker write is state: grade the recorded
+  call, such as the `gh pr create` title, never what the agent says it did. It prints one line per check:
   `PASS <name>`, `FAIL <name> <reason>` or `SKIP <name> <reason>`.
   - It runs with the fixture as cwd.
   - Its environment has `EVAL_FIXTURE`, `EVAL_BASE` (the commit carrying the skill under
-    test), `EVAL_LOG` (the agent's stream-json log), `EVAL_RUN_DIR`, `EVAL_SOURCE` and
-    `EVAL_SLOW`.
+    test), `EVAL_LOG` (the agent's stream-json log), `EVAL_CALLS` (the shims' calls),
+    `EVAL_RUN_DIR`, `EVAL_SOURCE` and `EVAL_SLOW`.
   - Run slow checks only when `EVAL_SLOW=1`.
 - **`setup.sh`** runs before the agent with the same environment. A non-zero exit fails
   the run without starting the agent.

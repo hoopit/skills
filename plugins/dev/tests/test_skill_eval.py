@@ -64,12 +64,14 @@ def write(path, text, mode=None):
         path.chmod(mode)
 
 
-def case(evals, name, prompt, meta="", check=None, setup=None):
+def case(evals, name, prompt, meta="", check=None, setup=None, mocks=None):
     write(evals / name / "prompt.md", f"---\nexpect_version: v2-working-tree\n{meta}---\n\n{prompt}\n")
     if check:
         write(evals / name / "check.sh", check)
     if setup:
         write(evals / name / "setup.sh", setup)
+    for tool, answers in (mocks or {}).items():
+        write(evals / name / "mocks" / f"{tool}.json", json.dumps(answers))
 
 
 def build(tmp):
@@ -83,11 +85,15 @@ def build(tmp):
     case(evals, "idle", "RUN: true")
     case(evals, "leaks", f"RUN: git -C {src} branch leaked-branch")
     case(evals, "pushes", "RUN: git push origin HEAD:refs/heads/pushed-branch")
-    case(evals, "isolated", "RUN: gh issue view 1\nRUN: env\nRUN: git status | tail -1\n"
+    case(evals, "isolated", "RUN: gh issue view 1\nRUN: env\nRUN: hoopit-board config\nRUN: git status | tail -1\n"
          "RUN: cat \"$CLAUDE_CONFIG_DIR/.claude.json\"; readlink \"$CLAUDE_CONFIG_DIR/plugins\"",
          check=textwrap.dedent('''\
             #!/usr/bin/env bash
             grep -q 'gh is disabled in a skill-eval run' "$EVAL_LOG" && echo "PASS gh_shimmed" || echo "FAIL gh_shimmed"
+            grep -q 'hoopit-board is disabled in a skill-eval run' "$EVAL_LOG" \\
+              && echo "PASS board_shimmed" || echo "FAIL board_shimmed"
+            grep -q '"argv": \\["issue", "view", "1"\\]' "$EVAL_CALLS" \\
+              && echo "PASS unmocked_recorded" || echo "FAIL unmocked_recorded"
             grep -q 'GH_TOKEN=' "$EVAL_LOG" && echo "FAIL token_scrubbed" || echo "PASS token_scrubbed"
             grep -q "CLAUDE_CONFIG_DIR=$EVAL_RUN_DIR/claude-config" "$EVAL_LOG" \\
               && echo "PASS own_config" || echo "FAIL own_config"
@@ -95,6 +101,34 @@ def build(tmp):
               && echo "PASS fixture_trusted" || echo "FAIL fixture_trusted"
             grep -q "$SKILL_EVAL_HOME/claude-config/plugins" "$EVAL_LOG" \\
               && echo "PASS plugins_shared" || echo "FAIL plugins_shared"
+         '''))
+    case(evals, "mocked",
+         "RUN: printf 'Adds x.\\n\\ncloses #3\\n' | gh pr create --title 'BAC-12 Add x' --body-file -\n"
+         "RUN: gh issue view 9\nRUN: hoopit-board triage hoopit/api 3",
+         mocks={"gh": [{"match": "^pr create .*--title BAC-", "stdout": "https://github.com/o/r/pull/7\n"},
+                       {"match": "^pr create", "stderr": "title lacks the key\n", "exit": 1}]},
+         check=textwrap.dedent('''\
+            #!/usr/bin/env bash
+            exec python3 - <<'PY'
+            import json, os
+            calls = [json.loads(l) for l in open(os.environ["EVAL_CALLS"])]
+            pr = [c for c in calls if c["tool"] == "gh" and c["argv"][:2] == ["pr", "create"]]
+            ok = pr and pr[0]["argv"][pr[0]["argv"].index("--title") + 1].startswith("BAC-12")
+            print("PASS pr_title" if ok else f"FAIL pr_title {calls}")
+            ok = pr and "closes #3" in (pr[0]["stdin"] or "").splitlines()
+            print("PASS closes_line" if ok else f"FAIL closes_line {calls}")
+            ok = pr and pr[0]["cwd"] == os.environ["EVAL_FIXTURE"]
+            print("PASS call_cwd" if ok else f"FAIL call_cwd {calls}")
+            print("PASS board_recorded" if any(c["tool"] == "hoopit-board" for c in calls)
+                  else f"FAIL board_recorded {calls}")
+            log = open(os.environ["EVAL_LOG"]).read()
+            print("PASS answered" if "pull/7" in log else "FAIL answered")
+            print("PASS unmatched_visible" if "no mock for: issue view 9" in log else "FAIL unmatched_visible")
+            print("PASS unmocked_tool_fails" if "hoopit-board: no mock for: triage" in log
+                  else "FAIL unmocked_tool_fails")
+            print("FAIL token_scrubbed" if "secret-must-not-leak" in json.dumps(calls) + log
+                  else "PASS token_scrubbed")
+            PY
          '''))
     case(evals, "slow", "SLEEP: 30", meta="timeout_seconds: 2\n")
     case(evals, "bad-setup", "RUN: touch should-not-run", setup="#!/usr/bin/env bash\nexit 3\n")
@@ -140,7 +174,7 @@ def main():
         p = run(tmp, "run", str(skill), "--runs", "2", "--concurrency", "4", "--out", str(out))
         expect(p.returncode == 1, f"a suite with failing runs exits 1 (got {p.returncode}: {p.stderr[-400:]})")
         r = runs(out)
-        expect(len(r) == 14, f"7 cases x 2 runs recorded (got {len(r)})")
+        expect(len(r) == 16, f"8 cases x 2 runs recorded (got {len(r)})")
 
         c = r[("creates", 1)]
         expect(c["_"]["passed"], "the passing case passes")
@@ -167,11 +201,25 @@ def main():
 
         iso = r[("isolated", 1)]
         expect(iso["gh_shimmed"]["status"] == "PASS", "gh is shimmed to fail")
+        expect(iso["board_shimmed"]["status"] == "PASS", "hoopit-board is shimmed to fail")
+        expect(iso["unmocked_recorded"]["status"] == "PASS", "a case without mocks/ still records its calls")
         expect(iso["token_scrubbed"]["status"] == "PASS", "GH_TOKEN never reaches the agent")
         expect(iso["own_config"]["status"] == "PASS", "the agent runs under a config dir of its own run")
         expect(iso["fixture_trusted"]["status"] == "PASS", "that config trusts the run's fixture")
         expect(iso["plugins_shared"]["status"] == "PASS", "that config shares setup's plugins")
         expect(iso["_"]["metrics"]["masked_exit"] == 1, "a `| tail` without pipefail is counted")
+
+        m = r[("mocked", 1)]
+        for check, what in (("pr_title", "a check grades the title of a mocked `gh pr create`"),
+                            ("closes_line", "a call's stdin is recorded for the checks"),
+                            ("call_cwd", "a call's cwd is recorded"),
+                            ("board_recorded", "hoopit-board calls are recorded"),
+                            ("answered", "the matching mock answers the call"),
+                            ("unmatched_visible", "an unmatched call fails with `no mock for` in the log"),
+                            ("unmocked_tool_fails", "a tool with no mock file fails once the case has mocks/"),
+                            ("token_scrubbed", "GH_TOKEN never reaches a mocked call")):
+            expect(m[check]["status"] == "PASS", f"{what} ({m[check]['reason'][:300]})")
+        expect(pathlib.Path(m["_"]["calls"]).is_file(), "the recorded calls are kept with the results")
 
         slow = r[("slow", 1)]["agent_finished"]
         expect(slow["status"] == "FAIL" and "timed out" in slow["reason"], "a run past timeout_seconds fails agent_finished")

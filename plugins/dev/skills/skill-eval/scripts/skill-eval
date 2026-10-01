@@ -8,6 +8,7 @@ A suite lives next to the skill it measures:
     <skill>/evals/<case>/prompt.md   frontmatter + the prompt the agent gets
     <skill>/evals/<case>/setup.sh    shapes this case's fixture (optional)
     <skill>/evals/<case>/check.sh    extra checks for this case (optional)
+    <skill>/evals/<case>/mocks/      what the tracker shims answer in this case (optional)
 
 Each run gets its own fixture: a `git clone --shared` of the skill's repo at its default
 branch, with the skill under test committed over it and `evals/` taken out, so the agent
@@ -19,8 +20,10 @@ run's log names appears in the real repo.
 
 The agent runs under a dedicated config dir with its own OAuth token (`setup`), never
 your own `~/.claude`: your CLAUDE.md, memory, plugins and hooks would otherwise move the
-score. `gh`, `acli` and `linear-gql` are shimmed to fail and the fixture's push URL is
-dead, because a ship-style prompt would otherwise write to the real tracker and remote.
+score. `gh`, `hoopit-board`, `acli` and `linear-gql` are shimmed and the fixture's push URL
+is dead, because a ship-style prompt would otherwise write to the real tracker and remote.
+Each shim records its calls for the checks to grade, and fails unless the case's `mocks/`
+answers it.
 """
 import argparse, concurrent.futures, datetime, fnmatch, json, os, pathlib, re, shutil
 import signal, statistics, subprocess, sys, tarfile, tempfile, time
@@ -33,7 +36,7 @@ HOME = pathlib.Path(os.environ.get("SKILL_EVAL_HOME") or XDG_CACHE / "skill-eval
 CONFIG_DIR = HOME / "claude-config"
 TOKEN_FILE = XDG_CONFIG / "skill-eval" / "oauth-token"
 CLAUDE = os.environ.get("SKILL_EVAL_CLAUDE", "claude")
-SHIMMED = ("gh", "acli", "linear-gql")
+SHIMMED = ("gh", "hoopit-board", "acli", "linear-gql")
 # Credentials the agent must not inherit: a ship-style prompt reaches for the tracker.
 SCRUBBED = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "LINEAR_API_KEY",
             "JIRA_API_TOKEN", "ATLASSIAN_API_TOKEN", "SENTRY_AUTH_TOKEN")
@@ -169,14 +172,51 @@ def make_upstream(skill, ref, base, rundir, label):
     return up, commit, base_sha
 
 
-def make_shims(rundir):
+SHIM = '''#!%(python)s
+import json, os, re, select, sys
+TOOL, CALLS, MOCKS = %(tool)r, %(calls)r, %(mocks)r
+argv = sys.argv[1:]
+stdin = None
+# Read stdin only when it is already there or closes: a call nobody pipes into must
+# not hang on a pipe the agent's shell holds open.
+if not sys.stdin.isatty() and select.select([sys.stdin], [], [], 1)[0]:
+    stdin = sys.stdin.read()
+with open(CALLS, "a") as fh:
+    fh.write(json.dumps({"tool": TOOL, "argv": argv, "stdin": stdin, "cwd": os.getcwd()}) + "\\n")
+if MOCKS is None:
+    sys.exit(f"{TOOL} is disabled in a skill-eval run")
+line = " ".join(argv)
+for mock in MOCKS:
+    if re.search(mock["match"], line):
+        sys.stdout.write(mock.get("stdout", ""))
+        sys.stderr.write(mock.get("stderr", ""))
+        sys.exit(int(mock.get("exit", 0)))
+sys.exit(f"{TOOL}: no mock for: {line}")
+'''
+
+
+def make_shims(rundir, case):
+    """`gh`, `hoopit-board`, `acli` and `linear-gql` for one run: each records its calls.
+
+    Without a `mocks/` dir in the case every call fails. With one, a call answers from the
+    first entry of `mocks/<tool>.json` whose `match` regex finds the space-joined argv,
+    and a call nothing matches fails with `no mock for: <argv>`.
+    """
     shims = rundir / "shims"
     shims.mkdir()
+    mocks_dir = case["dir"] / "mocks"
+    calls = rundir / "calls.jsonl"
+    calls.touch()
     for name in SHIMMED:
+        mocks = None
+        if mocks_dir.is_dir():
+            mock_file = mocks_dir / f"{name}.json"
+            mocks = json.loads(mock_file.read_text()) if mock_file.is_file() else []
         path = shims / name
-        path.write_text(f"#!/bin/sh\necho '{name} is disabled in a skill-eval run' >&2\nexit 1\n")
+        path.write_text(SHIM % {"python": sys.executable, "tool": name,
+                                "calls": str(calls), "mocks": mocks})
         path.chmod(0o755)
-    return shims
+    return shims, calls
 
 
 # ---- one run ----------------------------------------------------------------------
@@ -291,13 +331,15 @@ def one_run(job):
     fixture = rundir / skill["src"].name
     git("clone", "-q", "--shared", str(ctx["upstream"]), str(fixture))
     git("remote", "set-url", "--push", "origin", "/nonexistent/skill-eval-push-disabled", cwd=fixture)
-    env = agent_env(opts, rundir, ctx["shims"], fixture)
+    shims, calls = make_shims(rundir, case)
+    env = agent_env(opts, rundir, shims, fixture)
     expects = {f"EVAL_EXPECT_{k[7:].upper()}": v for k, v in case["meta"].items() if k.startswith("expect_")}
     script_env = {**env, **expects, "EVAL_FIXTURE": str(fixture), "EVAL_RUN_DIR": str(rundir),
                   "EVAL_SOURCE": str(skill["src"]), "EVAL_UPSTREAM": str(ctx["upstream"]),
                   "EVAL_CASE": case["name"], "EVAL_CASE_DIR": str(case["dir"]),
                   "EVAL_SUITE_DIR": str(ctx["evals"]), "EVAL_BRANCH": skill["branch"],
-                  "EVAL_BASE": ctx["commit"], "EVAL_SLOW": "1" if opts.slow else "0"}
+                  "EVAL_BASE": ctx["commit"], "EVAL_CALLS": str(calls),
+                  "EVAL_SLOW": "1" if opts.slow else "0"}
     checks, notes = {}, []
     for setup in (ctx["evals"] / "setup.sh", case["dir"] / "setup.sh"):
         if setup.is_file():
@@ -346,7 +388,9 @@ def one_run(job):
     shutil.copy2(log, kept)
     if log.with_suffix(".stderr").exists():
         shutil.copy2(log.with_suffix(".stderr"), kept.with_suffix(".stderr"))
+    shutil.copy2(calls, kept.with_suffix(".calls.jsonl"))
     record = {"case": case["name"], "run": i, "fixture": str(fixture), "log": str(kept),
+              "calls": str(kept.with_suffix(".calls.jsonl")),
               "checks": [{"name": n, "status": s, "reason": r} for n, (s, r) in checks.items()],
               "passed": all(s != "FAIL" for s, _ in checks.values()), "metrics": metrics,
               "notes": notes}
@@ -493,7 +537,7 @@ def run_suite(opts, ref, label):
     upstream, commit, base_sha = make_upstream(skill, ref, opts.base or skill["base_ref"], rundir, label)
     version = ref or "working tree"
     ctx = {"skill": skill, "opts": opts, "evals": evals, "rundir": rundir, "upstream": upstream,
-           "commit": commit, "shims": make_shims(rundir), "out": out}
+           "commit": commit, "out": out}
     jobs = [{"case": c, "i": i, "ctx": ctx}
             for c in cases for i in range(1, (opts.runs or c["meta"].get("runs") or DEFAULTS["runs"]) + 1)]
     print(f"{skill['name']} ({version}) on {skill['src'].name}@{base_sha[:10]}: "
