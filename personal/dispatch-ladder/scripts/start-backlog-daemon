@@ -382,7 +382,7 @@ print(f'in_flight={of(d["in_flight"], d["target"])} active={of(d["active"], d["m
       f'held={len(d["held"])} scheduled={len(d["scheduled"])} '
       f'awaiting_deploy={len(d["awaiting_deploy"])} cooloff={len(d["excluded"])} '
       f'unexamined={d["unexamined"]} blocked_by_issue={len(d["blocked_by_issue"])} '
-      f'out_of_scope={len(d["out_of_scope"])} '
+      f'out_of_scope={len(d["out_of_scope"])} parents={len(d.get("parents", []))} '
       f'judgement={d.get("judgement", "off")}')
 for g in d["awaiting_deploy"][:5]:
     print(f'  awaiting deploy {g["url"]} {g["priority"]}/{g["effort"]}: {g["gate"]}')
@@ -428,6 +428,8 @@ if d["deficit"] > 0 and not d["startable"]:
         (len(d["awaiting_deploy"]), "wait on the deploy their Gate line names"),
         (len(d["excluded"]), f"were dispatched in the last {cooloff_hours}h and are cooling off"),
         (len(d["out_of_scope"]), "are in a repo this daemon does not fill"),
+        (sum(p["status"] == "Ready" for p in d.get("parents", [])),
+         "are parents whose open sub-issues are the work"),
         (d["unexamined"], "were not reached this tick"),
         (len(d["untriaged"]), "lack Priority, Effort or Autonomy (Ready and Backlog both)"),
     ]

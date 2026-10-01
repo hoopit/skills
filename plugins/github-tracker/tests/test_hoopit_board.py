@@ -276,6 +276,28 @@ def test_a_judgement_that_cannot_run_dispatches_exactly_as_before():
     print("  a 429 leaves the tick byte-identical to --no-judge")
 
 
+def test_a_parent_with_open_children_holds_no_slot_and_never_starts():
+    """A parent's work is its children, each counted on its own: counting the parent too
+    spends a slot twice, and starting it hands one agent every child. Its own open PR
+    still holds its files, and once its last child closes it counts again."""
+    parent = dict(item(1, status="In progress", prs=["https://github.com/hoopit/api/pull/90"]),
+                  open_children=2)
+    ready_parent = dict(item(2), open_children=1)
+    done_parent = dict(item(3, status="In progress"), open_children=0)
+    per_pr = {"hoopit/api#90": {"repo": "hoopit/api", "title": "p", "files": ["a.py"]}}
+    m = next_module([parent, ready_parent, done_parent, item(4)], per_pr=per_pr,
+                    owners={("hoopit/api", "a.py"): ["#1"]},
+                    bodies={4: "edit `a.py`"}, paths=["a.py"])
+    swept, footprints = [], m.footprints
+    m.footprints = lambda repos, only=None: swept.append(only) or footprints(repos, only)
+    d, code = run_next(m, target=2, no_judge=True)
+    assert swept == [{"https://github.com/hoopit/api/pull/90"}], swept
+    assert d["in_flight"] == 1 and d["deficit"] == 1, d
+    assert only(d, "parents") == ["hoopit/api#1", "hoopit/api#2"], d["parents"]
+    assert only(d, "startable") == [] and only(d, "blocked") == ["hoopit/api#4"], d
+    print("  parents hold no slot and never start; the parent's PR still holds a.py")
+
+
 def test_prose_only_work_is_caught_against_an_open_pr():
     """The gap the judgement exists for: an issue naming no resolvable path footprints
     empty, clears every exact test, and dispatches onto a PR's files."""

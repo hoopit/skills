@@ -535,6 +535,7 @@ BOARD_QUERY = """query($login:String!,$number:Int!,$after:String){
       nodes{ id
         content{ __typename
           ... on Issue{ id number title url state updatedAt issueType{name} repository{nameWithOwner} BODY
+            subIssuesSummary{ total completed }
             blockedBy(first:20){ nodes{ number state repository{ nameWithOwner } } } }
           ... on PullRequest{ number title url updatedAt repository{nameWithOwner} } }
         status: fieldValueByName(name:"Status"){ ... on ProjectV2ItemFieldSingleSelectValue{name} }
@@ -592,6 +593,7 @@ def board(bodies=False):
                 "title": c.get("title", ""), "type": c["__typename"],
                 "state": c.get("state") or "",
                 "issue_type": (c.get("issueType") or {}).get("name") or "",
+                "open_children": open_children(c.get("subIssuesSummary")),
                 "updated": c.get("updatedAt"),
                 "status": (i.get("status") or {}).get("name", ""),
                 "priority": axis(i.get("priority")),
@@ -610,6 +612,21 @@ def board(bodies=False):
         if not items["pageInfo"]["hasNextPage"]:
             return out
         after = items["pageInfo"]["endCursor"]
+
+
+def open_children(summary):
+    """How many of an issue's sub-issues are still open."""
+    summary = summary or {}
+    return (summary.get("total") or 0) - (summary.get("completed") or 0)
+
+
+def tracking(i):
+    """Whether an item is a parent whose work is its open sub-issues. It holds no slot and
+    is never started: each child is claimed, counted and dispatched on its own, so
+    counting the parent too would take a slot for work already counted, and starting it
+    would hand one agent every child at once. It counts again once its last child
+    closes."""
+    return i.get("open_children", 0) > 0
 
 
 def open_prs(i):
@@ -765,7 +782,8 @@ def row(it, *extra):
 
 def cmd_slots(a):
     items = board()
-    flight = [i for i in items if i["status"] in IN_FLIGHT and not closed_in_review(i)]
+    flight = [i for i in items if i["status"] in IN_FLIGHT and not closed_in_review(i)
+              and not tracking(i)]
     backlog = sorted([i for i in items if i["status"] == POOL], key=rank_key)
     parked = [i for i in items if i["status"] == PARKED]
     deficit = a.target - len(flight)
@@ -2059,6 +2077,10 @@ def cmd_next(a):
     elsewhere on the board holds no slot, and candidates elsewhere come back under
     `out_of_scope`.
 
+    `parents` lists the issues with open sub-issues, in flight or Ready. None holds a
+    slot or is started — `tracking` says why — but a parent's own open PR still holds its
+    files.
+
     `--skip-type` names an issue type to leave to a session with somebody in it; those
     candidates come back under `attended`. It bounds nothing and releases nothing — the
     items keep their place in Ready and `check` still passes them.
@@ -2078,6 +2100,8 @@ def cmd_next(a):
     unsettled = [i for i in items if closed_in_review(i)]
     flight = [i for i in items if i["status"] in IN_FLIGHT and not closed_in_review(i)
               and (not a.scope or i["repo"] in a.scope)]
+    parents = [i for i in flight if tracking(i)]
+    flight = [i for i in flight if not tracking(i)]
     review, active = [], []
     for i in flight:
         (review if awaits_human(i) else active).append(i)
@@ -2124,6 +2148,8 @@ def cmd_next(a):
     ranked = [i for i in ranked if i["issue_type"] not in a.skip_type]
     waiting = [i for i in ranked if scheduled(i)]
     ranked = [i for i in ranked if not scheduled(i)]
+    parents += [i for i in ranked if tracking(i)]
+    ranked = [i for i in ranked if not tracking(i)]
     dependent = [i for i in ranked if i["blockers"]]
     ranked = [i for i in ranked if not i["blockers"]]
     out_of_scope = [i for i in ranked if a.scope and i["repo"] not in a.scope]
@@ -2152,6 +2178,7 @@ def cmd_next(a):
         "blocked_by_issue": [brief(i, "blockers") for i in dependent],
         "excluded": [brief(i) for i in excluded],
         "out_of_scope": [brief(i) for i in out_of_scope],
+        "parents": [brief(i, "status", "open_children") for i in parents],
         "flight": [brief(i, "status", "prs") for i in sorted(flight, key=rank_key)],
         "candidates_total": len(candidates), "unexamined": len(candidates),
         "startable": [], "blocked": [], "needs_judgement": [], "awaiting_deploy": [],
@@ -2164,7 +2191,7 @@ def cmd_next(a):
 
     # Only the board's own work holds files: the open PRs linked to an item in flight.
     # Anyone else's open PR is theirs to rebase over, and a candidate waits on none of them.
-    ours = {u for i in flight for u in i["prs"] if i["pr_state"][u] == "OPEN"}
+    ours = {u for i in flight + parents for u in i["prs"] if i["pr_state"][u] == "OPEN"}
     repos = sorted({i["repo"] for i in flight} | {i["repo"] for i in shortlist})
     out["no_checkout"] = [r for r in repos if not repo_files(r)[2]]
     pr_repos = {"/".join(u.split("/")[3:5]) for u in ours}
@@ -2948,7 +2975,7 @@ def cmd_stale(a):
     """
     now = datetime.now(timezone.utc)
     flight = [i for i in board() if i["status"] in IN_FLIGHT and not awaits_human(i)
-              and not closed_in_review(i)]
+              and not closed_in_review(i) and not tracking(i)]
     for i in sorted(flight, key=rank_key):
         agent, since = claim_of(i)
         prs = open_prs(i)
