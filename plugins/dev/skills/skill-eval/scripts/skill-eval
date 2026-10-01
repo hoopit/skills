@@ -196,14 +196,38 @@ def run_script(script, cwd, env, timeout=600):
         return 124, "", f"{script.name} timed out after {timeout}s"
 
 
-def agent_env(opts, rundir, shims):
+def run_config(rundir, fixture):
+    """This run's own config dir: `setup`'s files, its plugins shared, its fixture trusted.
+
+    Claude honours a project's `permissions.additionalDirectories` only in a trusted
+    workspace, trust does not reach down from a parent dir, and every run's fixture is a
+    new path. A config per run trusts it without racing other runs over one
+    `.claude.json`, and leaves no state behind for the next run to read.
+    """
+    if not (CONFIG_DIR / "plugins").is_dir():
+        sys.exit(f"no eval config at {CONFIG_DIR}: run `skill-eval setup --repo <checkout>` first")
+    config = rundir / "claude-config"
+    config.mkdir()
+    for item in CONFIG_DIR.iterdir():
+        if item.name == "plugins":
+            (config / "plugins").symlink_to(item)
+        elif item.is_file():
+            shutil.copy2(item, config / item.name)
+    state = config / ".claude.json"
+    data = json.loads(state.read_text()) if state.is_file() else {}
+    data.setdefault("projects", {})[str(fixture)] = {"hasTrustDialogAccepted": True}
+    state.write_text(json.dumps(data))
+    return config
+
+
+def agent_env(opts, rundir, shims, fixture):
     env = {k: v for k, v in os.environ.items()
            if k not in SCRUBBED and not k.startswith(("CLAUDE", "HERDR"))}
     env["PATH"] = f"{shims}{os.pathsep}{env.get('PATH', '')}"
     env["GH_CONFIG_DIR"] = str(rundir / "gh-empty")
     env["GIT_TERMINAL_PROMPT"] = "0"
     if not opts.as_me:
-        env["CLAUDE_CONFIG_DIR"] = str(CONFIG_DIR)
+        env["CLAUDE_CONFIG_DIR"] = str(run_config(rundir, fixture))
         env["CLAUDE_CODE_OAUTH_TOKEN"] = token()
         env.pop("ANTHROPIC_API_KEY", None)
     return env
@@ -267,7 +291,7 @@ def one_run(job):
     fixture = rundir / skill["src"].name
     git("clone", "-q", "--shared", str(ctx["upstream"]), str(fixture))
     git("remote", "set-url", "--push", "origin", "/nonexistent/skill-eval-push-disabled", cwd=fixture)
-    env = agent_env(opts, rundir, ctx["shims"])
+    env = agent_env(opts, rundir, ctx["shims"], fixture)
     expects = {f"EVAL_EXPECT_{k[7:].upper()}": v for k, v in case["meta"].items() if k.startswith("expect_")}
     script_env = {**env, **expects, "EVAL_FIXTURE": str(fixture), "EVAL_RUN_DIR": str(rundir),
                   "EVAL_SOURCE": str(skill["src"]), "EVAL_UPSTREAM": str(ctx["upstream"]),
@@ -316,11 +340,16 @@ def one_run(job):
         if leaked else ("PASS", "")
     if ((after[0] - before[0]) or (after[1] - before[1])) and not leaked:
         notes.append("the source repo changed during the run, by something this run's log never names")
-    record = {"case": case["name"], "run": i, "fixture": str(fixture), "log": str(log),
+    # The log outlives the fixture: it is the evidence behind every verdict in the record.
+    (ctx["out"] / "runs").mkdir(exist_ok=True)
+    kept = ctx["out"] / "runs" / f"{case['name']}-{i}.jsonl"
+    shutil.copy2(log, kept)
+    if log.with_suffix(".stderr").exists():
+        shutil.copy2(log.with_suffix(".stderr"), kept.with_suffix(".stderr"))
+    record = {"case": case["name"], "run": i, "fixture": str(fixture), "log": str(kept),
               "checks": [{"name": n, "status": s, "reason": r} for n, (s, r) in checks.items()],
               "passed": all(s != "FAIL" for s, _ in checks.values()), "metrics": metrics,
               "notes": notes}
-    (ctx["out"] / "runs").mkdir(exist_ok=True)
     (ctx["out"] / "runs" / f"{case['name']}-{i}.json").write_text(json.dumps(record, indent=2))
     if not opts.keep:
         shutil.rmtree(rundir, ignore_errors=True)
@@ -424,15 +453,25 @@ def cmd_setup(opts):
     env = {**{k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")},
            "CLAUDE_CONFIG_DIR": str(CONFIG_DIR), "CLAUDE_CODE_OAUTH_TOKEN": tok}
     ok = True
-    for name, spec in (settings.get("extraKnownMarketplaces") or {}).items():
+    enabled = [plugin for plugin, on in (settings.get("enabledPlugins") or {}).items() if on]
+    markets = dict(settings.get("extraKnownMarketplaces") or {})
+    # A marketplace the repo relies on without declaring it, such as one registered by
+    # hand, comes from your own config: a fresh config knows only a built-in stand-in of
+    # the same name, which can lack the plugin.
+    own = pathlib.Path(os.environ.get("CLAUDE_CONFIG_DIR") or pathlib.Path.home() / ".claude")
+    known = own / "plugins" / "known_marketplaces.json"
+    known = json.loads(known.read_text()) if known.is_file() else {}
+    for market in sorted({p.partition("@")[2] for p in enabled} - {""} - set(markets)):
+        if market in known:
+            markets[market] = known[market]
+    for name, spec in markets.items():
         source = spec.get("source") or {}
         where = source.get("repo") or source.get("url") or source.get("path")
         p = subprocess.run([CLAUDE, "plugin", "marketplace", "add", where], env=env,
                            capture_output=True, text=True)
+        subprocess.run([CLAUDE, "plugin", "marketplace", "update", name], env=env, capture_output=True)
         print(f"marketplace {name} ({where}): {'ok' if not p.returncode else p.stderr.strip() or p.stdout.strip()}")
-    for plugin, enabled in (settings.get("enabledPlugins") or {}).items():
-        if not enabled:
-            continue
+    for plugin in enabled:
         p = subprocess.run([CLAUDE, "plugin", "install", plugin], env=env, capture_output=True, text=True)
         ok &= not p.returncode
         print(f"plugin {plugin}: {'ok' if not p.returncode else p.stderr.strip() or p.stdout.strip()}")

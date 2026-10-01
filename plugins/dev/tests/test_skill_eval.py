@@ -83,13 +83,18 @@ def build(tmp):
     case(evals, "idle", "RUN: true")
     case(evals, "leaks", f"RUN: git -C {src} branch leaked-branch")
     case(evals, "pushes", "RUN: git push origin HEAD:refs/heads/pushed-branch")
-    case(evals, "isolated", "RUN: gh issue view 1\nRUN: env\nRUN: git status | tail -1",
+    case(evals, "isolated", "RUN: gh issue view 1\nRUN: env\nRUN: git status | tail -1\n"
+         "RUN: cat \"$CLAUDE_CONFIG_DIR/.claude.json\"; readlink \"$CLAUDE_CONFIG_DIR/plugins\"",
          check=textwrap.dedent('''\
             #!/usr/bin/env bash
             grep -q 'gh is disabled in a skill-eval run' "$EVAL_LOG" && echo "PASS gh_shimmed" || echo "FAIL gh_shimmed"
             grep -q 'GH_TOKEN=' "$EVAL_LOG" && echo "FAIL token_scrubbed" || echo "PASS token_scrubbed"
-            grep -q "CLAUDE_CONFIG_DIR=$SKILL_EVAL_HOME/claude-config" "$EVAL_LOG" \\
+            grep -q "CLAUDE_CONFIG_DIR=$EVAL_RUN_DIR/claude-config" "$EVAL_LOG" \\
               && echo "PASS own_config" || echo "FAIL own_config"
+            grep -q "$EVAL_FIXTURE"'\\\\"\\{1,\\}: *{\\\\"\\{1,\\}hasTrustDialogAccepted' "$EVAL_LOG" \\
+              && echo "PASS fixture_trusted" || echo "FAIL fixture_trusted"
+            grep -q "$SKILL_EVAL_HOME/claude-config/plugins" "$EVAL_LOG" \\
+              && echo "PASS plugins_shared" || echo "FAIL plugins_shared"
          '''))
     case(evals, "slow", "SLEEP: 30", meta="timeout_seconds: 2\n")
     case(evals, "bad-setup", "RUN: touch should-not-run", setup="#!/usr/bin/env bash\nexit 3\n")
@@ -103,6 +108,10 @@ def build(tmp):
 def run(tmp, *args):
     fake = tmp / "claude"
     write(fake, FAKE_CLAUDE, 0o755)
+    # What `setup` leaves behind: the template every run's own config is cut from.
+    write(tmp / "home" / "claude-config" / "settings.json", "{}")
+    write(tmp / "home" / "claude-config" / ".claude.json", '{"projects": {}}')
+    (tmp / "home" / "claude-config" / "plugins").mkdir(exist_ok=True)
     # GIT_INDEX_FILE is what git exports to a hook, so every run here is a run from inside
     # pre-commit: the runner has to keep it away from the fixtures' git.
     env = {**os.environ, "SKILL_EVAL_HOME": str(tmp / "home"), "SKILL_EVAL_CLAUDE": str(fake),
@@ -141,6 +150,9 @@ def main():
         expect(c["slow_smoke"]["status"] == "SKIP", "slow checks skip unless --slow")
         expect(c["agent_finished"]["status"] == "PASS", "a clean result event is agent_finished")
         expect(c["_"]["metrics"]["model"] == "fake-model", "the model is read from the log")
+        log = pathlib.Path(c["_"]["log"])
+        expect(log.is_file() and log.is_relative_to(out) and "feat/x" in log.read_text(),
+               "the run's log is kept with its results after the fixture is gone")
 
         expect(r[("idle", 1)]["worktree"]["status"] == "FAIL", "a missing worktree fails the check")
 
@@ -156,7 +168,9 @@ def main():
         iso = r[("isolated", 1)]
         expect(iso["gh_shimmed"]["status"] == "PASS", "gh is shimmed to fail")
         expect(iso["token_scrubbed"]["status"] == "PASS", "GH_TOKEN never reaches the agent")
-        expect(iso["own_config"]["status"] == "PASS", "the agent runs under the eval config dir")
+        expect(iso["own_config"]["status"] == "PASS", "the agent runs under a config dir of its own run")
+        expect(iso["fixture_trusted"]["status"] == "PASS", "that config trusts the run's fixture")
+        expect(iso["plugins_shared"]["status"] == "PASS", "that config shares setup's plugins")
         expect(iso["_"]["metrics"]["masked_exit"] == 1, "a `| tail` without pipefail is counted")
 
         slow = r[("slow", 1)]["agent_finished"]
@@ -181,7 +195,7 @@ def main():
         p = run(tmp, "compare", str(out), str(base))
         expect("▼ 2/2 → 0/2  version" in p.stdout and p.returncode == 1, "compare marks a regression and exits 1")
 
-        left = [d for d in (tmp / "home").iterdir() if d.name not in ("results",)]
+        left = [d for d in (tmp / "home").iterdir() if d.name not in ("results", "claude-config")]
         expect(not left, f"fixtures are removed after the run (left: {left})")
 
     print(f"\n{len(failures)} failed" if failures else "\nall passed")
