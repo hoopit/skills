@@ -139,6 +139,52 @@ def build(tmp):
     return src, skill
 
 
+PLUGIN_CHECK = textwrap.dedent('''\
+    #!/usr/bin/env bash
+    exec python3 - <<'PY'
+    import json, os, pathlib, subprocess
+    env = os.environ
+    git = lambda *a: subprocess.run(["git", *a], capture_output=True, text=True).stdout.strip()
+    say = lambda ok, name, why="": print(f"PASS {name}" if ok else f"FAIL {name} {why}")
+    init = next(e for e in map(json.loads, open(env["EVAL_LOG"])) if e.get("subtype") == "init")
+    argv = init["argv"]
+    plugin = pathlib.Path(argv[argv.index("--plugin-dir") + 1])
+    skill = (plugin / "skills" / "pskill" / "SKILL.md").read_text()
+    say(env["EVAL_EXPECT_VERSION"] in skill, "plugin_version", skill)
+    say((plugin / ".claude-plugin" / "plugin.json").is_file(), "plugin_whole")
+    say(not list(plugin.rglob("evals")), "plugin_evals_hidden", list(plugin.rglob("evals")))
+    settings = json.loads(pathlib.Path(argv[argv.index("--settings") + 1]).read_text())
+    off = {"demo-plugin@demo-market": False, "demo-plugin@other-market": False}
+    say(settings.get("enabledPlugins") == off, "installed_disabled", settings)
+    say(pathlib.Path("product.txt").is_file() and not pathlib.Path("plugins").exists(), "fixture_is_product")
+    say(git("rev-parse", "HEAD") == env["EVAL_BASE"] == git("-C", env["EVAL_SOURCE"], "rev-parse", "master"),
+        "nothing_committed_over")
+    PY
+''')
+
+
+def build_plugin(tmp):
+    """A skills repo whose plugin skill `pskill` has an uncommitted edit, and a product repo."""
+    repo = tmp / "skills"
+    plugin = repo / "plugins" / "demo"
+    write(repo / ".claude-plugin" / "marketplace.json", '{"name": "demo-market"}')
+    write(plugin / ".claude-plugin" / "plugin.json", '{"name": "demo-plugin"}')
+    write(plugin / "skills" / "other" / "SKILL.md", "---\nname: other\n---\n")
+    write(plugin / "skills" / "other" / "evals" / "check.sh", "#!/usr/bin/env bash\n")
+    skill = plugin / "skills" / "pskill"
+    write(skill / "SKILL.md", "---\nname: pskill\n---\nv1-committed\n")
+    write(skill / "evals" / "check.sh", PLUGIN_CHECK)
+    case(skill / "evals", "loads", "RUN: true")
+    product = tmp / "product"
+    write(product / "product.txt", "the product\n")
+    for src in (repo, product):
+        sh("git", "init", "-q", "-b", "master", cwd=src)
+        sh("git", "add", "-A", cwd=src)
+        sh("git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init", cwd=src)
+    write(skill / "SKILL.md", "---\nname: pskill\n---\nv2-working-tree\n")
+    return product, skill
+
+
 def run(tmp, *args, cwd=None):
     fake = tmp / "claude"
     write(fake, FAKE_CLAUDE, 0o755)
@@ -146,6 +192,8 @@ def run(tmp, *args, cwd=None):
     write(tmp / "home" / "claude-config" / "settings.json", "{}")
     write(tmp / "home" / "claude-config" / ".claude.json", '{"projects": {}}')
     (tmp / "home" / "claude-config" / "plugins").mkdir(exist_ok=True)
+    write(tmp / "home" / "claude-config" / "plugins" / "installed_plugins.json",
+          '{"plugins": {"demo-plugin@other-market": [], "unrelated@demo-market": []}}')
     # GIT_INDEX_FILE is what git exports to a hook, so every run here is a run from inside
     # pre-commit: the runner has to keep it away from the fixtures' git.
     env = {**os.environ, "SKILL_EVAL_HOME": str(tmp / "home"), "SKILL_EVAL_CLAUDE": str(fake),
@@ -282,6 +330,24 @@ def main():
         got = runs(tmp / "committed").get(("creates", 1), {})
         expect(got.get("version", {}).get("status") == "FAIL" and got.get("agent_finished", {}).get("status") == "PASS",
                f"--ref runs from a branch that commits a skill edit (got {p.stderr[-300:]})")
+
+        product, pskill = build_plugin(tmp)
+        pout = tmp / "plugin-cand"
+        p = run(tmp, "run", str(pskill), "--fixture", str(product), "--runs", "1", "--out", str(pout))
+        pr = runs(pout).get(("loads", 1))
+        expect(pr is not None, f"a plugin skill runs in a --fixture checkout (got {p.stdout[-400:]} {p.stderr[-400:]})")
+        for check, what in (("plugin_version", "the agent loads the working-tree plugin"),
+                            ("plugin_whole", "the whole plugin is staged, not only the skill"),
+                            ("plugin_evals_hidden", "every evals/ in the staged plugin is removed"),
+                            ("installed_disabled", "--settings disables the installed copy in every marketplace"),
+                            ("fixture_is_product", "the fixture is the --fixture checkout"),
+                            ("nothing_committed_over", "nothing is committed over the fixture's default branch")):
+            got = (pr or {}).get(check, {"status": "missing", "reason": ""})
+            expect(got["status"] == "PASS", f"{what} ({got['reason'][:300]})")
+        p = run(tmp, "run", str(pskill), "--fixture", str(product), "--ref", "HEAD", "--runs", "1",
+                "--out", str(tmp / "plugin-base"))
+        got = runs(tmp / "plugin-base").get(("loads", 1), {}).get("plugin_version", {})
+        expect(got.get("status") == "FAIL", "--ref HEAD with --fixture loads the committed plugin")
 
         left = [d for d in (tmp / "home").iterdir() if d.name not in ("results", "claude-config")]
         expect(not left, f"fixtures are removed after the run (left: {left})")

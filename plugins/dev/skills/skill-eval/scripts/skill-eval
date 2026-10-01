@@ -18,6 +18,11 @@ left behind. A check script prints one line per check — `PASS <name>`, `FAIL <
 `agent_finished`, and `source_repo_untouched`, which fails when a branch or worktree the
 run's log names appears in the real repo.
 
+A skill a plugin ships runs in other repos than its own. `--fixture <checkout>` clones
+that checkout instead, at its default branch with nothing committed over it, and loads
+the plugin under test with `--plugin-dir`, every `evals/` taken out and the installed
+copy disabled.
+
 The agent runs under a dedicated config dir with its own OAuth token (`setup`), never
 your own `~/.claude`: your CLAUDE.md, memory, plugins and hooks would otherwise move the
 score. `gh`, `hoopit-board`, `acli` and `linear-gql` are shimmed and the fixture's push URL
@@ -106,16 +111,37 @@ def load_cases(evals, patterns, tags):
 
 # ---- the repo and the skill under test ---------------------------------------------
 
-def resolve_skill(skill_dir):
+def default_branch(repo):
+    """(branch, ref) the repo's default branch is read from: `origin/HEAD` where set."""
+    head = git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD", cwd=repo, check=False)
+    branch = head.partition("/")[2] if head else git("branch", "--show-current", cwd=repo) or "main"
+    return branch, head or branch
+
+
+def resolve_skill(skill_dir, fixture=None):
+    """The skill, the repo it lives in (`repo`), and the repo its fixtures clone (`src`).
+
+    Without `fixture` both are the skill's repo, and the skill is committed over the
+    fixture. With it the fixture is that checkout as its default branch has it, and the
+    plugin that contains the skill is loaded with `--plugin-dir` instead.
+    """
     skill_dir = pathlib.Path(skill_dir).resolve()
     if not (skill_dir / "SKILL.md").is_file():
         sys.exit(f"{skill_dir} has no SKILL.md")
-    src = pathlib.Path(git("rev-parse", "--show-toplevel", cwd=skill_dir)).resolve()
-    rel = skill_dir.relative_to(src).as_posix()
-    head = git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD", cwd=src, check=False)
-    branch = head.partition("/")[2] if head else git("branch", "--show-current", cwd=src) or "main"
-    return {"dir": skill_dir, "name": skill_dir.name, "src": src, "rel": rel,
-            "repo_name": repo_name(src), "branch": branch, "base_ref": head or branch}
+    repo = pathlib.Path(git("rev-parse", "--show-toplevel", cwd=skill_dir)).resolve()
+    skill = {"dir": skill_dir, "name": skill_dir.name, "repo": repo,
+             "rel": skill_dir.relative_to(repo).as_posix(), "repo_ref": default_branch(repo)[1],
+             "src": repo, "plugin": None}
+    if fixture:
+        skill["src"] = pathlib.Path(git("rev-parse", "--show-toplevel", cwd=fixture)).resolve()
+        root = next((d for d in skill_dir.parents if (d / ".claude-plugin" / "plugin.json").is_file()), None)
+        if not root or not root.is_relative_to(repo):
+            sys.exit(f"--fixture needs a plugin skill: no .claude-plugin/plugin.json above {skill_dir}")
+        name = json.loads((root / ".claude-plugin" / "plugin.json").read_text())["name"]
+        skill["plugin"] = {"dir": root, "rel": root.relative_to(repo).as_posix(), "name": name}
+    skill["branch"], skill["base_ref"] = default_branch(skill["src"])
+    skill["repo_name"] = repo_name(skill["src"])
+    return skill
 
 
 def repo_name(checkout):
@@ -129,27 +155,53 @@ def repo_name(checkout):
     return (common.parent if common.name == ".git" else common.with_suffix("")).name
 
 
-def stage_version(skill, ref, stage):
-    """Lay the skill under test out at `stage/<rel>`: from `ref`, or the working tree."""
-    target = stage / skill["rel"]
+def stage_version(repo, rel, ref, stage):
+    """Lay `rel` out at `stage/<rel>`, every `evals/` in it removed: from `ref`, or the working tree."""
+    target = stage / rel
     if ref:
-        tar = subprocess.run(["git", "archive", "--format=tar", ref, "--", skill["rel"]],
-                             cwd=skill["src"], capture_output=True)
+        tar = subprocess.run(["git", "archive", "--format=tar", ref, "--", rel],
+                             cwd=repo, capture_output=True)
         if tar.returncode:
-            sys.exit(f"{skill['rel']} is not at {ref}: {tar.stderr.decode().strip()}")
+            sys.exit(f"{rel} is not at {ref}: {tar.stderr.decode().strip()}")
         with tempfile.TemporaryFile() as fh:
             fh.write(tar.stdout)
             fh.seek(0)
             with tarfile.open(fileobj=fh) as t:
                 t.extractall(stage, filter="tar")
     else:
-        shutil.copytree(skill["dir"], target, symlinks=True,
+        shutil.copytree(repo / rel, target, symlinks=True,
                         ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-    shutil.rmtree(target / "evals", ignore_errors=True)
+    for evals in [d for d in target.rglob("evals") if d.is_dir()]:
+        shutil.rmtree(evals, ignore_errors=True)
+    return target
+
+
+def stage_plugin(skill, ref, rundir):
+    """The plugin under test for `--plugin-dir`, and settings that keep its installed copy out.
+
+    A product repo's project settings enable the installed copy, and project settings
+    outrank the run config's own `settings.json`: only `--settings` can turn it off.
+    `--plugin-dir` alone shadows a plugin of the same name today, and the settings keep
+    that true when it stops doing so.
+    """
+    plugin = skill["plugin"]
+    target = stage_version(skill["repo"], plugin["rel"], ref, rundir / "plugin")
+    markets = set()
+    catalog = skill["repo"] / ".claude-plugin" / "marketplace.json"
+    if catalog.is_file():
+        markets.add(json.loads(catalog.read_text())["name"])
+    installed = CONFIG_DIR / "plugins" / "installed_plugins.json"
+    if installed.is_file():
+        markets |= {k.partition("@")[2] for k in json.loads(installed.read_text()).get("plugins", {})
+                    if k.partition("@")[0] == plugin["name"]}
+    settings = rundir / "settings.json"
+    settings.write_text(json.dumps({"enabledPlugins": {f"{plugin['name']}@{m}": False for m in sorted(markets)}}))
+    return ["--plugin-dir", str(target), "--settings", str(settings)]
 
 
 def make_upstream(skill, ref, base, rundir, label):
-    """A bare stand-in for origin: `base` with the skill under test committed over it.
+    """A bare stand-in for origin: `base`, with the skill under test committed over it
+    unless it comes as a plugin.
 
     The fixture's local branch and its origin both point at that commit, so a worktree
     branched from either carries the version being measured. Built with plumbing in a
@@ -166,23 +218,25 @@ def make_upstream(skill, ref, base, rundir, label):
     if updates:
         subprocess.run(["git", "--git-dir", str(up), "update-ref", "--stdin"], input=updates,
                        text=True, check=True, capture_output=True)
-    stage = rundir / "stage"
-    stage.mkdir()
-    stage_version(skill, ref, stage)
-    env = {**os.environ, **AUTHOR, "GIT_INDEX_FILE": str(rundir / "stage.index")}
-    gw = ["--git-dir", str(up), "--work-tree", str(stage)]
     base_sha = git("rev-parse", "--verify", f"{base}^{{commit}}", cwd=skill["src"])
-    # From the stage: `rm --cached` looks for local changes relative to the cwd, and run
-    # from the source checkout it finds that checkout's own edit of the skill there.
-    git(*gw, "read-tree", base_sha, env=env, cwd=stage)
-    git(*gw, "rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", skill["rel"], env=env, cwd=stage)
-    git(*gw, "add", "-f", "--", skill["rel"], env=env, cwd=stage)
-    tree = git(*gw, "write-tree", env=env, cwd=stage)
-    commit = git(*gw, "commit-tree", tree, "-p", base_sha, "-m",
-                 f"skill-eval: {skill['name']} under test ({label})", env=env, cwd=stage)
+    commit = base_sha
+    if not skill["plugin"]:
+        stage = rundir / "stage"
+        stage.mkdir()
+        stage_version(skill["repo"], skill["rel"], ref, stage)
+        env = {**os.environ, **AUTHOR, "GIT_INDEX_FILE": str(rundir / "stage.index")}
+        gw = ["--git-dir", str(up), "--work-tree", str(stage)]
+        # From the stage: `rm --cached` looks for local changes relative to the cwd, and run
+        # from the source checkout it finds that checkout's own edit of the skill there.
+        git(*gw, "read-tree", base_sha, env=env, cwd=stage)
+        git(*gw, "rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", skill["rel"], env=env, cwd=stage)
+        git(*gw, "add", "-f", "--", skill["rel"], env=env, cwd=stage)
+        tree = git(*gw, "write-tree", env=env, cwd=stage)
+        commit = git(*gw, "commit-tree", tree, "-p", base_sha, "-m",
+                     f"skill-eval: {skill['name']} under test ({label})", env=env, cwd=stage)
+        shutil.rmtree(stage)
     git("--git-dir", str(up), "update-ref", f"refs/heads/{skill['branch']}", commit)
     git("--git-dir", str(up), "symbolic-ref", "HEAD", f"refs/heads/{skill['branch']}")
-    shutil.rmtree(stage)
     return up, commit, base_sha
 
 
@@ -293,13 +347,13 @@ def model_effort(case, opts):
             opts.effort or meta.get("effort") or DEFAULTS["effort"])
 
 
-def run_agent(case, opts, fixture, log, env):
+def run_agent(case, opts, fixture, log, env, args):
     meta = case["meta"]
     model, effort = model_effort(case, opts)
     cmd = [CLAUDE, "-p", case["prompt"], "--output-format", "stream-json", "--verbose",
            "--model", model, "--effort", effort,
            "--max-turns", str(meta.get("max_turns", DEFAULTS["max_turns"])),
-           "--permission-mode", "bypassPermissions", "--no-session-persistence"]
+           "--permission-mode", "bypassPermissions", "--no-session-persistence", *args]
     for d in opts.plugin_dir or ():
         cmd += ["--plugin-dir", d]
     timeout = meta.get("timeout_seconds", DEFAULTS["timeout_seconds"])
@@ -370,7 +424,7 @@ def one_run(job):
     log = rundir / "agent.jsonl"
     before = source_state(skill["src"])
     started = time.monotonic()
-    timed_out = None if "setup" in checks else run_agent(case, opts, fixture, log, env)
+    timed_out = None if "setup" in checks else run_agent(case, opts, fixture, log, env, ctx["agent_args"])
     seconds = round(time.monotonic() - started, 1)
     after = source_state(skill["src"])
     if not log.exists():
@@ -568,7 +622,7 @@ def cmd_setup(opts):
 
 
 def run_suite(opts, ref, label):
-    skill = resolve_skill(opts.skill)
+    skill = resolve_skill(opts.skill, opts.fixture)
     evals = skill["dir"] / "evals"
     cases = load_cases(evals, opts.case, opts.tag)
     if not opts.as_me:
@@ -582,7 +636,8 @@ def run_suite(opts, ref, label):
     upstream, commit, base_sha = make_upstream(skill, ref, opts.base or skill["base_ref"], rundir, label)
     version = ref or "working tree"
     ctx = {"skill": skill, "opts": opts, "evals": evals, "rundir": rundir, "upstream": upstream,
-           "commit": commit, "out": out}
+           "commit": commit, "out": out,
+           "agent_args": stage_plugin(skill, ref, rundir) if skill["plugin"] else []}
     jobs = [{"case": c, "i": i, "ctx": ctx}
             for c in cases for i in range(1, (opts.runs or c["meta"].get("runs") or DEFAULTS["runs"]) + 1)]
     print(f"{skill['name']} ({version}) on {skill['repo_name']}@{base_sha[:10]}: "
@@ -608,7 +663,7 @@ def cmd_run(opts):
 
 
 def cmd_ab(opts):
-    base_ref = opts.against or resolve_skill(opts.skill)["base_ref"]
+    base_ref = opts.against or resolve_skill(opts.skill)["repo_ref"]
     a = run_suite(opts, base_ref, "baseline")
     b = run_suite(opts, None, "candidate")
     worse = compare(a, b)
@@ -639,6 +694,8 @@ def main():
         s.add_argument("--effort", choices=EFFORTS,
                        help="override every case's effort (default: the case's, else medium)")
         s.add_argument("--concurrency", type=int, default=2)
+        s.add_argument("--fixture", help="a checkout to run a plugin skill in, at its default "
+                            "branch; the plugin is loaded from --ref or the working tree")
         s.add_argument("--base", help="commit the fixture starts from (default: origin/HEAD)")
         s.add_argument("--slow", action="store_true", help="also run the checks marked slow")
         s.add_argument("--keep", action="store_true", help="keep fixtures for inspection")

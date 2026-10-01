@@ -14,6 +14,7 @@ the checks it targets go up and nothing else goes down.
 E="${CLAUDE_PLUGIN_ROOT}/skills/skill-eval/scripts/skill-eval"
 "$E" ab <skill-dir>                    # the default branch's version vs your working tree, then compare
 "$E" run <skill-dir> [--ref <ref>]     # one version
+"$E" ab <skill-dir> --fixture <checkout>   # a plugin's skill, run in a product repo
 "$E" compare <results-a> <results-b>
 ```
 
@@ -104,3 +105,10 @@ F="${CLAUDE_PLUGIN_ROOT}/skills/skill-eval/scripts/field-report"
 The fixture is a `git clone --shared` of the repo at its default branch. Its origin carries
 the real remote branches, and the skill under test is committed on top. `evals/` is
 removed, so the agent never reads the answers.
+
+A skill a plugin ships runs in the product repos, not in the plugin's own. Give it
+`--fixture <checkout>`: the fixture clones that checkout with nothing committed over it,
+and the agent loads the whole plugin from your working tree, or from `--ref`, through
+`--plugin-dir`. The installed copy is disabled for the run, so the agent sees one copy of
+each skill. The suite stays in the skill's own `evals/`, and `EVAL_SOURCE` is the
+checkout.
