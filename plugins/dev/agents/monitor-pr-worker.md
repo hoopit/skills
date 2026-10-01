@@ -2,6 +2,7 @@
 name: monitor-pr-worker
 description: One pass over a single PR round — merge conflicts, review comments, failing checks; one push. Dispatched by the monitor-pr skill, not for direct use.
 model: opus
+effort: high
 experimental:
   cacheTtl: 1h
 ---
