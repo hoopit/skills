@@ -1554,16 +1554,21 @@ def test_agent_states_styles_and_ranks_agree():
     assert m.AGENT_STATES == AGENT_STATES == list(m.AGENT_STYLE) and set(m.AGENT_RANK) == set(AGENT_STATES)
 
 
-def test_an_unbound_session_costs_a_lookup_and_a_reap_at_start():
+def test_an_unbound_session_costs_a_lookup_until_there_is_a_session_to_reap():
     m = agent_module()
-    for name, kw in (("UserPromptSubmit", {"prompt": "hi"}), ("PreToolUse", ASK),
-                     ("Stop", {"background_tasks": []}), ("SessionEnd", {"reason": "other"})):
+    state = pathlib.Path(m.agents_dir(create=False))
+    for name, kw in (("SessionStart", {"source": "startup"}), ("UserPromptSubmit", {"prompt": "hi"}),
+                     ("PreToolUse", ASK), ("Stop", {"background_tasks": []}),
+                     ("SessionEnd", {"reason": "other"})):
         assert hook(m, "nobody", name, **kw) is None
-    assert m.spawned == [] and m.sessions_load() == []
-    # A starting session is the clock that reaps the dead, bound or not.
+    # Nothing ever bound — no config, say — leaves no trace and starts no process.
+    assert m.spawned == [] and not state.exists(), (m.spawned, state)
+    bound(m, "other")
+    m.spawned.clear()
+    # Once a record exists, a starting session is the clock that reaps the dead, bound or not.
     hook(m, "nobody", "SessionStart", source="startup")
     assert m.spawned == [1], m.spawned
-    print("  no record made, no sync spawned, except the reap a session start buys")
+    print("  no directory and no sync until something is bound; then a start reaps")
 
 
 def test_a_question_answered_in_chat_stays_yours_until_you_type():

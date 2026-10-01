@@ -1201,12 +1201,14 @@ AGENT_FIELDS_QUERY = """query($id:ID!){ node(id:$id){ ... on ProjectV2{ fields(f
   ... on ProjectV2SingleSelectField{ options{ id name } } } } } } }"""
 
 
-def agents_dir(*parts):
+def agents_dir(*parts, create=True):
     """Where the session files live: per machine, beside nothing the config names, since a
-    session's process is only ever visible from the machine it runs on."""
+    session's process is only ever visible from the machine it runs on. A hook looks with
+    `create` off, so a machine where nothing was ever bound keeps no directory at all."""
     base = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
     d = os.path.join(base, "github-tracker", "agents")
-    os.makedirs(os.path.join(d, "sessions"), exist_ok=True)
+    if create:
+        os.makedirs(os.path.join(d, "sessions"), exist_ok=True)
     return os.path.join(d, *parts)
 
 
@@ -1231,13 +1233,23 @@ def agents_log(name, text):
             fh.write(f"{datetime.now().isoformat(timespec='seconds')} {text}\n")
 
 
-def session_file(sid):
+def session_file(sid, create=True):
     """The record's path, or None for an id that is not one — a hook payload is input."""
-    return agents_dir("sessions", f"{sid}.json") if re.fullmatch(r"[\w-]{1,80}", sid or "") else None
+    if not re.fullmatch(r"[\w-]{1,80}", sid or ""):
+        return None
+    return agents_dir("sessions", f"{sid}.json", create=create)
+
+
+def any_session():
+    """Whether any session record exists to reap — never creating the directory to ask."""
+    try:
+        return any(n.endswith(".json") for n in os.listdir(agents_dir("sessions", create=False)))
+    except OSError:
+        return False
 
 
 def session_load(sid):
-    path = session_file(sid)
+    path = session_file(sid, create=False)
     try:
         with open(path) as fh:
             return json.load(fh)
@@ -1254,7 +1266,11 @@ def session_save(s):
 
 def sessions_load():
     out = []
-    for name in sorted(os.listdir(agents_dir("sessions"))):
+    try:
+        names = sorted(os.listdir(agents_dir("sessions", create=False)))
+    except OSError:
+        return out
+    for name in names:
         if name.endswith(".json"):
             s = session_load(name[:-5])
             if s:
@@ -1401,7 +1417,7 @@ def agent_hook(ev):
         # A subagent's tool call, or an internal agent stopping: the session's own state is
         # the main agent's.
         return
-    path, changed = session_file(ev.get("session_id") or ""), False
+    path, changed = session_file(ev.get("session_id") or "", create=False), False
     if path and os.path.exists(path):
         with agents_lock():
             s = session_load(ev["session_id"])
@@ -1413,8 +1429,9 @@ def agent_hook(ev):
                 session_save(s)
                 changed = (s["state"], s["note"]) != before
     # A starting session is the cheapest clock there is for noticing one that died: the sync
-    # reaps every session whose process is gone, and touches GitHub only if one is.
-    if changed or ev.get("hook_event_name") == "SessionStart":
+    # reaps every session whose process is gone, and touches GitHub only if one is. With no
+    # record anywhere — nothing ever bound, or no config to bind with — there is nothing to reap.
+    if changed or (ev.get("hook_event_name") == "SessionStart" and any_session()):
         spawn_sync()
 
 
@@ -1422,8 +1439,8 @@ def cmd_agent_hook(a):
     """`hooks/hooks.json`'s entry point: one hook event on stdin. Prints nothing and exits 0
     whatever happens — on UserPromptSubmit and SessionStart a hook's stdout lands in the
     agent's context, and a non-zero exit shows as an error in the session. For a session no
-    `start` or `bind` tied to an item, an event costs one file lookup, and its SessionStart
-    a detached reaping sync besides. Failures go to `hook.log`."""
+    `start` or `bind` tied to an item, an event costs one file lookup, and its SessionStart a
+    detached reaping sync besides while any record exists. Failures go to `hook.log`."""
     try:
         agent_hook(json.load(sys.stdin))
     except Exception as e:
