@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Bring hoopit-dev@hoopit-skills to the marketplace's latest version in every Hoopit
-# product checkout on this machine.
+# Bring each of PLUGINS to its marketplace's latest version in every Hoopit product
+# checkout on this machine, installing it at project scope where a checkout has none.
 #
 # Usage: update-plugins.sh [checkout-dir ...]
 #
@@ -8,22 +8,23 @@
 # installed_plugins.json, and the siblings of each of those. A directory counts when its
 # origin remote is hoopit/<repo> for one of REPOS and it is a main worktree (linked
 # worktrees are skipped). Prints one line per checkout:
-#   RESULT <repo> <dir> <updated|current|installed|stale|failed> <old> -> <new>
+#   RESULT <plugin> <repo> <dir> <updated|current|installed|stale|failed> <old> -> <new>
 # `stale` means the CLI reported success but this checkout's own record is not at <new>;
 # the records at fault are listed beneath it.
 # then a final `MISSING <repo>` for each product repo with no checkout found.
 set -uo pipefail
 
-PLUGIN="hoopit-dev@hoopit-skills"
-MARKETPLACE="hoopit-skills"
+PLUGINS=(hoopit-dev@hoopit-skills mattpocock-skills@claude-plugins-official)
 REPOS=(api web-admin flutter-app public-calendar)
 INSTALLED="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/installed_plugins.json"
 export MISE_QUIET=1
 
 command -v jq >/dev/null || { echo "jq is required" >&2; exit 2; }
 
-echo "Refreshing marketplace $MARKETPLACE..."
-claude plugin marketplace update "$MARKETPLACE" >/dev/null || { echo "marketplace update failed" >&2; exit 1; }
+for m in $(printf '%s\n' "${PLUGINS[@]#*@}" | sort -u); do
+  echo "Refreshing marketplace $m..."
+  claude plugin marketplace update "$m" >/dev/null || { echo "marketplace update failed: $m" >&2; exit 1; }
+done
 
 candidates=("$@")
 if [[ -f "$INSTALLED" ]]; then
@@ -63,37 +64,39 @@ fi
 
 while IFS= read -r dir; do
   repo=${found[$dir]}
-  if jq -e --arg d "$(native "$dir")" --arg p "$PLUGIN" \
-       "def norm: $PATH_NORM;
-        .plugins[\$p] // [] | any(.scope == \"project\" and (.projectPath | norm) == (\$d | norm))" \
-       "$INSTALLED" >/dev/null 2>&1; then
-    out=$(cd "$dir" && claude plugin update "$PLUGIN" --scope project --json 2>&1)
-  else
-    out=$(cd "$dir" && claude plugin install "$PLUGIN" --scope project --json 2>&1)
-  fi
-  line=$(grep -m1 '^{' <<<"$out")
-  if [[ -n "$line" ]] && jq -e '.outcome == "ok"' <<<"$line" >/dev/null 2>&1; then
-    status=$(jq -r 'if .command == "install" then "installed"
-                    elif .updateOutcome == "updated" then "updated" else "current" end' <<<"$line")
-    old=$(jq -r '.oldVersion // "-"' <<<"$line")
-    new=$(jq -r '.newVersion // .version // "-"' <<<"$line")
-    # The CLI can write a different record than this checkout's: a nested worktree's,
-    # or one of several records whose paths differ only in case.
-    stale=$(jq -r --arg d "$(native "$dir")" --arg p "$PLUGIN" --arg v "$new" \
-      "def norm: $PATH_NORM;
-       .plugins[\$p] // [] | map(select(.scope == \"project\" and (.projectPath | norm) == (\$d | norm)))
-       | if length == 0 then [\"(no record)\"] else map(select(.version != \$v) | \"\(.projectPath) \(.version)\") end
-       | .[]" "$INSTALLED" 2>&1)
-    if [[ "$new" != "-" && -n "$stale" ]]; then
-      echo "RESULT $repo $dir stale $old -> $new"
-      sed 's/^/  /' <<<"$stale"
+  for plugin in "${PLUGINS[@]}"; do
+    if jq -e --arg d "$(native "$dir")" --arg p "$plugin" \
+         "def norm: $PATH_NORM;
+          .plugins[\$p] // [] | any(.scope == \"project\" and (.projectPath | norm) == (\$d | norm))" \
+         "$INSTALLED" >/dev/null 2>&1; then
+      out=$(cd "$dir" && claude plugin update "$plugin" --scope project --json 2>&1)
     else
-      echo "RESULT $repo $dir $status $old -> $new"
+      out=$(cd "$dir" && claude plugin install "$plugin" --scope project --json 2>&1)
     fi
-  else
-    echo "RESULT $repo $dir failed - -> -"
-    sed 's/^/  /' <<<"$out"
-  fi
+    line=$(grep -m1 '^{' <<<"$out")
+    if [[ -n "$line" ]] && jq -e '.outcome == "ok"' <<<"$line" >/dev/null 2>&1; then
+      status=$(jq -r 'if .command == "install" then "installed"
+                      elif .updateOutcome == "updated" then "updated" else "current" end' <<<"$line")
+      old=$(jq -r '.oldVersion // "-"' <<<"$line")
+      new=$(jq -r '.newVersion // .version // "-"' <<<"$line")
+      # The CLI can write a different record than this checkout's: a nested worktree's,
+      # or one of several records whose paths differ only in case.
+      stale=$(jq -r --arg d "$(native "$dir")" --arg p "$plugin" --arg v "$new" \
+        "def norm: $PATH_NORM;
+         .plugins[\$p] // [] | map(select(.scope == \"project\" and (.projectPath | norm) == (\$d | norm)))
+         | if length == 0 then [\"(no record)\"] else map(select(.version != \$v) | \"\(.projectPath) \(.version)\") end
+         | .[]" "$INSTALLED" 2>&1)
+      if [[ "$new" != "-" && -n "$stale" ]]; then
+        echo "RESULT $plugin $repo $dir stale $old -> $new"
+        sed 's/^/  /' <<<"$stale"
+      else
+        echo "RESULT $plugin $repo $dir $status $old -> $new"
+      fi
+    else
+      echo "RESULT $plugin $repo $dir failed - -> -"
+      sed 's/^/  /' <<<"$out"
+    fi
+  done
 done < <(for d in "${!found[@]}"; do printf '%s\n' "$d"; done | sort)
 
 for r in "${REPOS[@]}"; do
