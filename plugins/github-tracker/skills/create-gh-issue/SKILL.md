@@ -62,7 +62,8 @@ mechanical half.
 Read every plausible match before creating anything — `gh api
 repos/<repo>/issues/<n> --jq '{number, title, state, body}'`, which is REST where
 `gh issue view` would be GraphQL. The step ends with a covering issue named, or
-with none found.
+with none found — and, where the new issue is a piece of a larger one, with that
+parent named too (step 4).
 
 ## 3. Write it
 
@@ -118,15 +119,46 @@ gh issue create --repo <repo> --assignee @me --type <Type> \
 | `Bug` | An unexpected problem or behaviour. Something is broken. |
 | `Feature` | A request, an idea, new functionality. |
 | `Task` | Default. A specific piece of work that is neither of the above — a refactor, a chore, a cleanup, a spike. |
-| `Follow-up` | **Operational** work a **parent** leaves behind: a verification, logs to read once it is live, a measurement, an existing script or repair command to run. |
+| `Follow-up` | **Operational** work an **earlier issue** leaves behind: a verification, logs to read once it is live, a measurement, an existing script or repair command to run. |
 
 Type on the **deliverable**. A diff is a `Bug`, `Feature` or `Task`, whatever it waits
-on — a shim to drop, a flag to remove, a migration once the parent merges, a repair
+on — a shim to drop, a flag to remove, a migration once the earlier issue merges, a repair
 command still to write. An answer or an operational action is a `Follow-up`. The wait
-itself rides on a `blockedBy` link to the parent issue or a `Gate: deployed` line
+itself rides on a `blockedBy` link to the earlier issue or a `Gate: deployed` line
 (step 5), which leaves the type free to say what the work is. An epic is being
 decomposed rather than shipped, so its rows are typed on their own merits too. Name the
-parent in the body either way (`follows hoopit/api#412`): a cross-reference is not a type.
+issue it follows in the body either way (`follows hoopit/api#412`): a cross-reference is
+not a type.
+
+**Parent** — attach the issue as a GitHub sub-issue only where the other issue is the
+**whole** and this one a **piece** of it: the parent is not done until this is, and
+closing every sub-issue finishes it. That fits an `XL` split into PR-sized issues, an epic's
+rows, and one change carried across repos (the api, web-admin and app halves under one
+umbrella — a sub-issue may live in another repo of the org).
+
+Everything else stays a link, because a parent claims scope:
+
+| Relation | Link |
+|---|---|
+| Must wait for another to close | `blockedBy` (step 5) |
+| Must wait for a deploy | `Gate: deployed` (step 5) |
+| Left behind by an issue that closes at its merge | `follows <repo>#<n>` in the body — that issue's scope ended at its merge |
+| Turned up by a run dispatched for something else | `found while working on <repo>#<n>` in the body — a finding is outside the run's scope |
+| Same area, similar symptom | a cross-reference in the body |
+
+A follow-up and its origin can still share a parent, where both are pieces of one larger
+whole. An issue has at most one parent; read it first, and leave one already set unless it
+is plainly wrong:
+
+```bash
+gh api repos/<repo>/issues/<n> --jq '.parent_issue_url'
+gh api -X POST repos/<parent-repo>/issues/<parent>/sub_issues \
+  -F sub_issue_id="$(gh api repos/<repo>/issues/<n> --jq .id)"
+```
+
+`sub_issue_id` is the issue's REST `id`, not its number. GitHub shows the parent on the
+issue, so the body does not repeat it. The PR that delivers a piece says `closes` the
+piece, never the parent, and the parent closes with its last piece.
 
 ## 5. Set Priority, Effort and Autonomy
 
@@ -179,7 +211,7 @@ dispatched to do something else. That it would otherwise be lost is what makes i
 | `S` | An hour or two. One file, no design decisions. |
 | `M` | Default for a real change. A few files, a test, some thinking. |
 | `L` | Multi-day, or cross-cutting enough that the approach needs deciding first. |
-| `XL` | Too big for one PR — say so, and offer to split it. |
+| `XL` | Too big for one PR — say so, and offer to split it into sub-issues (step 4). |
 
 Price the hunt along with the fix: where a backlog daemon runs with a dispatch ladder
 configured, the `dispatch-ladder` skill maps Effort to the model and reasoning effort
@@ -270,8 +302,8 @@ invisible, so a gate that has fallen due costs nothing to leave behind.
 
 ## 6. Report
 
-The issue URL, the Type, the Priority, the Effort, the Autonomy and the Status — and
-the date, where you set one, with what happens on it — so a wrong call is one glance
+The issue URL, the Type, the Priority, the Effort, the Autonomy and the Status — the
+parent, where you attached one, and the date, where you set one, with what happens on it — so a wrong call is one glance
 from being corrected.
 
 ## Maintaining `hoopit-board`
