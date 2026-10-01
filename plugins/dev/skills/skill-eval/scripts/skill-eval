@@ -160,12 +160,14 @@ def make_upstream(skill, ref, base, rundir, label):
     env = {**os.environ, **AUTHOR, "GIT_INDEX_FILE": str(rundir / "stage.index")}
     gw = ["--git-dir", str(up), "--work-tree", str(stage)]
     base_sha = git("rev-parse", "--verify", f"{base}^{{commit}}", cwd=skill["src"])
-    git(*gw, "read-tree", base_sha, env=env)
-    git(*gw, "rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", skill["rel"], env=env)
-    git(*gw, "add", "-f", "--", skill["rel"], env=env)
-    tree = git(*gw, "write-tree", env=env)
+    # From the stage: `rm --cached` looks for local changes relative to the cwd, and run
+    # from the source checkout it finds that checkout's own edit of the skill there.
+    git(*gw, "read-tree", base_sha, env=env, cwd=stage)
+    git(*gw, "rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", skill["rel"], env=env, cwd=stage)
+    git(*gw, "add", "-f", "--", skill["rel"], env=env, cwd=stage)
+    tree = git(*gw, "write-tree", env=env, cwd=stage)
     commit = git(*gw, "commit-tree", tree, "-p", base_sha, "-m",
-                 f"skill-eval: {skill['name']} under test ({label})", env=env)
+                 f"skill-eval: {skill['name']} under test ({label})", env=env, cwd=stage)
     git("--git-dir", str(up), "update-ref", f"refs/heads/{skill['branch']}", commit)
     git("--git-dir", str(up), "symbolic-ref", "HEAD", f"refs/heads/{skill['branch']}")
     shutil.rmtree(stage)

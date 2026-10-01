@@ -139,7 +139,7 @@ def build(tmp):
     return src, skill
 
 
-def run(tmp, *args):
+def run(tmp, *args, cwd=None):
     fake = tmp / "claude"
     write(fake, FAKE_CLAUDE, 0o755)
     # What `setup` leaves behind: the template every run's own config is cut from.
@@ -151,7 +151,7 @@ def run(tmp, *args):
     env = {**os.environ, "SKILL_EVAL_HOME": str(tmp / "home"), "SKILL_EVAL_CLAUDE": str(fake),
            "CLAUDE_CODE_OAUTH_TOKEN": "fake-token", "GH_TOKEN": "secret-must-not-leak",
            "GIT_INDEX_FILE": ".git/index"}
-    return subprocess.run([sys.executable, str(SCRIPT), *args], env=env, capture_output=True, text=True)
+    return subprocess.run([sys.executable, str(SCRIPT), *args], env=env, cwd=cwd, capture_output=True, text=True)
 
 
 def runs(out):
@@ -232,16 +232,27 @@ def main():
         expect(summary["cases"]["creates"]["checks"]["worktree"] == {"pass": 2, "scored": 2, "reasons": []},
                "the summary counts passes per check")
 
+        # Run from inside the source checkout, as `ab` is: its files must not stand in for the ref's.
         base = tmp / "base"
-        p = run(tmp, "run", str(skill), "--ref", "HEAD", "--case", "creates", "--runs", "2", "--out", str(base))
+        p = run(tmp, "run", str(skill), "--ref", "HEAD", "--case", "creates", "--runs", "2", "--out", str(base), cwd=src)
         rb = runs(base)
-        expect(rb[("creates", 1)]["version"]["status"] == "FAIL", "--ref HEAD measures the committed SKILL.md")
+        expect(rb.get(("creates", 1), {}).get("version", {}).get("status") == "FAIL",
+               f"--ref HEAD measures the committed SKILL.md (got {p.stderr[-300:]})")
 
         p = run(tmp, "compare", str(base), str(out))
         expect("▲ 0/2 → 2/2  version" in p.stdout, f"compare marks a two-run improvement (got:\n{p.stdout})")
         expect(p.returncode == 0, "compare exits 0 when nothing got worse")
         p = run(tmp, "compare", str(out), str(base))
         expect("▼ 2/2 → 0/2  version" in p.stdout and p.returncode == 1, "compare marks a regression and exits 1")
+
+        # A branch about to get a PR has committed its edit, so the baseline's base trails HEAD.
+        sh("git", "add", "-A", cwd=src)
+        sh("git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "edit", cwd=src)
+        p = run(tmp, "run", str(skill), "--ref", "HEAD~1", "--base", "HEAD~1", "--case", "creates",
+                "--runs", "1", "--out", str(tmp / "committed"), cwd=src)
+        got = runs(tmp / "committed").get(("creates", 1), {})
+        expect(got.get("version", {}).get("status") == "FAIL" and got.get("agent_finished", {}).get("status") == "PASS",
+               f"--ref runs from a branch that commits a skill edit (got {p.stderr[-300:]})")
 
         left = [d for d in (tmp / "home").iterdir() if d.name not in ("results", "claude-config")]
         expect(not left, f"fixtures are removed after the run (left: {left})")
