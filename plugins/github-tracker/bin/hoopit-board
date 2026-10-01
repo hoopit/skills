@@ -140,10 +140,12 @@ STATUS_STYLE = {"Backlog": ("GREEN", "This item hasn't been started"),
                 "Done": ("ORANGE", "This has been completed")}
 # The board's built-in workflows this script leans on, each with the Status it must set:
 # `triage` and `ready` expect the add-workflow's Backlog (see `make_ready`), a closed issue
-# has to leave flight, and a linked PR is what moves work into review. No API enables a
-# workflow or reads which Status it sets, so these are checked for `enabled` only.
+# has to leave flight, a linked PR is what moves work into review, and a reopened issue
+# must leave Done — every view and dispatch reads Status — and come back for triage
+# rather than be redispatched unasked. No API enables a workflow or reads which Status it
+# sets, so these are checked for `enabled` only.
 REQUIRED_WORKFLOWS = (("Item added to project", "Backlog"), ("Item closed", "Done"),
-                      ("Pull request linked to issue", "In review"))
+                      ("Pull request linked to issue", "In review"), ("Item reopened", "Backlog"))
 CONFIG_ENV = "HOOPIT_BOARD_CONFIG"
 REPO_NAME = re.compile(r"[\w.-]+/[\w.-]+")
 

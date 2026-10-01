@@ -114,6 +114,7 @@ Then re-run the dry run and work every `MANUAL` line:
   - *Item added to project* → `Backlog`
   - *Item closed* → `Done`
   - *Pull request linked to issue* → `In review`
+  - *Item reopened* → `Backlog`
 
   Where the org has a template board, its workflows page is the reference for every other
   rule worth copying by hand. Wait for the developer to say it is done, then run the dry

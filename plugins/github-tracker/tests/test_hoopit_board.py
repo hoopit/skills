@@ -1028,7 +1028,8 @@ def test_init_refuses_a_bad_repo_or_ladder_before_writing():
     assert not os.path.exists(path), "wrote a config around a broken ladder"
 
 
-REQUIRED_WORKFLOWS = ["Item added to project", "Item closed", "Pull request linked to issue"]
+REQUIRED_WORKFLOWS = ["Item added to project", "Item closed", "Pull request linked to issue",
+                      "Item reopened"]
 
 
 def status(name, oid=None, color="GRAY", description=""):
