@@ -422,6 +422,28 @@ def main():
         got = runs(tmp / "committed").get(("creates", 1), {})
         expect(got.get("version", {}).get("status") == "FAIL" and got.get("agent_finished", {}).get("status") == "PASS",
                f"--ref runs from a branch that commits a skill edit (got {p.stderr[-300:]})")
+        # The candidate half: the committed edit is the working tree, and HEAD is no longer the base.
+        p = run(tmp, "run", str(skill), "--base", "HEAD~1", "--case", "creates", "--runs", "1",
+                "--out", str(tmp / "committed-wt"), cwd=src)
+        got = runs(tmp / "committed-wt").get(("creates", 1), {})
+        expect(got.get("version", {}).get("status") == "PASS" and got.get("agent_finished", {}).get("status") == "PASS",
+               f"a working-tree run from a branch that commits a skill edit (got {p.stderr[-300:]})")
+        p = run(tmp, "ab", str(skill), "--against", "HEAD~1", "--base", "HEAD~1", "--case", "creates",
+                "--runs", "2", cwd=src)
+        expect(p.returncode == 0 and "▲ 0/2 → 2/2  version" in p.stdout,
+               f"ab runs and compares both halves of a committed skill edit (got {p.returncode}: {p.stderr[-300:]})")
+        # A half that dies must not pass for a comparison: only the candidate reads the working tree.
+        write(skill / "unreadable", "x")
+        (skill / "unreadable").chmod(0)
+        p = run(tmp, "ab", str(skill), "--against", "HEAD~1", "--base", "HEAD~1", "--case", "creates",
+                "--runs", "1", cwd=src)
+        (skill / "unreadable").unlink()
+        expect(p.returncode != 0 and "the candidate half failed, so nothing was compared" in p.stderr
+               and "baseline's results are in" in p.stderr and "A = baseline" not in p.stdout,
+               f"ab exits non-zero and names the half that died (got {p.returncode}: {p.stderr[-300:]})")
+        p = run(tmp, "ab", str(skill), "--against", "no-such-ref", "--case", "creates", "--runs", "1", cwd=src)
+        expect(p.returncode != 0 and "the baseline half failed" in p.stderr and "candidate" not in p.stdout,
+               f"a baseline that dies stops ab before the candidate (got {p.returncode}: {p.stderr[-300:]})")
 
         product, pskill = build_plugin(tmp)
         pout = tmp / "plugin-cand"

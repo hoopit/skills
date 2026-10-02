@@ -32,7 +32,7 @@ Each shim records its calls for the checks to grade, and fails unless the case's
 answers it.
 """
 import argparse, concurrent.futures, datetime, fnmatch, json, os, pathlib, re, shutil
-import signal, statistics, subprocess, sys, tarfile, tempfile, time
+import signal, statistics, subprocess, sys, tarfile, tempfile, time, traceback
 
 XDG_CACHE = pathlib.Path(os.environ.get("XDG_CACHE_HOME") or pathlib.Path.home() / ".cache")
 XDG_CONFIG = pathlib.Path(os.environ.get("XDG_CONFIG_HOME") or pathlib.Path.home() / ".config")
@@ -232,10 +232,12 @@ def make_upstream(skill, ref, base, rundir, label):
         stage_version(skill["repo"], skill["rel"], ref, stage)
         env = {**os.environ, **AUTHOR, "GIT_INDEX_FILE": str(rundir / "stage.index")}
         gw = ["--git-dir", str(up), "--work-tree", str(stage)]
-        # From the stage: `rm --cached` looks for local changes relative to the cwd, and run
-        # from the source checkout it finds that checkout's own edit of the skill there.
+        # The index is scratch, so `rm` takes -f: without it, it refuses whenever the stage,
+        # the base and the clone's HEAD (the source's branch) disagree, as they do once that
+        # branch commits an edit of the skill. From the stage, so no path resolves against
+        # the source checkout's own files.
         git(*gw, "read-tree", base_sha, env=env, cwd=stage)
-        git(*gw, "rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", skill["rel"], env=env, cwd=stage)
+        git(*gw, "rm", "-r", "-q", "-f", "--cached", "--ignore-unmatch", "--", skill["rel"], env=env, cwd=stage)
         git(*gw, "add", "-f", "--", skill["rel"], env=env, cwd=stage)
         tree = git(*gw, "write-tree", env=env, cwd=stage)
         commit = git(*gw, "commit-tree", tree, "-p", base_sha, "-m",
@@ -676,8 +678,13 @@ def run_suite(opts, ref, label):
     rundir = pathlib.Path(tempfile.mkdtemp(prefix=f"{skill['name']}-{label}-", dir=HOME))
     out = pathlib.Path(opts.out) if opts.out else \
         HOME / "results" / skill["repo_name"] / skill["name"] / f"{started}-{label}"
+    try:
+        upstream, commit, base_sha = make_upstream(skill, ref, opts.base or skill["base_ref"], rundir, label)
+    except BaseException:
+        if not opts.keep:
+            shutil.rmtree(rundir, ignore_errors=True)
+        raise
     out.mkdir(parents=True, exist_ok=True)
-    upstream, commit, base_sha = make_upstream(skill, ref, opts.base or skill["base_ref"], rundir, label)
     version = ref or "working tree"
     ctx = {"skill": skill, "opts": opts, "evals": evals, "rundir": rundir, "upstream": upstream,
            "commit": commit, "out": out,
@@ -706,10 +713,21 @@ def cmd_run(opts):
     return 0 if all(c["passed"] == c["runs"] for c in s["cases"].values()) else 1
 
 
+def half(opts, ref, label, kept=None):
+    """One half of `ab`: a half that dies says so, so that nobody reads one set as a comparison."""
+    try:
+        return run_suite(opts, ref, label)
+    except (SystemExit, Exception) as e:
+        why = traceback.format_exc().strip() if isinstance(e, Exception) else \
+            e.code if isinstance(e.code, str) else f"exit {e.code}"
+        sys.exit(f"{why}\n\nab: the {label} half failed, so nothing was compared"
+                 + (f"; the baseline's results are in {kept}" if kept else ""))
+
+
 def cmd_ab(opts):
     base_ref = opts.against or resolve_skill(opts.skill)["repo_ref"]
-    a = run_suite(opts, base_ref, "baseline")
-    b = run_suite(opts, None, "candidate")
+    a = half(opts, base_ref, "baseline")
+    b = half(opts, None, "candidate", a["results"])
     worse = compare(a, b)
     return 1 if worse else 0
 
