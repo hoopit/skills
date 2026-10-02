@@ -1,0 +1,16 @@
+diff --git a/chall/tasks.py b/chall/tasks.py
+--- a/chall/tasks.py
++++ b/chall/tasks.py
+@@ -412,8 +412,10 @@
+     LOGGER.warning("Deleting Chall space %s and its content: group %s was hard-deleted.", chall_space_id, group_id)
+     try:
+         get_chall_client().delete_space(chall_space_id)
+-    except ChallNotFound:
+-        LOGGER.info("Chall space %s was already gone.", chall_space_id)
++    except ChallError as e:
++        # A space that is gone (404) or no longer ours (403, moved to another partner) is not
++        # ours to delete; retrying it only burns the retry budget.
++        LOGGER.info("Chall space %s is not ours to delete (%s); leaving it.", chall_space_id, e.status_code)
+ 
+ 
+ def nudge_club(group: OrganizationGroup, *, immediate: bool = False, urgent: bool = False) -> None:

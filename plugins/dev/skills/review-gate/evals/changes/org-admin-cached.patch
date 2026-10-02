@@ -1,0 +1,19 @@
+diff --git a/payments/web/views/organization_bank_account_list_view.py b/payments/web/views/organization_bank_account_list_view.py
+--- a/payments/web/views/organization_bank_account_list_view.py
++++ b/payments/web/views/organization_bank_account_list_view.py
+@@ -20,6 +20,7 @@
+ from rest_framework import serializers
+ from rest_framework import status
+ 
++from club_united_api.decorators import cached_method
+ from club_united_api.decorators import http
+ from club_united_api.serializers.base_serializers import BaseSerializer
+ from club_united_api.serializers.fields import BoolField
+@@ -290,6 +291,7 @@
+             .order_by("has_incomplete_setup_order", "name")
+         )
+ 
++    @cached_method
+     def _is_org_admin(self) -> bool:
+         # Org (root) admins see every account and its balance; anyone below the root is
+         # narrowed in get_queryset and never sees the account-level balance.

@@ -1,0 +1,6 @@
+The refactor routes the export's balance gate through the new helper, but the helper is reached before the view has resolved its permission object on the export path, so org admins lose the export.
+
+Review comment:
+
+- [P1] Export crashes for org admins: `resource_class` resolves before the permission object — /payments/web/views/organization_bank_account_list_view.py:128-129
+  `resource_class` is read by `ModelResourceExportViewMixin` while it builds the export, before `check_permissions` has run and before `get_permission_object()` has cached the group. `_is_org_admin` now calls `self.get_permission_object()` from that property, which raises `AttributeError: 'OrganizationBankAccountListView' object has no attribute '_permission_object'` on that path, so every xlsx export from the bank account list returns a 500. Resolve the group inside the export action instead, or keep the balance flag out of `resource_class`.
