@@ -27,7 +27,8 @@ The agent runs under a dedicated config dir with its own OAuth token (`setup`), 
 your own `~/.claude`: your CLAUDE.md, memory, plugins and hooks would otherwise move the
 score. `gh`, `hoopit-board`, `acli`, `linear-gql` and `herdr` are shimmed and the fixture's
 push URL is dead, because a ship-style prompt would otherwise write to the real tracker,
-remote and tabs.
+remote and tabs. The built-in tools that reach past the run — `PushNotification`,
+`SendMessage`, `RemoteTrigger`, `CronCreate` and their kin — are denied.
 Each shim records its calls for the checks to grade, and fails unless the case's `mocks/`
 answers it.
 """
@@ -44,6 +45,11 @@ TOKEN_FILE = XDG_CONFIG / "skill-eval" / "oauth-token"
 CLAUDE = os.environ.get("SKILL_EVAL_CLAUDE", "claude")
 # herdr too: with HERDR_* scrubbed it still finds the real server on its default socket.
 SHIMMED = ("gh", "hoopit-board", "acli", "linear-gql", "herdr")
+# Built-in tools that act outside the run: a notification on your phone, a message to
+# another session, work scheduled to outlive the run. Denied, they leave the agent's
+# tool list: an attempt shows in the log as a `ToolSearch` that matches nothing.
+DENIED_TOOLS = ("PushNotification", "SendUserFile", "SendMessage", "RemoteTrigger",
+                "CronCreate", "CronDelete", "ScheduleWakeup")
 # Credentials the agent must not inherit: a ship-style prompt reaches for the tracker.
 SCRUBBED = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "LINEAR_API_KEY",
             "JIRA_API_TOKEN", "ATLASSIAN_API_TOKEN", "SENTRY_AUTH_TOKEN")
@@ -395,6 +401,7 @@ def run_agent(case, opts, cwd, log, env, args):
     cmd = [CLAUDE, "-p", case["prompt"], "--output-format", "stream-json", "--verbose",
            "--model", model, "--effort", effort,
            "--max-turns", str(meta.get("max_turns", DEFAULTS["max_turns"])),
+           "--disallowedTools", ",".join(DENIED_TOOLS),
            "--permission-mode", "bypassPermissions", "--no-session-persistence", *args]
     for d in opts.plugin_dir or ():
         cmd += ["--plugin-dir", d]

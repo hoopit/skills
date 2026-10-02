@@ -85,7 +85,8 @@ F="${CLAUDE_PLUGIN_ROOT}/skills/skill-eval/scripts/field-report"
 - **The prompt carries everything.** Paste in what the agent would fetch, such as the issue
   text, and say where to stop. A fixture has no tracker access: `gh`, `hoopit-board`, `acli`
   and `linear-gql` are shims, and the push URL is dead. So is `herdr`, which would otherwise
-  reach your real tabs.
+  reach your real tabs. `PushNotification`, `SendMessage`, `RemoteTrigger`, `CronCreate` and
+  their kin are denied, so the agent cannot ping you or start work that outlives the run.
 - **Shims record, mocks answer.** Every shim call lands in `EVAL_CALLS`, one JSON line of
   `tool`, `argv`, `stdin` and `cwd`. Without `mocks/` every call fails. With it, a call
   answers from the first entry in `mocks/<tool>.json` whose `match` regex finds the

@@ -49,6 +49,13 @@ SUITE_CHECK = textwrap.dedent('''\
     if [ "$(git rev-parse origin/master)" = "$EVAL_BASE" ]; then echo "PASS origin_is_base"
     else echo "FAIL origin_is_base"; fi
     if [ "$EVAL_SLOW" = 1 ]; then echo "PASS slow_smoke"; else echo "SKIP slow_smoke not asked"; fi
+    denied=$(python3 -c 'import json, sys
+    init = next(e for e in map(json.loads, open(sys.argv[1])) if e.get("subtype") == "init")
+    print(init["argv"][init["argv"].index("--disallowedTools") + 1])' "$EVAL_LOG" 2>&1)
+    missing=$(for t in PushNotification SendUserFile SendMessage RemoteTrigger CronCreate ScheduleWakeup; do
+        [[ ",$denied," == *",$t,"* ]] || printf "%s " "$t"; done)
+    if [ -z "$missing" ]; then echo "PASS outside_tools_denied"
+    else echo "FAIL outside_tools_denied not denied: $missing (got $denied)"; fi
 ''')
 
 
@@ -306,6 +313,8 @@ def main():
         expect(c["evals_hidden"]["status"] == "PASS", "the fixture has no evals/ for the agent to read")
         expect(c["origin_is_base"]["status"] == "PASS", "origin and the local branch both carry the version under test")
         expect(c["slow_smoke"]["status"] == "SKIP", "slow checks skip unless --slow")
+        expect(c["outside_tools_denied"]["status"] == "PASS",
+               f"the tools that reach outside the run are denied ({c['outside_tools_denied']['reason'][:300]})")
         expect(c["agent_finished"]["status"] == "PASS", "a clean result event is agent_finished")
         expect(c["_"]["metrics"]["model"] == "fake-model", "the model is read from the log")
         expect(c["_"]["effort"] == "medium" and "'--effort', 'medium'" in str(first_init(c["_"])),
