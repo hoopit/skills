@@ -8,11 +8,12 @@
 #                          through its summary comment (`pr_coderabbit`), and a CodeRabbit that
 #                          has said it will not review the head (rate-limited, paused, skipped)
 #                          counts as reported.
-#        GATE_TIMEOUT    — seconds an otherwise-clean head waits for a gate check that never
+#        GATE_TIMEOUT    — seconds an otherwise-clean head waits for a gate check that has not
 #                          reported before going GREEN anyway (default 900 = 15m). A gate check can
-#                          go missing entirely on a head (skipped, rate-limited) rather than just
-#                          pending, so waiting on it forever would idle the watch; the timeout
-#                          bounds that wait, and the GREEN line names what stayed silent.
+#                          go missing entirely on a head (skipped, rate-limited), or sit at pending
+#                          for good (a reviewer that reviewed another head), so waiting on it
+#                          forever would idle the watch; the timeout bounds that wait, and the GREEN
+#                          line names what stayed silent.
 #        MAX_FETCH_FAILS — consecutive failed GitHub reads before giving up (default 5).
 #        REVIEW_MAX_AGE  — seconds a review-thread read is reused while nothing says it changed
 #                          (default 600). The thread read is the watch's only GraphQL call, and
@@ -34,10 +35,10 @@
 # the round starts on what has landed, and takes a last look for the rest before it pushes.
 #
 # A head goes GREEN once it has nothing left at all — no unresolved thread, no failing check, none
-# still pending, no conflict — and every gate check has reported on it (or GATE_TIMEOUT elapsed
-# waiting for one that never did). Fired once per head, so a quiet PR asks to be merged exactly
-# once. Requiring zero unresolved threads (not merely zero *new* ones) is what keeps a GREEN from
-# firing mid-round, while the session is still working threads it has seen.
+# still pending but a gate, no conflict — and every gate check has reported on it (or GATE_TIMEOUT
+# elapsed waiting for one that never did). Fired once per head, so a quiet PR asks to be merged
+# exactly once. Requiring zero unresolved threads (not merely zero *new* ones) is what keeps a GREEN
+# from firing mid-round, while the session is still working threads it has seen.
 set -u
 REPO=$1; PR=$2; INTERVAL=${3:-60}
 GATE_CHECKS=${GATE_CHECKS:-codex-review,CodeRabbit}
@@ -105,7 +106,9 @@ while true; do
   done
   gate_open=1; [ -n "$pending_gates" ] && gate_open=0
   failing=$(awk -F'\t' '$1=="fail"{print $2}' <<<"$checks" | sort)
-  running=$(awk -F'\t' '$1=="pending"{print $2}' <<<"$checks" | grep -c .)
+  # A gate still pending is waited on as a gate, under GATE_TIMEOUT, not as a running check:
+  # nothing else would end the wait on one stuck there.
+  running=$(awk -F'\t' -v gates=",$GATE_CHECKS," '$1=="pending" && !index(gates, "," $2 ","){print $2}' <<<"$checks" | grep -c .)
 
   now=$(date +%s)
   if [ "$head $review_marker" != "$review_key" ] || [ $((now - review_read_at)) -ge "$REVIEW_MAX_AGE" ]; then
@@ -137,8 +140,9 @@ while true; do
     save_state
   elif [ "$fired_green" != "$head" ] && [ -z "$threads" ] && [ -z "$failing" ] \
        && [ "$running" = 0 ] && [ "$conflicting" = 0 ]; then
-    # Nothing pending means a closed gate is a reviewer that never reported at all; give it
-    # GATE_TIMEOUT to show up rather than calling the head green behind its back.
+    # Everything else has settled, so a closed gate is a reviewer that has not reported, posted
+    # nothing or stuck at pending; give it GATE_TIMEOUT rather than calling the head green
+    # behind its back.
     if [ "$gate_open" = 0 ]; then
       now=$(date +%s)
       [ "$gate_wait_start" = 0 ] && gate_wait_start=$now

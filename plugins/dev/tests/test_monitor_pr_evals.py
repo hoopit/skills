@@ -126,6 +126,20 @@ def test_a_failed_team_approval_is_no_failing_check():
     assert lines and lines[0] == f"GREEN head={r.head[:7]}", lines
 
 
+def test_a_gate_stuck_pending_goes_green_once_gate_timeout_elapses():
+    stuck = [{"context": "codex-review", "state": "pending", "description": "Codex review started"}]
+    r = Run(issue_comments=coderabbit("{HEAD}"), statuses=stuck)
+    assert r.watch(4, GATE_TIMEOUT="60") == []
+    r = Run(issue_comments=coderabbit("{HEAD}"), statuses=stuck)
+    assert r.watch(6, GATE_TIMEOUT="2") == [f"GREEN head={r.head[:7]} pending_gates=codex-review"]
+
+
+def test_a_running_check_that_is_no_gate_still_holds_green():
+    r = Run(issue_comments=coderabbit("{HEAD}"), statuses=[
+        {"context": "codex-review", "state": "success"}, {"context": "ci", "state": "pending"}])
+    assert r.watch(4, GATE_TIMEOUT="1") == []
+
+
 def test_thread_and_conflict_fire_a_round():
     r = Run(issue_comments=coderabbit("{HEAD}"), threads=[thread()], conflicting=True)
     lines = r.watch(3)

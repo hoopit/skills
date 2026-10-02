@@ -124,7 +124,7 @@ The script polls every 60 s and prints only:
 - `GREEN head=… [pending_gates=<names>]` — this head has nothing left:
   no unresolved thread, no failing check, none still running, no conflict. Fired once per
   head; the merge decision goes to the user (Step 5). `pending_gates` here names a gate
-  that never reported before `GATE_TIMEOUT` elapsed.
+  that had not reported when `GATE_TIMEOUT` elapsed: it posted nothing, or sat at pending.
 - `PR_CLOSED state=MERGED|CLOSED` — the script exits.
 - `WATCH_ERROR fetch_failures=N last=…` — GitHub could not be reached five polls in a
   row (expired auth, network, deleted PR); the script exits non-zero. The watch is dead:
