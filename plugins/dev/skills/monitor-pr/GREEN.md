@@ -68,19 +68,24 @@ gh pr ready <PR> --repo <OWNER_REPO>
 
 The merge is the user's call, always: ask, and recommend it.
 
-**An approval owed.** A `GREEN` waits on nobody's review, but the merge can: a repo on the
-shared team-review gate requires a `<team>-approval` status, which the watch leaves out
-(`pr_checks`), because the approval comes only after the hand-off. Read it after the
-hand-off — a gate that skips drafts judges the PR only once it is ready:
+**An approval owed.** A `GREEN` waits on nobody's review, but the merge can, in two ways,
+both of which come only after the hand-off: a repo on the shared team-review gate requires
+a `<team>-approval` status, which the watch leaves out (`pr_checks`), and the base
+branch's rules can require an approving review. Read both after the hand-off — a gate
+that skips drafts judges the PR only once it is ready:
 
 ```bash
 gh api repos/<OWNER_REPO>/commits/<head sha>/status --jq '.statuses[] | select(.context | endswith("-approval")) | "\(.context) \(.state) \(.description)"'
+gh pr view <PR> --repo <OWNER_REPO> --json reviewDecision --jq .reviewDecision
 ```
 
-One that is not `success` is an approval still owed: name it with its description in the
-merge question, and say GitHub refuses the merge until it passes. It does not turn the
-recommendation to holding — the PR is done on the agent's side, and the approval is the
-team's to give.
+A status that is not `success`, or a `reviewDecision` of `REVIEW_REQUIRED`, is an approval
+still owed: name it in the merge question — the status with its description — and say
+GitHub refuses the merge until it is given. It does not turn the recommendation to
+holding — the PR is done on the agent's side. The approval is the team's to give and the
+team's to ask for: naming it in the merge question is the whole of the agent's part, and
+the PR's reviewers and assignees stay as the user and the workflows set them. Requesting
+a reviewer is never the agent's move.
 
 These alone turn the recommendation to holding. A `GREEN` carrying `pending_gates` went
 green with a gate that never reported on the head, silent or stuck at pending: name it and recommend holding until it has. A merge-readiness
