@@ -107,6 +107,25 @@ def test_statuses_read_as_the_watch_buckets_them():
     assert rows == [["fail", "ci"], ["pass", "lint"], ["pending", "codex-review"]], rows
 
 
+def test_a_pending_team_approval_does_not_hold_green():
+    r = Run(issue_comments=coderabbit("{HEAD}"), statuses=[
+        {"context": "codex-review", "state": "success"},
+        {"context": "web-approval", "state": "pending", "description": "Waiting for an approval from @hoopit/web"}])
+    lines = r.watch(3)
+    assert lines and lines[0] == f"GREEN head={r.head[:7]}", lines
+
+
+def test_a_failed_team_approval_is_no_failing_check():
+    r = Run(issue_comments=coderabbit("{HEAD}"), statuses=[
+        {"context": "codex-review", "state": "success"}, {"context": "web-approval", "state": "failure"}])
+    out = sh("bash", "-c", f"source {SCRIPTS / 'gh-pr-api.sh'}; pr_checks hoopit/api {r.head}", cwd=r.clone, env=r.env)
+    assert "web-approval" not in out, out
+    assert sh("bash", str(SCRIPTS / "pr-state.sh"), "hoopit/api", str(PR), cwd=r.clone, env=r.env) == \
+        "threads=\nfailing=\nconflicting=0\n"
+    lines = r.watch(3)
+    assert lines and lines[0] == f"GREEN head={r.head[:7]}", lines
+
+
 def test_thread_and_conflict_fire_a_round():
     r = Run(issue_comments=coderabbit("{HEAD}"), threads=[thread()], conflicting=True)
     lines = r.watch(3)

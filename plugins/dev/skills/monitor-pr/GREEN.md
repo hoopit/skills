@@ -66,10 +66,24 @@ bash <SKILL_DIR>/scripts/pr-labels.sh <OWNER_REPO> <PR> -agent-working
 gh pr ready <PR> --repo <OWNER_REPO>
 ```
 
-The merge is the user's call, always: ask, and recommend it. No Hoopit repo requires an
-approval, so a `GREEN` waits on nobody's review; these alone turn the recommendation to
-holding. A `GREEN` carrying `pending_gates` went green with a gate that never
-reported on the head: name it and recommend holding until it has. A merge-readiness
+The merge is the user's call, always: ask, and recommend it.
+
+**An approval owed.** A `GREEN` waits on nobody's review, but the merge can: a repo on the
+shared team-review gate requires a `<team>-approval` status, which the watch leaves out
+(`pr_checks`), because the approval comes only after the hand-off. Read it after the
+hand-off — a gate that skips drafts judges the PR only once it is ready:
+
+```bash
+gh api repos/<OWNER_REPO>/commits/<head sha>/status --jq '.statuses[] | select(.context | endswith("-approval")) | "\(.context) \(.state) \(.description)"'
+```
+
+One that is not `success` is an approval still owed: name it with its description in the
+merge question, and say GitHub refuses the merge until it passes. It does not turn the
+recommendation to holding — the PR is done on the agent's side, and the approval is the
+team's to give.
+
+These alone turn the recommendation to holding. A `GREEN` carrying `pending_gates` went
+green with a gate that never reported on the head: name it and recommend holding until it has. A merge-readiness
 challenge that did not run holds it the same way, for the same reason — a reviewer that
 never reported — and, with `REQUIRED=yes`, so does a briefing that never reached the
 description, which the check will not pass on a head it does not already cover. And a run still owed (below) holds it until the run is done.

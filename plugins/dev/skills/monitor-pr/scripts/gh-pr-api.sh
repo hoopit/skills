@@ -43,10 +43,16 @@ pr_meta() {
 # the PR red forever. A run with no timestamp is one GitHub has only just created, so it
 # sorts newest — better to read a check as pending than as an older run's failure.
 #
-# The `merge-briefing` status is left out. GREEN writes the briefing that passes it, so it is
-# never a round's work: a push onto a ready PR fails it until the next GREEN, and every reader
-# of these checks — the watch, pr-state, a worker's failing-checks pass — has to agree on that.
-# The job that posts it stays in: that job failing is an outage to report, not a verdict.
+# Two kinds of status are left out, because GREEN is what settles them, so neither is ever a
+# round's work, and every reader of these checks — the watch, pr-state, a worker's
+# failing-checks pass — has to agree on that:
+#   merge-briefing   GREEN writes the briefing that passes it. A push onto a ready PR fails it
+#                    until the next GREEN. The job that posts it stays in: that job failing is
+#                    an outage to report, not a verdict.
+#   <team>-approval  the shared team-review gate's status. It waits for a team member's
+#                    approval, which comes only after GREEN hands the PR off, and on some repos
+#                    it is not judged on a draft at all. Held for, it would hold GREEN forever.
+#                    GREEN reads it for the merge question instead.
 pr_checks() {
   local runs statuses
   runs=$(gh api --paginate --slurp "repos/$1/commits/$2/check-runs?per_page=100") || return 1
@@ -58,7 +64,7 @@ pr_checks() {
       elif .conclusion == "neutral" or .conclusion == "skipped" then "skipping"
       elif .conclusion == "cancelled" then "cancel"
       else "fail" end), .name, (.html_url // "")] | @tsv' <<<"$runs"
-  jq -r '[.[].statuses[] | select(.context != "merge-briefing")] | group_by(.context) | map(max_by(.updated_at // "9999")) | .[]
+  jq -r '[.[].statuses[] | select(.context != "merge-briefing" and (.context | endswith("-approval") | not))] | group_by(.context) | map(max_by(.updated_at // "9999")) | .[]
     | [(
       if .state == "pending" then "pending"
       elif .state == "success" then "pass"
@@ -93,8 +99,8 @@ pr_coderabbit() {
 # what makes a reply to an already-seen thread a change.
 #
 # GraphQL because a review thread's resolved flag appears in no REST response. The PR's
-# review decision is deliberately not read: no Hoopit repo requires an approval, so it
-# never says anything a merge could wait on.
+# review decision is deliberately not read: the approval a merge waits on is owed after the
+# hand-off, never to a round, and GREEN reads it from the `<team>-approval` status.
 PR_REVIEW_QUERY='query($owner:String!,$name:String!,$pr:Int!,$endCursor:String){
   repository(owner:$owner,name:$name){ pullRequest(number:$pr){
     reviewThreads(first:100,after:$endCursor){
