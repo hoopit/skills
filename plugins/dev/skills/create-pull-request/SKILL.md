@@ -25,9 +25,13 @@ reviewer can jump to its source of truth:
   frozen wherever it stands with no event left to move it — nothing anywhere turns red.
 
   **Merging will not finish the issue?** That is two phases in one item, not a reason
-  to weaken the link. `closes` the phase this PR delivers and file the remainder as its
-  own issue, gated on the deploy where that is what it waits for. Never reach for `refs`
-  to mean "not done yet."
+  to weaken the link. `closes` the phase this PR delivers, and file the remainder as its
+  own issue in the same repo **before** `gh pr create`: through
+  `github-tracker:create-gh-issue` when installed (an `Ops` issue carrying `Gate:
+  deployed` where it waits on the deploy), otherwise `gh issue create` with a body that
+  says what is left, what it waits for, and `follows #<id>`. Then name it by number in
+  the body — `Step 2 is #<n>.` A body that says the rest "is filed" and names no number
+  has filed nothing. Never reach for `refs` to mean "not done yet."
 - **Jira** — `https://<org>.atlassian.net/browse/<JIRA_KEY>` (the raw key also
   makes GitHub-for-Jira attach the PR — exactly what you want here).
 - **Sentry** — the issue URL, e.g. `https://<org>.sentry.io/issues/<id>/`.
