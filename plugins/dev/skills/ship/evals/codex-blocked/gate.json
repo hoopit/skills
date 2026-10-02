@@ -1,0 +1,10 @@
+[
+ {
+  "verdict": "BLOCK",
+  "reason": "Codex unavailable \u2014 codex=error: usage limit reached for this workspace (spend cap)",
+  "findings": [
+   "codex=error: the external reviewer did not run; the pass reviewed the branch on one engine only"
+  ],
+  "reviewers": "Codex did not run (codex=error); the pass stopped before the code-review axes"
+ }
+]

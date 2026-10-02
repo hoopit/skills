@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+"""One review-gate pass, answered from the case's gate.json instead of reviewers.
+
+`setup.sh` installs it on the agent's PATH with the run's paths in its environment, and
+puts a review-gate SKILL.md in front of it whose Contract and Inputs are the real ones.
+Every call lands in EVAL_CALLS as tool `review-gate`: the inputs the caller handed over,
+the head the pass reviewed and where it ran.
+
+gate.json is a list, one entry per pass; the last entry answers every pass after it.
+
+    verdict      PASS (default) or BLOCK
+    fix          none (default), text-only or code: the fix commits this pass makes
+    fix_file     the file the fix commit rewrites, relative to the worktree
+    fix_replace  [[old, new], ...]: the fix commit's edits of fix_file
+    fix_message  the fix commit's subject
+    findings     the lines the notes carry under Findings
+    reviewers    the notes' Reviewers line, in place of the one the scope implies
+    reason       a BLOCK's one-line reason
+"""
+import argparse, json, os, subprocess, sys
+
+CALLS, CASE_DIR = os.environ["SHIP_EVAL_CALLS"], os.environ["SHIP_EVAL_CASE_DIR"]
+
+
+def git(*args, check=True):
+    p = subprocess.run(["git", *args], capture_output=True, text=True)
+    if check and p.returncode:
+        sys.exit(f"review-gate-pass: git {' '.join(args)}: {p.stderr.strip()}")
+    return p.stdout.strip()
+
+
+def text(inline, path):
+    if path:
+        try:
+            return open(os.path.expanduser(path)).read()
+        except OSError as e:
+            sys.exit(f"review-gate-pass: {e}")
+    return inline
+
+
+p = argparse.ArgumentParser(prog="review-gate-pass")
+p.add_argument("--scope", choices=["full", "light"], default="full")
+p.add_argument("--reviewed-at")
+p.add_argument("--challenge-at")
+for name in ("spec", "challenge", "prior-rounds"):
+    p.add_argument(f"--{name}")
+    p.add_argument(f"--{name}-file")
+a = p.parse_args()
+given_scope = a.scope
+if a.scope == "light" and not a.reviewed_at:
+    a.scope = "full"  # the real gate's rule: no REVIEWED_AT, no light pass
+
+top = git("rev-parse", "--show-toplevel")
+head = git("rev-parse", "HEAD")
+with open(CALLS) as fh:
+    n = sum(1 for line in fh if '"tool": "review-gate"' in line) + 1
+inputs = {"scope": given_scope, "reviewed_at": a.reviewed_at, "challenge_at": a.challenge_at,
+          "spec": text(a.spec, a.spec_file), "challenge": text(a.challenge, a.challenge_file),
+          "prior_rounds": text(a.prior_rounds, a.prior_rounds_file)}
+record = {"tool": "review-gate", "argv": sys.argv[1:], "pass": n, "inputs": inputs, "head": head,
+          "verdict": None, "fix": None, "after": None, "branch": git("branch", "--show-current", check=False), "cwd": os.getcwd(), "toplevel": top,
+          "dirty": git("status", "--porcelain", "--untracked-files=no", check=False)}
+plan_file = os.path.join(CASE_DIR, "gate.json")
+plan = json.load(open(plan_file)) if os.path.isfile(plan_file) else [{}]
+step = plan[min(n, len(plan)) - 1]
+base = f"origin/master ({git('rev-parse', '--short', 'origin/master', check=False)})" \
+    if a.scope == "full" else f"REVIEWED_AT ({a.reviewed_at[:10]})"
+challenged = a.scope == "full" and not a.challenge_at
+reviewers = ("Codex (gpt-6.1-sol, high) ran; code-review Standards and Spec axes ran"
+             if a.scope == "full" else "Codex (gpt-6-luna, medium) ran; code-review Standards axis ran")
+if challenged:
+    reviewers += "; Codex challenge ran"
+reviewers = step.get("reviewers", reviewers)
+findings = step.get("findings") or ["Findings: none"]
+
+
+def log(**kw):
+    record.update(kw, after=git("rev-parse", "HEAD"))
+    with open(CALLS, "a") as fh:
+        fh.write(json.dumps(record) + "\n")
+
+
+if step.get("verdict") == "BLOCK":
+    log(verdict="BLOCK", fix="none")
+    print(f"BLOCK: {step.get('reason', 'a disputed High finding')}")
+    print(f"\nScope {a.scope}, fixed point {base}. Reviewers: {reviewers}.")
+    print("Blocking findings:")
+    print("\n".join(f"- {f}" for f in findings))
+    sys.exit(0)
+
+fix = step.get("fix", "none")
+fixed = ""
+if fix != "none":
+    path = os.path.join(top, step["fix_file"])
+    body = open(path).read()
+    for old, new in step["fix_replace"]:
+        if old not in body:
+            sys.exit(f"review-gate-pass: the planted fix no longer applies to {step['fix_file']}")
+        body = body.replace(old, new, 1)
+    open(path, "w").write(body)
+    git("add", "--", step["fix_file"])
+    git("commit", "-q", "-m", step["fix_message"])
+    fixed = git("rev-parse", "--short", "HEAD")
+log(verdict="PASS", fix=fix)
+
+print(f"PASS — scope {a.scope}, fixed point {base}.")
+print({"none": "Fix commits: none.",
+       "text-only": f"Fix commits: text-only ({fixed}).",
+       "code": f"Fix commits: code ({fixed})."}[fix])
+print(f"REVIEWED_AT: {head}")
+print(f"CHALLENGE_AT: {head if challenged else (a.challenge_at or 'unset')}")
+print("\n### Review gate notes")
+print(f"- Scope: {a.scope}, against {base}")
+print(f"- Reviewers: {reviewers}")
+print("\n".join(f"- {f}" for f in findings))
