@@ -7,7 +7,9 @@ This keeps the PR in `$EVAL_RUN_DIR/github/state.json` and answers from it:
 - the head is whatever the run's origin (`$EVAL_RUN_DIR/origin.git`) has for the PR branch,
   so a push moves it, and the diff, files and commits come from git;
 - checks and statuses are the case's for the head it was set up on, and `new_head_checks` /
-  `new_head_statuses` for any head pushed after it;
+  `new_head_statuses` for any head pushed after it; `statuses_after_polls` swaps statuses in
+  once the watch has polled `after` times, and `rereview_statuses` once a Codex re-review is
+  dispatched;
 - review threads resolve, labels come and go, the body and draft change, a merge closes it.
 
 Every call is appended to `EVAL_CALLS` like the runner's shims do, with the head and draft as
@@ -130,6 +132,19 @@ def merged_state(s):
 
 def initial(s):
     return head_sha(s) == s["initial_head"]
+
+
+def override_statuses(s, rows):
+    """Replace each listed context's status, on the first head and on any head pushed after it."""
+    for key in ("statuses", "new_head_statuses"):
+        kept = [st for st in s.get(key, []) if st["context"] not in {r["context"] for r in rows}]
+        s[key] = kept + rows
+
+
+def dispatched(s, workflow, inputs):
+    s.setdefault("dispatches", []).append({"workflow": workflow, "inputs": inputs})
+    if "codex-review-manual" in (workflow or "") and s.get("rereview_statuses"):
+        override_statuses(s, s["rereview_statuses"])
 
 
 def check_runs(s, sha):
@@ -358,7 +373,7 @@ def rest(s, method, path, body, accept):
             return {"name": body.get("name")}
         return [{"name": n} for n in s.get("repo_labels", [])]
     if parts[:2] == ["actions", "workflows"] and parts[-1] == "dispatches" and method == "POST":
-        s.setdefault("dispatches", []).append({"workflow": parts[2], "inputs": body.get("inputs")})
+        dispatched(s, parts[2], body.get("inputs"))
         return Raw("")
     if parts[:2] == ["actions", "runs"] or parts[:2] == ["actions", "workflows"]:
         return {"total_count": 0, "workflow_runs": [], "workflows": []}
@@ -633,7 +648,7 @@ def run(s, argv, stdin):
             raise Fail(f"GraphQL: Could not resolve to a Repository with the name '{r}'. (repository)")
     cmd = pos[0]
     # The watch's poll is the one read whose jq builds the review marker. A case can have the
-    # user merge the PR from GitHub after so many of them.
+    # user merge the PR from GitHub, or a status change, after so many of them.
     if cmd == "api" and "review_comments | tostring" in (jq or ""):
         s["watch_polls"] = s.get("watch_polls", 0) + 1
         after = s.get("merge_after_polls")
@@ -641,6 +656,10 @@ def run(s, argv, stdin):
             s["pr"].update(draft=False)
             merge(s, "squash")
             s["merged_by_user"] = True
+        later = s.get("statuses_after_polls")
+        if later and s["watch_polls"] > later["after"] and not later.get("applied"):
+            override_statuses(s, later["statuses"])
+            later["applied"] = True
     if cmd == "api":
         path = pos[1] if len(pos) > 1 else ""
         body = fields(flags)
@@ -675,7 +694,7 @@ def run(s, argv, stdin):
         if sub == "list":
             return emit(Raw("".join(f"{n}\t\t#ededed\n" for n in s.get("repo_labels", []))), None)
     if cmd == "workflow" and pos[1:2] == ["run"]:
-        s.setdefault("dispatches", []).append({"workflow": pos[2] if len(pos) > 2 else None, "fields": fields(flags)})
+        dispatched(s, pos[2] if len(pos) > 2 else None, fields(flags))
         return emit(Raw(f"✓ Created workflow_dispatch event for {pos[2] if len(pos) > 2 else ''} at {s['pr']['head_ref']}\n"), None)
     if cmd == "repo" and pos[1:2] == ["view"]:
         wanted = flag(flags, "--json")

@@ -14,7 +14,9 @@
 # it is that head's sha, `{PR}` the number, and `{CURRENT_HEAD}` in a comment the head as it
 # stands when the comment is read. `merge_after_polls: <n>` has the user merge the PR from
 # GitHub once the watch has polled n times; `conflicting: true` makes the head dirty until a
-# push replaces it.
+# push replaces it. `statuses_after_polls: {after, statuses}` swaps those statuses in once the
+# watch has polled `after` times; `rereview_statuses` swaps them in on a codex-review-manual
+# dispatch.
 set -euo pipefail
 
 PIN=403fda6846761580f20ef569188f1ce7dc6e351c
@@ -78,6 +80,8 @@ json.dump({
     "required_checks": case.get("required_checks", []), "conflicting": case.get("conflicting", False),
     "repo_labels": case.get("repo_labels", ["monitored", "agent-working"]),
     "merge_after_polls": case.get("merge_after_polls"),
+    "statuses_after_polls": case.get("statuses_after_polls"),
+    "rereview_statuses": case.get("rereview_statuses"),
 }, open(dst, "w"), indent=1)
 EOF
 

@@ -168,12 +168,20 @@ Every fix in axes 1 to 3 is held to *Every fix* before it is committed.
    - **It committed nothing otherwise — an appeal included — with no hard fork open.** The
      reviewers have nothing new to look at, so start the next review round yourself and
      note it in the report. An `open` thread is no reason to hold it back; only a hard
-     fork is. Skip it when the `ROUND` line's `pending_gates` names `codex-review` — that
-     run is already working this head:
+     fork is. Decide it from **live state**, read at the kick: the `ROUND` line's
+     `pending_gates` is a snapshot from when the round opened, and a verdict landing since
+     makes it false. Skip only when `codex-review` reads `pending` on the head now — a
+     review is running, and a second would duplicate it. A `fail` is the verdict an appeal
+     exists to re-request:
 
      ```bash
-     gh workflow run codex-review-manual.yml -f pr=<PR> --repo <OWNER_REPO>
+     source <GH_PR_API>
+     HEAD_SHA=$(gh api repos/<OWNER_REPO>/pulls/<PR> --jq .head.sha)
+     GATE=$(pr_checks <OWNER_REPO> "$HEAD_SHA" | awk -F'\t' '$2=="codex-review"{print $1}')
+     [ "$GATE" = pending ] || gh workflow run codex-review-manual.yml -f pr=<PR> --repo <OWNER_REPO>
      ```
+
+     The report names what that read gave: `review re-requested` or `review running`.
 
 6. **Ledger, then label.** Read `LEDGER` and write the ledger block into the PR description as it
    specifies. The block is the only region of the description a round writes; the body's

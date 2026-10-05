@@ -1,0 +1,93 @@
+{
+  "pr": {
+    "title": "BAC-4412: One org-admin check for the bank account list",
+    "body": "## Summary\n\n`OrganizationBankAccountListView` decided whether the requester is an org (root) admin in two places: inline in `get_queryset`, and in `_can_view_balance` for the balance column and the export. Both now call one `_is_org_admin` helper, so the two can't drift. No behaviour change.\n\nJira: [BAC-4412](https://hoopit.atlassian.net/browse/BAC-4412)\n\n## Test plan\n\n- `payments/tests/web/test_organization_bank_account_list_view.py` passes unchanged.\n\n<!-- agent-ledger:start -->\n## 🤖 Agent ledger · round 2 · 0 open\n\n### Routine\n2 nits applied (a docstring, a history note cut from a comment) · text-only round R2 · 0 findings in code a round added · 0 design reversals\n<!-- agent-ledger:end -->\n",
+    "draft": true,
+    "labels": []
+  },
+  "checks": [
+    {
+      "name": "lint",
+      "conclusion": "success"
+    },
+    {
+      "name": "migrations-check",
+      "conclusion": "success"
+    },
+    {
+      "name": "merge-briefing-check",
+      "conclusion": "success"
+    }
+  ],
+  "statuses": [
+    {
+      "context": "ci/circleci: test",
+      "state": "success",
+      "description": "Your tests passed on CircleCI!"
+    },
+    {
+      "context": "codex-review",
+      "state": "pending",
+      "description": "Codex is reviewing"
+    }
+  ],
+  "statuses_after_polls": {
+    "after": 1,
+    "statuses": [
+      {
+        "context": "codex-review",
+        "state": "failure",
+        "description": "2 findings"
+      }
+    ]
+  },
+  "rereview_statuses": [
+    {
+      "context": "codex-review",
+      "state": "success",
+      "description": "No issues found"
+    }
+  ],
+  "issue_comments": [
+    {
+      "id": 4100001,
+      "user": {
+        "login": "coderabbitai[bot]"
+      },
+      "created_at": "2026-10-02T01:00:00Z",
+      "body": "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\n## Walkthrough\n\nThe list view's two org-admin checks are folded into `_is_org_admin`.\n\n<!-- final_review_risk_coverage {\"coveredCommitId\":\"{CURRENT_HEAD}\"} -->\n<!-- end of auto-generated comment: summarize by coderabbit.ai -->"
+    }
+  ],
+  "required_checks": [
+    "ci/circleci: test",
+    "merge-briefing"
+  ],
+  "threads": [
+    {
+      "id": "PRRT_kwDOEvalApl1",
+      "path": "payments/web/views/organization_bank_account_list_view.py",
+      "line": 295,
+      "comments": [
+        {
+          "id": 2400401,
+          "author": "chatgpt-codex-connector[bot]",
+          "created_at": "2026-10-02T02:10:00Z",
+          "body": "**<sub><sub>![P3 Badge](https://img.shields.io/badge/P3-lightgrey?style=flat)</sub></sub>  Say what is narrowed**\n\n`anyone below the root is narrowed in get_queryset` reads as if the user is narrowed; it is the queryset. Reword the comment so it names the queryset.\n\nUseful? React with 👍 / 👎."
+        }
+      ]
+    },
+    {
+      "id": "PRRT_kwDOEvalApl2",
+      "path": "payments/web/views/organization_bank_account_list_view.py",
+      "line": 294,
+      "comments": [
+        {
+          "id": 2400402,
+          "author": "chatgpt-codex-connector[bot]",
+          "created_at": "2026-10-02T02:10:30Z",
+          "body": "**<sub><sub>![P3 Badge](https://img.shields.io/badge/P3-lightgrey?style=flat)</sub></sub>  Add a docstring to `_is_org_admin`**\n\nThe helper carries a comment but no docstring; a one-line docstring would match the style of the other private helpers in the view.\n\nUseful? React with 👍 / 👎."
+        }
+      ]
+    }
+  ]
+}

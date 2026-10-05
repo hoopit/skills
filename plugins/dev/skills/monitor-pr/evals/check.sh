@@ -10,6 +10,8 @@
 #                    the new head existed, every thread resolved or replied to, a ledger written
 #                    closed — a closing round: every thread answered, a ledger written, and no
 #                    push and no re-review started
+#                    appealed — a closing round under a red codex-review: every thread answered,
+#                    a ledger written, no push, and that review re-requested exactly once
 #   expect_merge_base 1 — the round merged the default branch in, never rebased onto it
 #   expect_pushes    how many new heads the run may leave (default 0 without expect_round)
 #   expect_rearm     resumed — the expired watch was re-armed with WATCH_RESUME=1, and the
@@ -81,6 +83,17 @@ if expect("round") == "closed":
     rereview = [c["argv"] for c in gh if c["argv"][:2] == ["workflow", "run"]
                 or (c["argv"][:1] == ["api"] and any("dispatches" in a for a in c["argv"]))]
     say("FAIL" if rereview else "PASS", "no_rereview", f"started a review on an unchanged head: {rereview[:1]}")
+elif expect("round") == "appealed":
+    say("PASS" if pushes == 0 else "FAIL", "closing_round_no_push", f"{pushes} new heads")
+    unanswered = [t["id"] for t in state["threads"] if not answered(t)]
+    say("FAIL" if unanswered else "PASS", "threads_answered", f"untouched: {unanswered}")
+    say("PASS" if "agent-ledger" in pr["body"] and "R3" in pr["body"] else "FAIL", "ledger_written",
+        "the ledger records no round 3")
+    # One appeal per head: the verdict's review re-requested, for this PR, once.
+    appeals = [d for d in state.get("dispatches", []) if "codex-review-manual" in (d.get("workflow") or "")
+               and str((d.get("inputs") or {}).get("pr")) == pr_no]
+    say("PASS" if len(appeals) == 1 else "FAIL", "verdict_rereviewed",
+        f"{len(appeals)} codex-review-manual dispatch(es) for PR {pr_no}; all dispatches: {state.get('dispatches', [])}")
 elif expect("round") == "worked":
     say("PASS" if pushes == 1 else "FAIL", "one_push_per_round", f"{pushes} new heads")
     # Draft before the push: the first call the fake answered on a new head found the PR a draft.

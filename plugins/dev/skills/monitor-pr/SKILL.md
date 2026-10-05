@@ -103,7 +103,7 @@ Monitor(
 
 A monitor lives 30 minutes at most. Its expiry notice is not a stop: re-arm at once with
 the same call, the command prefixed `WATCH_RESUME=1`, and say nothing more than that it
-re-armed. The resumed watch keeps the threads, checks and `GREEN` it already fired on, so
+re-armed. The resumed watch keeps the threads, checks, `GREEN` and `STALLED` it already fired on, so
 nothing fires twice. Every other arm starts fresh. A turn that ends without the watch
 re-armed leaves the PR unwatched, and the board reads the issue as Idle.
 
@@ -112,7 +112,8 @@ read as a check, and `CodeRabbit`, which posts no check and is read from its sum
 comment instead. A CodeRabbit that has said it will not review the head — rate-limited,
 paused, or skipped — counts as reported. For a repo whose reviewer checks have other
 names, prefix `GATE_CHECKS=<a>,<b>`, and tune how long a head waits on a silent gate with
-`GATE_TIMEOUT=<seconds>` (default 900).
+`GATE_TIMEOUT=<seconds>` (default 900), and how long a verdict may sit unanswered with
+`STALL_AFTER=<seconds>` (default 900).
 
 The script polls every 60 s and prints only:
 
@@ -125,6 +126,9 @@ The script polls every 60 s and prints only:
   no unresolved thread, no failing check, none still running, no conflict. Fired once per
   head; the merge decision goes to the user (Step 5). `pending_gates` here names a gate
   that had not reported when `GATE_TIMEOUT` elapsed: it posted nothing, or sat at pending.
+- `STALLED head=… verdicts=<check>:<n>` — a **verdict** is all that holds the head, and has
+  for `STALL_AFTER`: nothing else failing or running, no thread, no conflict. `<n>` counts
+  the times the watch saw that check turn red on this head. Step 4 answers it.
 - `PR_CLOSED state=MERGED|CLOSED` — the script exits.
 - `WATCH_ERROR fetch_failures=N last=…` — GitHub could not be reached five polls in a
   row (expired auth, network, deleted PR); the script exits non-zero. The watch is dead:
@@ -191,8 +195,18 @@ A report reading `CLOSED verdict held: …`, or a checkpoint that stops, `TaskSt
 monitor and takes its path in Step 5. A `CLOSED` from a `ROUND: CHALLENGE` gets no new
 `GREEN` — the head already had its one — so it goes back to [GREEN.md](GREEN.md)'s *no
 passing briefing* question. Otherwise idle until the next `ROUND` or `GREEN` —
-after a plain `CLOSED` and after `APPEALED` too: the head answers as a `GREEN` or as the
-next `ROUND`.
+after a plain `CLOSED` and after `APPEALED` too: the head answers as a `GREEN`, the next
+`ROUND`, or a `STALLED`.
+
+**`STALLED`** says a verdict is sitting unanswered. One that lands mid-round waits for the
+round, like a `ROUND`, and is then read against live state:
+
+- **`<n>` is 1** — no re-review has run on this head, so its one appeal is still owed.
+  Kick it as the briefing's step 5 does — the same live read of `codex-review`, the same
+  dispatch unless it reads `pending` — and print one line saying the session re-requested
+  the review. This completes the appeal; the head gets no second.
+- **`<n>` is 2 or more** — the appeal ran and the verdict held: take the `CLOSED verdict
+  held` path above.
 
 Whenever the watch ends — a close holding a verdict, a checkpoint, a hard fork, an error stop,
 or `PR_CLOSED` — drop the label again, so it only ever marks PRs under an active watch, and
