@@ -3,8 +3,10 @@
 # it. Every call is recorded to the run's EVAL_CALLS like the tracker shims' calls.
 #
 # Modes: `ran` answers with the review and challenge in codex.json, `fail` exits 1 the way an
-# expired Codex login does. The real CLI would spend minutes and a Codex quota per run, and would
-# find the planted defect on its own, which hides whether the gate's Claude reviewers catch it.
+# expired Codex login does, `blocked` exits 0 with a verdict written blind, the way a Windows
+# sandbox that rejects every command leaves it. The real CLI would spend minutes and a Codex quota
+# per run, and would find the planted defect on its own, which hides whether the gate's Claude
+# reviewers catch it.
 import json, os, select, sys
 
 conf = json.load(open(os.path.realpath(__file__) + ".json"))
@@ -30,6 +32,14 @@ if conf["mode"] == "fail":
 
 out = argv[argv.index("-o") + 1] if "-o" in argv else None
 text = conf["challenge"] if "--output-schema" in argv else conf["review"]
+if conf["mode"] == "blocked":
+    for _ in range(3):
+        print("ERROR codex_core::tools::router: error=exec_command failed: CreateProcess { message: "
+              "\"Rejected(\\\"`pwsh.exe -Command 'git diff origin/master...HEAD'` rejected: blocked by policy\\\")\" }",
+              file=sys.stderr)
+    text = text if "--output-schema" in argv else (
+        "No actionable findings. The filesystem policy blocked every shell command, including the "
+        "git diff, so this verdict has very low confidence.\n")
 if out:
     with open(out, "w") as fh:
         fh.write(text)

@@ -3,7 +3,7 @@
 # Codex answered by codex-stub.py. The case's frontmatter picks both:
 #   expect_change   the patches under changes/ the branch carries, one commit each, in order
 #   expect_branch   the branch it is committed on
-#   expect_codex    ran | fail
+#   expect_codex    ran | fail | blocked
 # A case's codex-review.txt, when present, replaces the answer of a review that finds nothing.
 set -euo pipefail
 

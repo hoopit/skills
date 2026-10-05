@@ -30,7 +30,8 @@
 # A run that fails is retried once before it is reported as `error` — a Codex failure is as
 # often transient (an auth refresh, a rate limit, a timeout) as it is durable, and a caller
 # that treats `error` as gravely as a missing install should not be tripped by a blip.
-# `unavailable` is never retried: a CLI that isn't installed stays uninstalled.
+# `unavailable` is never retried: a CLI that isn't installed stays uninstalled. Nor is a run whose
+# sandbox blocked every command it tried: it exits 0 having read nothing, and is an `error`.
 #
 # A run is keyed on what a reviewer would actually see — reviewer, head tree, base, model, effort,
 # focus — and a repeat of that exact key reuses the findings instead of spending Codex again,
@@ -142,6 +143,31 @@ cache_path() {  # <kind> <model> <effort> <focus>
 # The last non-empty line of a failed run is where Codex states its failure.
 last_line() { grep -v '^[[:space:]]*$' "$1" | tail -1; }
 
+# On Windows, a read-only Codex with no Windows sandbox picked rejects every command it tries
+# ("blocked by policy"), trusted project or not, and still writes a verdict. `unelevated` needs no
+# admin and no setup; a mode the user's config.toml already picks is left to stand.
+WINDOWS_SANDBOX=()
+case "$(uname -s 2>/dev/null)" in
+  MINGW*|MSYS*|CYGWIN*)
+    awk '/^[[:space:]]*\[/ { t = $0 }
+         /^[[:space:]]*windows\.sandbox[[:space:]]*=/ || (t ~ /^[[:space:]]*\[windows\]/ && /^[[:space:]]*sandbox[[:space:]]*=/) { f = 1 }
+         END { exit !f }' "${CODEX_HOME:-$HOME/.codex}/config.toml" 2>/dev/null ||
+      WINDOWS_SANDBOX=(-c 'windows.sandbox="unelevated"') ;;
+esac
+
+# A run that tried commands and had none run reviewed blind, whatever it wrote. Durable, so it is
+# never retried.
+sandbox_blocked() {
+  grep -q 'blocked by policy' "$1" 2>/dev/null && ! grep -qE '^ *(succeeded|exited -?[0-9]+) in [0-9]' "$1"
+}
+failure_reason() {
+  if sandbox_blocked "$1"; then
+    echo "Codex's sandbox blocked every command it tried (\"blocked by policy\"), so it never read the change; on Windows, set [windows] sandbox = \"unelevated\" in ~/.codex/config.toml"
+  else
+    echo "$(last_line "$1") [after one retry]"
+  fi
+}
+
 CODEX_CLI="$(command -v codex)"
 cx=unavailable; cx_reason="codex not found on PATH (Codex CLI not installed)"
 ch=unavailable; ch_reason="$cx_reason"
@@ -151,7 +177,8 @@ ch=unavailable; ch_reason="$cx_reason"
 standard_review() {
   rm -f "$OUT/codex.txt"
   codex exec review --base "$BASE" --model "$MODEL" -c model_reasoning_effort="\"$EFFORT\"" \
-    --ephemeral -o "$OUT/codex.txt" </dev/null >"$OUT/codex.log" 2>&1 && [ -s "$OUT/codex.txt" ]
+    "${WINDOWS_SANDBOX[@]}" --ephemeral -o "$OUT/codex.txt" </dev/null >"$OUT/codex.log" 2>&1 &&
+    [ -s "$OUT/codex.txt" ] && ! sandbox_blocked "$OUT/codex.log"
 }
 
 # The replacement text is a diff, so a `&` in it must stay a `&` (bash 5.2+ reads it as the match),
@@ -201,9 +228,10 @@ challenge_review() {
   challenge_prompt >"$OUT/codex-challenge-prompt.md" 2>"$OUT/codex-challenge.log" ||
     { echo "could not build the challenge prompt against $BASE" >>"$OUT/codex-challenge.log"; return 1; }
   codex exec --model "$CHALLENGE_MODEL" -c model_reasoning_effort="\"$CHALLENGE_EFFORT\"" \
-    --sandbox read-only --cd "$(git rev-parse --show-toplevel)" --output-schema "$CHALLENGE_DIR/schema.json" \
-    --ephemeral -o "$OUT/codex-challenge.txt" - <"$OUT/codex-challenge-prompt.md" >"$OUT/codex-challenge.log" 2>&1 &&
-    grep -q '"verdict"' "$OUT/codex-challenge.txt" 2>/dev/null
+    --sandbox read-only "${WINDOWS_SANDBOX[@]}" --cd "$(git rev-parse --show-toplevel)" \
+    --output-schema "$CHALLENGE_DIR/schema.json" --ephemeral -o "$OUT/codex-challenge.txt" - \
+    <"$OUT/codex-challenge-prompt.md" >"$OUT/codex-challenge.log" 2>&1 &&
+    grep -q '"verdict"' "$OUT/codex-challenge.txt" 2>/dev/null && ! sandbox_blocked "$OUT/codex-challenge.log"
 }
 
 if docs_only; then
@@ -237,13 +265,13 @@ if [ "$STANDARD" = 1 ] || [ -n "$CHALLENGE" ]; then
   # Retries run after the parallel phase, and only for a run that failed.
   if [ "$STANDARD" = 1 ]; then
     cx=ran
-    wait "$cx_pid" || standard_review ||
-      { cx=error; cx_reason="$(last_line "$OUT/codex.log") [after one retry]"; }
+    wait "$cx_pid" || { ! sandbox_blocked "$OUT/codex.log" && standard_review; } ||
+      { cx=error; cx_reason="$(failure_reason "$OUT/codex.log")"; }
   fi
   if [ -n "$CHALLENGE" ]; then
     ch=ran
-    wait "$ch_pid" || challenge_review ||
-      { ch=error; ch_reason="$(last_line "$OUT/codex-challenge.log") [after one retry]"; }
+    wait "$ch_pid" || { ! sandbox_blocked "$OUT/codex-challenge.log" && challenge_review; } ||
+      { ch=error; ch_reason="$(failure_reason "$OUT/codex-challenge.log")"; }
   fi
 fi
 
