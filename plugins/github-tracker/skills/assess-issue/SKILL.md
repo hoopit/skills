@@ -1,6 +1,6 @@
 ---
 name: assess-issue
-description: Decide whether one issue is worth fixing — price the fix, measure the harm against live data, then close it with the findings or ship it.
+description: Decides whether one issue is worth fixing — prices the fix, measures the harm against live data, then closes it with the findings or ships it. Use when asked to work or assess one issue on the agent tracker board.
 argument-hint: "<issue> — a GitHub issue URL, <repo>#<n>, or #<n> in the current repo [--started]"
 ---
 

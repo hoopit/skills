@@ -1,6 +1,6 @@
 ---
 name: dispatch-ladder
-description: The backlog daemon's Effort-to-model/effort ladder.
+description: The backlog daemon's Effort-to-model/effort ladder. Use when reading or moving a rung, or deciding which model and reasoning effort an Effort gives an unattended start.
 user-invocable: false
 ---
 
