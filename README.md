@@ -105,7 +105,7 @@ An agent work tracker on a GitHub project board: file triaged issues, triage and
 
 | Skill | Invoke | Description |
 |-------|--------|-------------|
-| `assess-issue` | Auto | Decide whether one issue is worth fixing — price the fix, measure the harm against live data, then close it with the findings or ship it. |
+| `assess-issue` | Auto | Decides whether one issue is worth fixing — prices the fix, measures the harm against live data, then closes it with the findings or ships it. |
 | `create-gh-issue` | Auto | File a triaged GitHub issue. |
 | `curate-backlog` | Manual | Clean up the agent tracker board — duplicates, merges, stale and invalid issues, missing triage. |
 | `gh-followup` | Manual | Work the board's Manual and Waiting buckets — re-test each blocker, convert what the board can hold itself, walk what only you can do, and summarise what the rest waits for. |
