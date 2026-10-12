@@ -8,6 +8,8 @@
     expect_link      text the body must contain, such as the Jira browse URL
     expect_keys      regex for the Jira-shaped keys allowed on the linked surfaces
     expect_followup  1 when the remainder of the issue must be filed as its own issue
+    expect_team      the reviewing team whose membership the agent must look up first
+    expect_monitor   1 when the agent must start `monitor-pr` itself, 0 when it must not
 """
 import os, re, subprocess, sys
 
@@ -119,3 +121,21 @@ say("FAIL" if local else "PASS", "body_paths_openable", ", ".join(local[:3]))
 if E("FOLLOWUP") == "1":
     filed = state["issues_created"] > 0
     say("PASS" if filed else "FAIL", "followup_filed", "" if filed else "no gh issue create")
+
+if E("TEAM"):
+    probe = f"teams/{E('TEAM')}/"
+    gh = [c["argv"] for c in pr_state._calls(os.environ["EVAL_CALLS"]) if c.get("tool") == "gh"]
+    looked = [i for i, a in enumerate(gh) if a[:1] == ["api"] and probe in " ".join(a)]
+    created = next((i for i, a in enumerate(gh) if a[:2] == ["pr", "create"]), len(gh))
+    if looked and looked[0] < created:
+        say("PASS", "team_checked")
+    else:
+        say("FAIL", "team_checked", "looked up only after gh pr create" if looked else f"no {probe} lookup")
+
+if E("MONITOR") is not None:
+    started = pr_state.skill_started(os.environ.get("EVAL_LOG", ""), "monitor-pr")
+    want = E("MONITOR") == "1"
+    if started == want:
+        say("PASS", "monitor_started")
+    else:
+        say("FAIL", "monitor_started", "monitor-pr never started" if want else "monitor-pr started")

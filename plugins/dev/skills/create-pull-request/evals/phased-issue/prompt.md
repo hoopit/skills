@@ -19,7 +19,7 @@ You are running the `ship` skill on hoopit/api#18303 (GitHub issue, `WORK_ITEM`)
 > git push -u origin "$BRANCH"
 > ```
 >
-> Follow the **`create-pull-request`** skill for the body, the labels-at-creation rule, and link hygiene. Add to the body it specifies:
+> Follow the **`create-pull-request`** skill for the body, the labels-at-creation rule, link hygiene, and draft or ready. A `ship` PR is born a draft either way: an agent works its rounds (Step 8), and an author outside the reviewing team needs the draft besides. Add to the body it specifies:
 >
 > - the `WORK_ITEM` link section — or, unset, a line saying the change is untracked;
 > - a `## Testing` line covering the tests added, or why none was feasible;
