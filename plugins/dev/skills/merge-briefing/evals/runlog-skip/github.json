@@ -1,0 +1,39 @@
+{
+ "pr": {
+  "title": "BAC-4412: One org-admin check for the bank account list",
+  "body": "<!-- agent-merge-briefing:start -->\n<!-- merge-briefing head={PARENT} challenge=ran -->\n## 🤖 Merge briefing · {PARENT7}\n\n- **Wrong:** the list view checked org-admin twice, and the two checks could drift; nobody has felt it yet.\n- **Change:** one `_is_org_admin` helper behind the queryset narrowing, the balance column and the export.\n- **Warranted: yes** — one view, the refactor the ticket asks for.\n- **Judgement calls:** no shared mixin; the name kept as `_is_org_admin`.\n- **Merge risk: moderate** — a permission path in use, fully revertible.\n- **Lane: human** — `payments/web/views/organization_bank_account_list_view.py` is a guarded path.\n- **Read first:** `_is_org_admin` and its root-group lookup.\n- **Also:** nothing.\n\n**Recommendation: merge** — green, nothing owed.\n<!-- agent-merge-briefing:end -->\n\n## Summary\n\n`OrganizationBankAccountListView` decided whether the requester is an org (root) admin in two places: inline in `get_queryset`, and in `_can_view_balance` for the balance column and the export. Both now call one `_is_org_admin` helper, so the two can't drift. No behaviour change.\n\nJira: [BAC-4412](https://hoopit.atlassian.net/browse/BAC-4412)\n\n## Test plan\n\n- `payments/tests/web/test_organization_bank_account_list_view.py` passes unchanged.\n\n## Run before merge\n\n- [x] `manage.py backfill_bank_account_balances --dry-run=false` against production — log in `docs/runs/BAC-4412-backfill.md`\n\n<!-- agent-ledger:start -->\n## 🤖 Agent ledger\n\n| Round | Item | Call | Why |\n| --- | --- | --- | --- |\n| 1 | Extract a mixin shared with the detail view | declined | only this view asks the question today |\n| 2 | CodeRabbit: rename `_is_org_admin` to `_is_root_admin` | declined | \"org admin\" is the domain term used across payments |\n<!-- agent-ledger:end -->\n",
+  "draft": true,
+  "labels": []
+ },
+ "checks": [
+  {
+   "name": "lint",
+   "conclusion": "success"
+  },
+  {
+   "name": "migrations-check",
+   "conclusion": "success"
+  }
+ ],
+ "statuses": [
+  {
+   "context": "ci/circleci: test",
+   "state": "success",
+   "description": "Your tests passed on CircleCI!"
+  },
+  {
+   "context": "codex-review",
+   "state": "success",
+   "description": "No issues found"
+  },
+  {
+   "context": "merge-briefing",
+   "state": "failure",
+   "description": "no briefing for this head"
+  }
+ ],
+ "required_checks": [
+  "ci/circleci: test",
+  "merge-briefing"
+ ]
+}
