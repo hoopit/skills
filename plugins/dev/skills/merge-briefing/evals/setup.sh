@@ -1,19 +1,24 @@
 #!/usr/bin/env bash
 # Every case briefs one open PR on hoopit/api: a change from changes/ committed over a pinned api
 # master on its own branch, pushed to a per-run origin, and a fake GitHub that holds the PR. The
-# fake is monitor-pr's (../../monitor-pr/evals/fake_github.py): it answers the PR, its diff and
-# files, the closing issues and the body PATCH from one state file, so the briefing the agent
-# writes is what the checks read back. The case's frontmatter and github.json pick it:
+# fake is monitor-pr's (../../monitor-pr/evals/fake_github.py), imported rather than copied: it is
+# behaviour, not case data, and one copy is what both suites' cases hold to GitHub's answers. It
+# answers the PR, its diff and files, the closing issues and the body PATCH from one state file,
+# so the briefing the agent writes is what the checks read back. The case's frontmatter and
+# github.json pick it:
 #   expect_change   the patches under changes/ the branch carries, one commit each, in order
 #   expect_runlog   1 — a run-log commit lands on top of them, the head a caller skips the
 #                   challenge on
 #   expect_branch   the PR branch, checked out in the fixture as the session's worktree
+#   expect_start    master — the session starts on master instead, so the challenge has to
+#                   check the head out beside it
 #   expect_pr       the PR number
 #   expect_codex    ran | fail — how codex-stub.py answers the merge-readiness challenge
 # github.json holds the PR in the fake's shape: title, body, checks, statuses, threads, closing
-# issues. `{HEAD}` in it is the head setup makes, `{PARENT}` that head's parent and `{PARENT7}`
-# its short sha, `{BASE}` the pinned master and `{PR}` the number. A case's codex-challenge.json,
-# when present, replaces the challenge's answer of no findings.
+# issues; a case without one takes the suite's. `{HEAD}` in it is the head setup makes,
+# `{PARENT}` that head's parent and `{PARENT7}` its short sha, `{BASE}` the pinned master and
+# `{PR}` the number. A case's codex-challenge.json, when present, replaces the challenge's answer
+# of no findings.
 set -euo pipefail
 
 PIN=403fda6846761580f20ef569188f1ce7dc6e351c
@@ -61,9 +66,13 @@ chmod +x "$EVAL_RUN_DIR/origin.git/hooks/post-receive"
 git push -q origin "HEAD:refs/heads/$EVAL_EXPECT_BRANCH"
 git branch -q --set-upstream-to="origin/$EVAL_EXPECT_BRANCH"
 head=$(git rev-parse HEAD)
+parent=$(git rev-parse HEAD^)
+[ "${EVAL_EXPECT_START:-}" = master ] && git checkout -q master
 
 mkdir -p "$EVAL_RUN_DIR/github"
-python3 - "$EVAL_CASE_DIR/github.json" "$EVAL_RUN_DIR/github/state.json" "$head" "$(git rev-parse HEAD^)" "$PIN" <<'EOF'
+case_json="$EVAL_CASE_DIR/github.json"
+[ -f "$case_json" ] || case_json="$SUITE/github.json"
+python3 - "$case_json" "$EVAL_RUN_DIR/github/state.json" "$head" "$parent" "$PIN" <<'EOF'
 import json, os, sys, time
 src, dst, head, parent, base = sys.argv[1:]
 env = os.environ
@@ -85,8 +94,8 @@ json.dump({
     "issues": case.get("issues", {}), "closing_issues": case.get("closing_issues", []),
     "required_checks": case.get("required_checks", []),
 }, open(dst, "w"), indent=1)
-# What the checks hold the body against: everything outside the briefing block must survive.
-open(os.path.join(os.path.dirname(dst), "body-before.md"), "w").write(pr["body"])
+# What the checks hold the PR against: everything but the briefing block must survive.
+json.dump(pr, open(os.path.join(os.path.dirname(dst), "pr-before.json"), "w"), indent=1)
 EOF
 
 shims="$EVAL_RUN_DIR/shims"

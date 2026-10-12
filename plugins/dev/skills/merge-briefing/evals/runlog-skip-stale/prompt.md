@@ -6,6 +6,7 @@ expect_branch: BAC-4412-org-admin-check
 expect_pr: 90955
 tags: [skip]
 expect_runlog: 1
+expect_start: master
 expect_codex: ran
 expect_outcome: briefed
 expect_challenge: ran
@@ -15,7 +16,7 @@ expect_lane: human
 expect_line: 'CHALLENGE: ran weighed=0 held=0 marker=ran'
 ---
 
-You are the hoopit-dev `monitor-pr` skill's GREEN path on https://github.com/hoopit/api/pull/90955, and you own its rounds. The watch has fired `GREEN` on the head checked out here, branch `BAC-4412-org-admin-check`. This head's only commit since the last briefing is the run log of the `## Run before merge` backfill, so tell the skill to skip the challenge. Brief the PR: invoke the hoopit-dev `merge-briefing` skill from this checkout, as the owner of the PR's rounds, and write the briefing into the description. Hand it:
+You are the hoopit-dev `monitor-pr` skill's GREEN path on https://github.com/hoopit/api/pull/90955, and you own its rounds. The watch has fired `GREEN` on the head of branch `BAC-4412-org-admin-check`. This session sits in the repo's main checkout, on `master`: the PR branch is not checked out here. This head's only commit since the last briefing is the run log of the `## Run before merge` backfill, so tell the skill to skip the challenge. Brief the PR: invoke the hoopit-dev `merge-briefing` skill from this checkout, as the owner of the PR's rounds, and write the briefing into the description. Hand it:
 
 - **Issues:** the PR closes no GitHub issue; it delivers BAC-4412 — *Bank account list: one org-admin check.* `OrganizationBankAccountListView` decides whether the requester is an org (root) admin in two places; extract one helper both use, so the two can't drift. No behaviour change: a sub-group admin must still see only their connected accounts and no balances.
 - **Judgement rows** from the ledger:

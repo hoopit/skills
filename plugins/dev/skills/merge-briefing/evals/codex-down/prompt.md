@@ -6,6 +6,7 @@ expect_branch: BAC-4412-org-admin-check
 expect_pr: 90952
 tags: [codex-down]
 expect_codex: fail
+expect_challenge: ran
 expect_outcome: briefed
 expect_marker: not-run
 expect_recommend: hold
