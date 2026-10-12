@@ -1,0 +1,49 @@
+{
+ "repo": "hoopit/api",
+ "number": 18420,
+ "head_ref": "BAC-4412-org-admin-check",
+ "base_ref": "master",
+ "title": "BAC-4412: One org-admin check for the bank account list",
+ "author": "kate-zublenko",
+ "body": "Extracts `_is_org_admin` so `get_queryset` and the balance column ask one question.\n\nJira: https://hoopit.atlassian.net/browse/BAC-4412",
+ "path": "payments/web/views/organization_bank_account_list_view.py",
+ "draft": true,
+ "labels": [
+  "agent-working",
+  "monitored"
+ ],
+ "threads": [
+  {
+   "id": "PRRT_kwDOBug0001",
+   "want": "resolved",
+   "comments": [
+    {
+     "id": 2410000101,
+     "user": "coderabbitai[bot]",
+     "anchor": "filter\\(pk=group\\.pk\\)",
+     "body": "_⚠️ Potential issue_ | _🟠 Major_\n\n**`_is_org_admin` compares against the requested group, not its root.**\n\nThe removed `_can_view_balance` checked `filter(pk=group.get_root().pk)`. This compares with `group.pk`, so a sub-group admin who requests the list with `group_id` set to the sub-group they manage passes as an org admin: `get_queryset` stops narrowing their accounts and the balance column and export open up to them.\n\n```diff\n-        return self.get_user().get_admin_groups().filter(pk=group.pk).exists()\n+        return self.get_user().get_admin_groups().filter(pk=group.get_root().pk).exists()\n```"
+    }
+   ]
+  },
+  {
+   "id": "PRRT_kwDOWrg0002",
+   "want": "resolved",
+   "comments": [
+    {
+     "id": 2410000102,
+     "user": "coderabbitai[bot]",
+     "anchor": "BankAccountsExportResource\\(can_view_balance",
+     "body": "_🛠️ Refactor suggestion_ | _🟡 Minor_\n\n**The export still reads the old helper.**\n\n`resource_class` builds the export with `self._can_view_balance()`, which this PR otherwise replaces with `_is_org_admin`. Switch it too, so the export and the JSON list cannot drift."
+    }
+   ]
+  }
+ ],
+ "reviews": [
+  {
+   "id": 3301000001,
+   "state": "CHANGES_REQUESTED",
+   "user": "coderabbitai[bot]",
+   "body": "**Actionable comments posted: 2**"
+  }
+ ]
+}

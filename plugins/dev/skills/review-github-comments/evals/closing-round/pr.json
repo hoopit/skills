@@ -1,0 +1,72 @@
+{
+ "repo": "hoopit/api",
+ "number": 18420,
+ "head_ref": "BAC-4412-org-admin-check",
+ "base_ref": "master",
+ "title": "BAC-4412: One org-admin check for the bank account list",
+ "author": "kate-zublenko",
+ "body": "Extracts `_is_org_admin` so `get_queryset` and the balance column ask one question.\n\nJira: https://hoopit.atlassian.net/browse/BAC-4412",
+ "path": "payments/web/views/organization_bank_account_list_view.py",
+ "draft": false,
+ "labels": [],
+ "threads": [
+  {
+   "id": "PRRT_kwDOOld0004",
+   "resolved": true,
+   "want": "untouched",
+   "comments": [
+    {
+     "id": 2409000201,
+     "user": "coderabbitai[bot]",
+     "anchor": "# Org \\(root\\) admins see every account",
+     "body": "_🧹 Nitpick_ | _🔵 Trivial_\n\nThe comment says what the method returns; say who is narrowed instead."
+    },
+    {
+     "id": 2409000202,
+     "in_reply_to_id": 2409000201,
+     "user": "kate-zublenko",
+     "anchor": "# Org \\(root\\) admins see every account",
+     "body": "Reworded in 1c0ffee: it now says who `get_queryset` narrows."
+    }
+   ]
+  },
+  {
+   "id": "PRRT_kwDOWrg0002",
+   "want": "resolved",
+   "comments": [
+    {
+     "id": 2410000102,
+     "user": "coderabbitai[bot]",
+     "anchor": "BankAccountsExportResource\\(can_view_balance",
+     "body": "_🛠️ Refactor suggestion_ | _🟡 Minor_\n\n**The export still reads the old helper.**\n\n`resource_class` builds the export with `self._can_view_balance()`, which this PR otherwise replaces with `_is_org_admin`. Switch it too, so the export and the JSON list cannot drift."
+    }
+   ]
+  },
+  {
+   "id": "PRRT_kwDOWrg0003",
+   "want": "resolved",
+   "comments": [
+    {
+     "id": 2410000103,
+     "user": "chatgpt-codex-connector[bot]",
+     "anchor": "if not self\\._is_org_admin\\(\\):",
+     "body": "**<sub><sub>![P2 Badge](https://img.shields.io/badge/P2-yellow?style=flat)</sub></sub>  `user` is unbound for org admins**\n\n`user = self.get_user()` moved inside the `if not self._is_org_admin()` branch. For an org admin the branch is skipped, and `get_queryset` reads `user` further down, which raises `UnboundLocalError`. Keep the assignment above the `if`."
+    }
+   ]
+  }
+ ],
+ "reviews": [
+  {
+   "id": 3301000001,
+   "state": "CHANGES_REQUESTED",
+   "user": "coderabbitai[bot]",
+   "body": "**Actionable comments posted: 2**"
+  },
+  {
+   "id": 3301000002,
+   "state": "CHANGES_REQUESTED",
+   "user": "ola-nordmann",
+   "body": "Hold this until the bank account detail view is ported too; I want them in one release."
+  }
+ ]
+}
