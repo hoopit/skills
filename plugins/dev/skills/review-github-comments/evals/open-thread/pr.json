@@ -1,0 +1,34 @@
+{
+ "repo": "hoopit/api",
+ "number": 18420,
+ "head_ref": "BAC-4412-org-admin-check",
+ "base_ref": "master",
+ "title": "BAC-4412: One org-admin check for the bank account list",
+ "author": "kate-zublenko",
+ "body": "Extracts `_is_org_admin` so `get_queryset` and the balance column ask one question.\n\nJira: https://hoopit.atlassian.net/browse/BAC-4412",
+ "path": "payments/web/views/organization_bank_account_list_view.py",
+ "draft": false,
+ "labels": [],
+ "threads": [
+  {
+   "id": "PRRT_kwDOAsk0005",
+   "want": "open",
+   "comments": [
+    {
+     "id": 2410000105,
+     "user": "ola-nordmann",
+     "anchor": "def _is_org_admin",
+     "body": "Finance asked last week for sub-group admins to see the balance of accounts that only their own groups use. If that's coming, `_is_org_admin` is the wrong question for the balance column and we'd want a separate `_can_view_balance` again. @lars-dahl owns that call, and he's back Monday. Don't change anything for it yet; leave this thread open until he answers."
+    }
+   ]
+  }
+ ],
+ "reviews": [
+  {
+   "id": 3301000001,
+   "state": "CHANGES_REQUESTED",
+   "user": "coderabbitai[bot]",
+   "body": "**Actionable comments posted: 2**"
+  }
+ ]
+}
