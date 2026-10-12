@@ -12,7 +12,7 @@ default, 100 at most), and only `--paginate` walks past the first page.
 Every call is recorded in `EVAL_CALLS`. A call this file does not know fails with
 `no mock for: <argv>`, as the runner's own shim does.
 """
-import json, os, re, subprocess, sys
+import fcntl, json, os, re, select, subprocess, sys
 from urllib.parse import parse_qs, urlsplit, unquote
 
 BOTS = {"coderabbitai[bot]", "chatgpt-codex-connector[bot]", "github-actions[bot]"}
@@ -54,7 +54,9 @@ class State:
         self.d = json.load(open(path))
 
     def save(self):
-        json.dump(self.d, open(self.path, "w"), indent=1)
+        tmp = self.path + ".tmp"
+        json.dump(self.d, open(tmp, "w"), indent=1)
+        os.replace(tmp, self.path)
 
     def root_of(self, comment_id):
         c = next((c for c in self.d["comments"] if c["id"] == comment_id), None)
@@ -91,6 +93,10 @@ def rest_review(r, s):
             "commit_id": s.d.get("head_sha", ""), "html_url": f"{pr_url(s)}#pullrequestreview-{r['id']}"}
 
 
+def review_decision(s):
+    return "CHANGES_REQUESTED" if any(r["state"] == "CHANGES_REQUESTED" for r in s.d["reviews"]) else "REVIEW_REQUIRED"
+
+
 def pr_url(s):
     return f"https://github.com/{s.d['repo']}/pull/{s.d['number']}"
 
@@ -124,6 +130,12 @@ def graphql(s, fields, query, paginate, slurp):
         return mutation(s, query, vars_)
     if "reviewThreads" not in query and "pullRequest" not in query:
         return None
+    if "reviewThreads" in query:
+        n = first_of(query, "reviewThreads", vars_)
+        if n is None:
+            return error("You must provide a `first` or `last` value to properly paginate the `reviewThreads` connection.")
+        if n > 100:
+            return error(f"Requesting {n} records on the `reviewThreads` connection exceeds the `first` limit of 100 records.")
     pages, after = [], vars_.get("endCursor")
     while True:
         page, nxt = pull_request(s, query, vars_, after)
@@ -161,7 +173,7 @@ def literal_after(query, conn, vars_, after):
 
 
 def pull_request(s, query, vars_, after):
-    n = min(first_of(query, "reviewThreads", vars_, 100), 100)
+    n = first_of(query, "reviewThreads", vars_, 100)
     cursor = literal_after(query, "reviewThreads", vars_, after)
     start = int(cursor) if cursor else 0
     threads = s.d["threads"][start:start + n]
@@ -183,7 +195,7 @@ def pull_request(s, query, vars_, after):
     has_next = end < len(s.d["threads"])
     pr = {"number": s.d["number"], "url": pr_url(s), "title": s.d["title"], "isDraft": s.d.get("draft", False),
           "headRefName": s.d["head_ref"], "baseRefName": s.d.get("base_ref", "master"), "state": "OPEN",
-          "reviewDecision": "CHANGES_REQUESTED" if any(r["state"] == "CHANGES_REQUESTED" for r in s.d["reviews"]) else "REVIEW_REQUIRED",
+          "reviewDecision": review_decision(s),
           "reviewThreads": {"totalCount": len(s.d["threads"]), "nodes": threads and nodes,
                             "pageInfo": {"hasNextPage": has_next, "endCursor": str(end) if threads else None}},
           "reviews": {"nodes": [{"id": f"PRR_{r['id']}", "databaseId": r["id"], "state": r["state"],
@@ -252,6 +264,9 @@ def rest(s, method, endpoint, fields, headers, paginate):
     """(pages, status). `pages` is a list of JSON bodies, or a str for a raw body."""
     url = urlsplit(endpoint.lstrip("/"))
     path, qs = url.path, {k: v[-1] for k, v in parse_qs(url.query).items()}
+    if method == "GET":
+        # gh sends a GET's fields as its query string.
+        qs.update({k: str(v) for k, v in fields.items()})
     repo = re.escape(s.d["repo"])
     num = str(s.d["number"])
     m = lambda pat: re.fullmatch(rf"repos/{repo}/{pat}", path)
@@ -309,15 +324,22 @@ def rest(s, method, endpoint, fields, headers, paginate):
         return [[{"name": l} for l in s.d["labels"]]], 200
     if m(rf"issues/{num}/comments"):
         if method == "GET":
-            return paged([], qs, paginate), 200
-        s.d["issue_comments"].append(fields.get("body", ""))
-        return [{"id": 5_000_000_001, "body": fields.get("body", "")}], 201
+            return paged([{"id": c["id"], "user": {"login": c["user"]}, "body": c["body"]}
+                          for c in s.d["issue_comments"]], qs, paginate), 200
+        c = issue_comment(s, fields.get("body", ""))
+        return [{"id": c["id"], "user": {"login": c["user"]}, "body": c["body"]}], 201
     if method == "POST" and (g := m(r"actions/workflows/([^/]+)/dispatches")):
         s.d["workflow_runs"].append({"workflow": g.group(1), "inputs": fields.get("inputs", {})})
         return [""], 204
     if method == "GET" and m(rf"commits/[^/]+/(check-runs|status)"):
         return [{"total_count": 0, "check_runs": [], "statuses": [], "state": "pending"}], 200
     return None
+
+
+def issue_comment(s, body):
+    c = {"id": 5_000_000_001 + len(s.d["issue_comments"]), "user": "kate-bot", "body": body}
+    s.d["issue_comments"].append(c)
+    return c
 
 
 def paged(items, qs, paginate):
@@ -360,10 +382,8 @@ STDIN = []
 
 
 def stdin():
-    """What the call piped in, read once and kept for its record in EVAL_CALLS."""
-    if not STDIN:
-        STDIN.append(sys.stdin.read())
-    return STDIN[0]
+    """What the call piped in; `main` reads it before anything else, as the runner's shim does."""
+    return STDIN[0] if STDIN else ""
 
 
 def typed(v):
@@ -460,9 +480,10 @@ def pr_json(s, fields):
             "state": "OPEN", "isDraft": s.d.get("draft", False), "headRefName": s.d["head_ref"],
             "headRefOid": r["head"]["sha"], "baseRefName": s.d.get("base_ref", "master"),
             "author": {"login": s.d.get("author", "kate-zublenko")}, "labels": [{"name": l} for l in s.d["labels"]],
-            "reviewDecision": "CHANGES_REQUESTED" if any(x["state"] == "CHANGES_REQUESTED" for x in s.d["reviews"]) else "REVIEW_REQUIRED",
+            "reviewDecision": review_decision(s),
             "reviews": [{"id": f"PRR_{x['id']}", "author": {"login": x["user"]}, "state": x["state"], "body": x.get("body", "")} for x in s.d["reviews"]],
-            "comments": [], "statusCheckRollup": [], "mergeable": "MERGEABLE", "mergeStateStatus": "BLOCKED"}
+            "comments": [{"author": {"login": c["user"]}, "body": c["body"]} for c in s.d["issue_comments"]],
+            "statusCheckRollup": [], "mergeable": "MERGEABLE", "mergeStateStatus": "BLOCKED"}
     return {k: full.get(k) for k in fields.split(",")}
 
 
@@ -497,7 +518,10 @@ def cli(s, argv):
         sys.stdout.write(pr_url(s) + "\n")
         return 0
     if pos[:2] == ["pr", "comment"]:
-        s.d["issue_comments"].append(f.get("--body") or f.get("-b") or "")
+        body = f.get("--body") or f.get("-b")
+        if body is None and "--body-file" in f:
+            body = stdin() if f["--body-file"] == "-" else open(f["--body-file"]).read()
+        issue_comment(s, body or "")
         return 0
     if pos[:2] == ["workflow", "run"] and len(pos) > 2:
         inputs = dict(v.partition("=")[::2] for n, v in flags if n in ("-f", "--raw-field", "-F", "--field"))
@@ -522,16 +546,25 @@ def cli(s, argv):
 
 def main(state_path, calls):
     argv = sys.argv[1:]
-    s = State(state_path)
-    try:
-        code = cli(s, argv)
-    finally:
-        with open(calls, "a") as fh:
-            fh.write(json.dumps({"tool": "gh", "argv": argv, "stdin": STDIN[0] if STDIN else None,
-                                 "cwd": os.getcwd()}) + "\n")
+    # Only stdin that is already there or closes: a call nobody pipes into must not hang on a
+    # pipe the agent's shell holds open.
+    if not sys.stdin.isatty() and select.select([sys.stdin], [], [], 1)[0]:
+        STDIN.append(sys.stdin.read())
+    # Parallel calls each load, change and save the whole state: one at a time, or a save
+    # drops another call's reply or resolve.
+    with open(state_path + ".lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        s = State(state_path)
+        try:
+            code = cli(s, argv)
+        finally:
+            with open(calls, "a") as fh:
+                fh.write(json.dumps({"tool": "gh", "argv": argv, "stdin": STDIN[0] if STDIN else None,
+                                     "cwd": os.getcwd()}) + "\n")
+        if code is not None:
+            s.save()
     if code is None:
         sys.exit(f"gh: no mock for: {' '.join(argv)}")
-    s.save()
     sys.exit(code)
 
 
