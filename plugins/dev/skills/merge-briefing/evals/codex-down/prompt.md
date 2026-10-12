@@ -4,7 +4,7 @@ timeout_seconds: 1200
 expect_change: org-admin-clean
 expect_branch: BAC-4412-org-admin-check
 expect_pr: 90952
-tags: [codex-down]
+tags: [briefed, codex-down]
 expect_codex: fail
 expect_challenge: ran
 expect_outcome: briefed

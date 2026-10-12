@@ -33,10 +33,6 @@ for line in pathlib.Path(env["EVAL_LOG"]).read_text(errors="replace").splitlines
         pass
 result = next((e for e in reversed(events) if e.get("type") == "result"), {}) or {}
 final = str(result.get("result") or "")
-uses = [c for e in events if e.get("type") == "assistant"
-        for c in (e.get("message") or {}).get("content") or []
-        if isinstance(c, dict) and c.get("type") == "tool_use"]
-bash = [str((u.get("input") or {}).get("command", "")) for u in uses if u.get("name") == "Bash"]
 calls = [json.loads(l) for l in pathlib.Path(env["EVAL_CALLS"]).read_text().splitlines() if l.strip()]
 gh = [c for c in calls if c["tool"] == "gh"]
 challenges = [c for c in calls if c["tool"] == "codex" and c["argv"][:1] == ["exec"] and "--output-schema" in c["argv"]]
@@ -84,12 +80,13 @@ elif outcome == "briefed":
         got = r.group(1).lower() if r else None
         say("PASS" if got == expect("risk") else "FAIL", "risk", f"want {expect('risk')}, got {got}")
     if expect("recommend"):
-        # The recommendation's own line: the Lane line above it can name "a recommendation to merge".
-        r = re.findall(r"^[\W_]*Recommend\w*\W+(?:[^\n]*?)\b(merge|hold)", block, re.I | re.M)
+        # The value right after the recommendation's own label: the Lane line above it can name "a
+        # recommendation to merge", and its reason can name the other value.
+        r = re.findall(r"^[\W_]*Recommend\w*\W+(merge|hold)\b", block, re.I | re.M)
         got = r[-1].lower() if r else None
         say("PASS" if got == expect("recommend") else "FAIL", "recommendation", f"want {expect('recommend')}, got {got}")
     if expect("lane"):
-        l = re.search(r"Lane\W+(?:[^\n]*?)\b(auto|human)\b", block, re.I)
+        l = re.search(r"Lane\W+(auto|human)\b", block, re.I)
         got = l.group(1).lower() if l else None
         say("PASS" if got == expect("lane") else "FAIL", "lane", f"want {expect('lane')}, got {got}")
         # lane-gate.sh is the one reader of the PR's files page by page.

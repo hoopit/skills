@@ -4,7 +4,7 @@ timeout_seconds: 1200
 expect_change: org-admin-clean
 expect_branch: BAC-4412-org-admin-check
 expect_pr: 90955
-tags: [skip]
+tags: [briefed, skip]
 expect_runlog: 1
 expect_start: master
 expect_codex: ran

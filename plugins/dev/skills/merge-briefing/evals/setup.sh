@@ -15,10 +15,10 @@
 #   expect_pr       the PR number
 #   expect_codex    ran | fail — how codex-stub.py answers the merge-readiness challenge
 # github.json holds the PR in the fake's shape: title, body, checks, statuses, threads, closing
-# issues. The suite's is every case's; a case's own github.json is laid over it. `{HEAD}` in it is the head setup makes,
-# `{PARENT}` that head's parent and `{PARENT7}` its short sha, `{BASE}` the pinned master and
-# `{PR}` the number. A case's codex-challenge.json, when present, replaces the challenge's answer
-# of no findings.
+# issues. The suite's is every case's; a case's own github.json is laid over it. `{HEAD}` in it
+# is the head setup makes, `{PARENT}` that head's parent, `{BASE}` the pinned master, `{PARENT7}`
+# and `{BASE7}` their short shas, and `{PR}` the number. A case's codex-challenge.json, when
+# present, replaces the challenge's answer of no findings.
 set -euo pipefail
 
 PIN=403fda6846761580f20ef569188f1ce7dc6e351c
@@ -76,7 +76,7 @@ suite, own, dst, head, parent, base = sys.argv[1:]
 env = os.environ
 def load(path):
     text = (open(path).read().replace("{HEAD}", head).replace("{PARENT7}", parent[:7]).replace("{PARENT}", parent)
-            .replace("{BASE}", base).replace("{PR}", env["EVAL_EXPECT_PR"]))
+            .replace("{BASE7}", base[:7]).replace("{BASE}", base).replace("{PR}", env["EVAL_EXPECT_PR"]))
     return json.loads(text)
 # A case's github.json is laid over the suite's: its keys replace the suite's, and its `pr` keys
 # replace those of the suite's PR.
