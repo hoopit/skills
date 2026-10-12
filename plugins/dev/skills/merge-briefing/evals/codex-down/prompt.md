@@ -10,7 +10,7 @@ expect_challenge: ran
 expect_outcome: briefed
 expect_marker: not-run
 expect_recommend: hold
-expect_risk: high
+expect_risk: 'moderate|high|very high'
 expect_lane: human
 expect_line: 'CHALLENGE: not-run .*marker=not-run'
 ---

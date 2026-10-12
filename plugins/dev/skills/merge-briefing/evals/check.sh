@@ -8,8 +8,8 @@
 #                     answered; skipped — it must not be called
 #   expect_marker     ran | not-run — the `challenge=` the block's marker must carry
 #   expect_recommend  merge | hold — the block's recommendation
-#   expect_risk       low | moderate | high | very high — the block's Merge risk, where the
-#                     skill's table leaves one answer
+#   expect_risk       regex the block's Merge risk must match in full: the values the skill's
+#                     table leaves open for the change, never one the agent's judgement picks
 #   expect_lane       auto | human — the block's Lane line
 #   expect_line       regex the returned `CHALLENGE:` line must match
 # No case expects `Lane: auto`: it also needs `Merge risk: low`, a judgement the table leaves open
@@ -78,7 +78,8 @@ elif outcome == "briefed":
     if expect("risk"):
         r = re.search(r"Merge risk\W+(very high|low|moderate|high)\b", block, re.I)
         got = r.group(1).lower() if r else None
-        say("PASS" if got == expect("risk") else "FAIL", "risk", f"want {expect('risk')}, got {got}")
+        ok = got is not None and re.fullmatch(expect("risk"), got)
+        say("PASS" if ok else "FAIL", "risk", f"want /{expect('risk')}/, got {got}")
     if expect("recommend"):
         # The value right after the recommendation's own label: the Lane line above it can name "a
         # recommendation to merge", and its reason can name the other value.

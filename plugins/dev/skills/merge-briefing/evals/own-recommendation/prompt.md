@@ -10,7 +10,7 @@ expect_outcome: briefed
 expect_challenge: ran
 expect_marker: ran
 expect_recommend: hold
-expect_risk: high
+expect_risk: 'moderate|high|very high'
 expect_lane: human
 expect_line: 'CHALLENGE: ran weighed=0 held=0 marker=ran'
 ---
