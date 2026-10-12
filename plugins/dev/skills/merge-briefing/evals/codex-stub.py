@@ -4,7 +4,8 @@
 #
 # Modes: `ran` answers with the review and challenge in codex.json, `fail` exits 1 the way an
 # expired Codex login does. The real CLI would spend minutes and a Codex quota per run, and would
-# answer differently run to run.
+# answer differently run to run. Each suite keeps its own copy: the modes and what a call records
+# are what that suite's checks grade.
 import json, os, select, subprocess, sys
 
 conf = json.load(open(os.path.realpath(__file__) + ".json"))

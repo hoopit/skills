@@ -15,7 +15,7 @@
 #   expect_pr       the PR number
 #   expect_codex    ran | fail — how codex-stub.py answers the merge-readiness challenge
 # github.json holds the PR in the fake's shape: title, body, checks, statuses, threads, closing
-# issues; a case without one takes the suite's. `{HEAD}` in it is the head setup makes,
+# issues. The suite's is every case's; a case's own github.json is laid over it. `{HEAD}` in it is the head setup makes,
 # `{PARENT}` that head's parent and `{PARENT7}` its short sha, `{BASE}` the pinned master and
 # `{PR}` the number. A case's codex-challenge.json, when present, replaces the challenge's answer
 # of no findings.
@@ -70,15 +70,20 @@ parent=$(git rev-parse HEAD^)
 [ "${EVAL_EXPECT_START:-}" = master ] && git checkout -q master
 
 mkdir -p "$EVAL_RUN_DIR/github"
-case_json="$EVAL_CASE_DIR/github.json"
-[ -f "$case_json" ] || case_json="$SUITE/github.json"
-python3 - "$case_json" "$EVAL_RUN_DIR/github/state.json" "$head" "$parent" "$PIN" <<'EOF'
+python3 - "$SUITE/github.json" "$EVAL_CASE_DIR/github.json" "$EVAL_RUN_DIR/github/state.json" "$head" "$parent" "$PIN" <<'EOF'
 import json, os, sys, time
-src, dst, head, parent, base = sys.argv[1:]
+suite, own, dst, head, parent, base = sys.argv[1:]
 env = os.environ
-text = (open(src).read().replace("{HEAD}", head).replace("{PARENT7}", parent[:7]).replace("{PARENT}", parent)
-        .replace("{BASE}", base).replace("{PR}", env["EVAL_EXPECT_PR"]))
-case = json.loads(text)
+def load(path):
+    text = (open(path).read().replace("{HEAD}", head).replace("{PARENT7}", parent[:7]).replace("{PARENT}", parent)
+            .replace("{BASE}", base).replace("{PR}", env["EVAL_EXPECT_PR"]))
+    return json.loads(text)
+# A case's github.json is laid over the suite's: its keys replace the suite's, and its `pr` keys
+# replace those of the suite's PR.
+case = load(suite)
+over = load(own) if os.path.isfile(own) else {}
+case["pr"].update(over.pop("pr", {}))
+case.update(over)
 now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 3600))
 pr = case["pr"]
 pr.setdefault("draft", True)
@@ -112,15 +117,15 @@ chmod +x "$shims/gh"
 
 { echo "#!$python"; cat "$SUITE/codex-stub.py"; } >"$shims/codex"
 chmod +x "$shims/codex"
-python3 - "$shims/codex.json" <<EOF
+python3 - "$shims/codex.json" "$EVAL_CASE_DIR/codex-challenge.json" "$EVAL_CALLS" "${EVAL_EXPECT_CODEX:-ran}" <<'EOF'
 import json, os, sys
-challenge = "$EVAL_CASE_DIR/codex-challenge.json"
+out, challenge, calls, mode = sys.argv[1:]
 json.dump({
-    "calls": "$EVAL_CALLS",
-    "mode": "${EVAL_EXPECT_CODEX:-ran}",
+    "calls": calls,
+    "mode": mode,
     "review": "I did not find any discrete, actionable bugs introduced by this change.\n",
     "challenge": open(challenge).read() if os.path.isfile(challenge)
                  else json.dumps({"verdict": "approve", "summary": "No material concerns with the approach.",
                                   "findings": [], "next_steps": []}),
-}, open(sys.argv[1], "w"))
+}, open(out, "w"))
 EOF
