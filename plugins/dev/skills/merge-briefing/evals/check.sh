@@ -90,8 +90,9 @@ elif outcome == "briefed":
         l = re.search(r"Lane\W+(auto|human)\b", block, re.I)
         got = l.group(1).lower() if l else None
         say("PASS" if got == expect("lane") else "FAIL", "lane", f"want {expect('lane')}, got {got}")
-        # lane-gate.sh is the one reader of the PR's files page by page.
-        ran = any(c["argv"][:1] == ["api"] and "--paginate" in c["argv"] and any("/files" in a for a in c["argv"]) for c in gh)
+        # lane-gate.sh's own read of the changed files: paginated, both names of a rename.
+        ran = any(c["argv"][:1] == ["api"] and "--paginate" in c["argv"] and any("/files" in a for a in c["argv"])
+                  and any("previous_filename" in a for a in c["argv"]) for c in gh)
         say("PASS" if ran else "FAIL", "lane_gate_ran", "no paginated read of the PR's files, as lane-gate.sh makes")
 
 if expect("challenge") == "ran":
