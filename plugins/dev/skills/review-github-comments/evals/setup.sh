@@ -29,17 +29,10 @@ for change in $EVAL_EXPECT_CHANGE; do
     git -c user.name="Kari Nordmann" -c user.email="kari@hoopit.io" commit -q -F "$SUITE/changes/$change.msg"
 done
 git push -q -u origin "$EVAL_EXPECT_BRANCH"
-git rev-parse HEAD >"$EVAL_RUN_DIR/pr-head"
 
 # The PR as GitHub holds it, its comments anchored to lines of the file at the PR head.
 state="$EVAL_RUN_DIR/github.json"
-path=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["path"])' "$EVAL_CASE_DIR/pr.json")
-python3 "$SUITE/github.py" init "$EVAL_CASE_DIR/pr.json" "$state" "$path"
-python3 - "$state" "$(git rev-parse HEAD)" <<'EOF'
-import json, sys
-d = json.load(open(sys.argv[1])); d["head_sha"] = sys.argv[2]
-json.dump(d, open(sys.argv[1], "w"), indent=1)
-EOF
+python3 "$SUITE/github.py" init "$EVAL_CASE_DIR/pr.json" "$state" "$(git rev-parse HEAD)"
 
 shims="$EVAL_RUN_DIR/shims"
 cat >"$shims/gh" <<PY

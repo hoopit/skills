@@ -1,6 +1,6 @@
 """A stateful stand-in for GitHub behind the run's `gh`, for one PR; `setup.sh` installs it.
 
-    python3 github.py init <pr.json> <state.json> <file>   resolve each comment's anchor to a line
+    python3 github.py init <pr.json> <state.json> <head-sha>   the PR at its head, from the fixture
     gh ...                                                  every other call, through the gh shim
 
 The PR's threads, comments and reviews come from the case's `pr.json`. Reads answer from
@@ -20,9 +20,10 @@ BOTS = {"coderabbitai[bot]", "chatgpt-codex-connector[bot]", "github-actions[bot
 
 # ---- state --------------------------------------------------------------------------
 
-def init(pr_path, state_path, path_file):
+def init(pr_path, state_path, head_sha):
+    """Resolve each comment's anchor to a line of `path` as it stands in the cwd."""
     pr = json.load(open(pr_path))
-    lines = open(path_file).read().splitlines()
+    lines = open(pr["path"]).read().splitlines()
     comments, threads = [], []
     for t in pr["threads"]:
         threads.append({"id": t["id"], "isResolved": t.get("resolved", False), "want": t.get("want")})
@@ -43,7 +44,7 @@ def init(pr_path, state_path, path_file):
     json.dump({**{k: v for k, v in pr.items() if k not in ("threads", "filler_resolved")},
                "threads": threads, "comments": comments, "labels": list(pr.get("labels", [])),
                "replies": [], "resolves": [], "dismissals": [], "workflow_runs": [],
-               "label_ops": [], "draft_ops": [], "issue_comments": []},
+               "label_ops": [], "draft_ops": [], "issue_comments": [], "head_sha": head_sha},
               open(state_path, "w"), indent=1)
 
 
@@ -127,7 +128,11 @@ def graphql(s, fields, query, paginate, slurp):
     while True:
         page, nxt = pull_request(s, query, vars_, after)
         pages.append(page)
-        if not (paginate and "$endCursor" in query and nxt):
+        # gh follows the cursor only when the query takes $endCursor and selects both
+        # pageInfo fields it reads.
+        follows = "$endCursor" in query and re.search(r"pageInfo\s*\{[^}]*hasNextPage[^}]*\}", query) \
+            and re.search(r"pageInfo\s*\{[^}]*endCursor[^}]*\}", query)
+        if not (paginate and follows and nxt):
             break
         after = nxt
     return pages
@@ -187,14 +192,20 @@ def pull_request(s, query, vars_, after):
 
 
 def mutation(s, query, vars_):
-    def arg(name):
-        m = re.search(name + r"\s*:\s*(\"[^\"]*\"|\$\w+|\d+)", query)
-        if not m:
-            return vars_.get(name)
-        v = m.group(1)
-        return vars_.get(v[1:]) if v.startswith("$") else v.strip('"')
     out = {}
-    for op in re.findall(r"(\w+)\s*\(\s*input\s*:", query):
+    # One block per operation, aliased or not: `a: resolveReviewThread(input: {threadId: "X"})`.
+    ops = re.finditer(r"(?:(\w+)\s*:\s*)?(\w+)\s*\(\s*input\s*:\s*(\{[^}]*\}|\$\w+)", query)
+    for alias, op, block in ((m.group(1), m.group(2), m.group(3)) for m in ops):
+        given = vars_.get(block[1:]) if block.startswith("$") else None
+        def arg(name):
+            if isinstance(given, dict):
+                return given.get(name)
+            m = re.search(name + r"\s*:\s*(\"[^\"]*\"|\$\w+|\d+)", block)
+            if not m:
+                return None
+            v = m.group(1)
+            return vars_.get(v[1:]) if v.startswith("$") else v.strip('"')
+        key = alias or op
         if op in ("resolveReviewThread", "unresolveReviewThread"):
             tid = arg("threadId")
             t = next((t for t in s.d["threads"] if t["id"] == tid), None)
@@ -202,28 +213,28 @@ def mutation(s, query, vars_):
                 return error(f"Could not resolve to a node with the global id of '{tid}'")
             t["isResolved"] = op == "resolveReviewThread"
             s.d["resolves"].append({"thread": tid, "op": op})
-            out[op] = {"thread": {"id": tid, "isResolved": t["isResolved"]}}
+            out[key] = {"thread": {"id": tid, "isResolved": t["isResolved"]}}
         elif op == "addPullRequestReviewThreadReply":
             tid = arg("pullRequestReviewThreadId")
             root = next((c for c in s.d["comments"] if c["thread"] == tid), None)
             if not root:
                 return error(f"Could not resolve to a node with the global id of '{tid}'")
             new = s.reply(root["id"], arg("body") or "", "graphql")
-            out[op] = {"comment": {"id": f"PRRC_{new['id']}", "databaseId": new["id"]}}
+            out[key] = {"comment": {"id": f"PRRC_{new['id']}", "databaseId": new["id"]}}
         elif op == "dismissPullRequestReview":
             rid = str(arg("pullRequestReviewId") or "")
             r = next((r for r in s.d["reviews"] if f"PRR_{r['id']}" == rid or str(r["id"]) == rid), None)
             if not r:
                 return error(f"Could not resolve to a node with the global id of '{rid}'")
             dismiss(s, r, arg("message") or "")
-            out[op] = {"pullRequestReview": {"state": "DISMISSED"}}
+            out[key] = {"pullRequestReview": {"state": "DISMISSED"}}
         elif op in ("convertPullRequestToDraft", "markPullRequestReadyForReview"):
             s.d["draft"] = op == "convertPullRequestToDraft"
             s.d["draft_ops"].append(op)
-            out[op] = {"pullRequest": {"isDraft": s.d["draft"]}}
+            out[key] = {"pullRequest": {"isDraft": s.d["draft"]}}
         else:
             return None
-    return [{"data": out}]
+    return [{"data": out}] if out else None
 
 
 def error(msg):
@@ -255,10 +266,10 @@ def rest(s, method, endpoint, fields, headers, paginate):
         c = next((c for c in s.d["comments"] if c["id"] == int(g.group(1))), None)
         return ([rest_comment(c, s)], 200) if c else not_found()
     if method == "POST" and m(rf"pulls/{num}/comments") and "in_reply_to" in fields:
-        try:
-            target = int(fields["in_reply_to"])
-        except (TypeError, ValueError):
-            return [{"message": "Invalid request.\n\nFor 'properties/in_reply_to', \"%s\" is not an integer." % fields["in_reply_to"],
+        # `-f` sends a string, and GitHub takes only an integer here.
+        target = fields["in_reply_to"]
+        if not isinstance(target, int) or isinstance(target, bool):
+            return [{"message": "Invalid request.\n\nFor 'properties/in_reply_to', \"%s\" is not an integer." % target,
                      "status": "422"}], 422
         new = s.reply(target, fields.get("body", ""), "rest")
         return ([rest_comment(new, s)], 201) if new else not_found()
@@ -345,9 +356,19 @@ def parse(argv):
     return flags, pos
 
 
+STDIN = []
+
+
+def stdin():
+    """What the call piped in, read once and kept for its record in EVAL_CALLS."""
+    if not STDIN:
+        STDIN.append(sys.stdin.read())
+    return STDIN[0]
+
+
 def typed(v):
     if isinstance(v, str) and v.startswith("@"):
-        return sys.stdin.read() if v == "@-" else open(v[1:]).read()
+        return stdin() if v == "@-" else open(v[1:]).read()
     if re.fullmatch(r"-?\d+", v):
         return int(v)
     return {"true": True, "false": False, "null": None}.get(v, v)
@@ -398,7 +419,7 @@ def api(s, argv):
             k, _, val = v.partition("=")
             put(fields, k, typed(val))
         elif name == "--input":
-            fields.update(json.loads(sys.stdin.read() if v == "-" else open(v).read()))
+            fields.update(json.loads(stdin() if v == "-" else open(v).read()))
         elif name in ("-X", "--method"):
             method = v.upper()
         elif name in ("-H", "--header"):
@@ -501,10 +522,13 @@ def cli(s, argv):
 
 def main(state_path, calls):
     argv = sys.argv[1:]
-    with open(calls, "a") as fh:
-        fh.write(json.dumps({"tool": "gh", "argv": argv, "stdin": None, "cwd": os.getcwd()}) + "\n")
     s = State(state_path)
-    code = cli(s, argv)
+    try:
+        code = cli(s, argv)
+    finally:
+        with open(calls, "a") as fh:
+            fh.write(json.dumps({"tool": "gh", "argv": argv, "stdin": STDIN[0] if STDIN else None,
+                                 "cwd": os.getcwd()}) + "\n")
     if code is None:
         sys.exit(f"gh: no mock for: {' '.join(argv)}")
     s.save()
