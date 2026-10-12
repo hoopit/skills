@@ -123,6 +123,8 @@ if E("FOLLOWUP") == "1":
     say("PASS" if filed else "FAIL", "followup_filed", "" if filed else "no gh issue create")
 
 if E("TEAM"):
+    # Any team endpoint counts: a case's `members` mock agrees with its `memberships` one,
+    # and the paired cases' draft and monitor checks judge what the agent did with it.
     probe = f"teams/{E('TEAM')}/"
     gh = [c["argv"] for c in pr_state._calls(os.environ["EVAL_CALLS"]) if c.get("tool") == "gh"]
     looked = [i for i, a in enumerate(gh) if a[:1] == ["api"] and probe in " ".join(a)]

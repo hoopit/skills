@@ -168,7 +168,8 @@ board, and one opened ready never emits `ready_for_review` — the hand-off even
 
 ### Open it
 
-Open the PR with the GitHub CLI, from inside the worktree — `--draft` as decided above:
+Open the PR with the GitHub CLI, from inside the worktree. Drop the `--draft` line when
+the decision above opens the PR ready:
 
 ```bash
 cd "$WORKTREE_DIR"   # if working in a worktree
