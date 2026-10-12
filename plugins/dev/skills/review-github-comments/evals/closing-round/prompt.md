@@ -7,7 +7,7 @@ expect_branch: BAC-4412-org-admin-check
 expect_mode: standalone
 expect_push: 0
 expect_commits: 0
-expect_workflow: 0
+expect_workflow: 1
 expect_dismissed: 3301000001
 expect_kept: 3301000002
 ---

@@ -180,8 +180,7 @@ After processing all comments:
 ### 5a. Trigger a fresh Codex review if nothing was pushed
 If the run produced **no push** (no code changed), the reviewers have nothing new to look
 at — start another review round yourself. A thread you left `open` is no reason to hold
-it back; the reviewers work on the head, and the head is unchanged either way. A closing
-round is the exception: it opens no review of its own. Every other no-push round runs:
+it back; the reviewers work on the head, and the head is unchanged either way:
 ```bash
 gh workflow run codex-review-manual.yml -f pr=<pr_number> --repo <owner>/<repo>
 ```

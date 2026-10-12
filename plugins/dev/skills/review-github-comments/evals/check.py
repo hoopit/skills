@@ -4,8 +4,8 @@
     expect_fixed       1 when the planted defect must be gone from the branch
     expect_push        1 when the fix must reach origin, 0 when the branch there must not move
     expect_commits     0 when the round commits nothing, 1 when it commits
-    expect_workflow    1 when the round must start the Codex re-review, 0 when it must not: a
-                       round that pushed, a caller-owned one and a closing round never do
+    expect_workflow    1 when the round must start the Codex re-review (a standalone round that
+                       pushed nothing), 0 when it must not (one that pushed, or a caller-owned one)
     expect_dismissed   review ids that must end dismissed
     expect_dismissal   regex the dismissal message must match
     expect_kept        review ids that must not be dismissed
@@ -52,7 +52,10 @@ def fixed(rev):
     """`_is_org_admin` compares against the root, however the fix spells it."""
     src = git("show", f"{rev}:{path}")
     body = re.search(r"def _is_org_admin\b[\s\S]*?(?=\n    def |\Z)", src)
-    return bool(body) and "filter(pk=group.pk)" not in body.group() and "get_root()" in body.group()
+    if not body or "get_root()" not in body.group():
+        return False
+    # `group.pk` is the defect unless the fix rebound `group` to the root.
+    return "filter(pk=group.pk)" not in body.group() or bool(re.search(r"\bgroup\s*=.*get_root\(\)", body.group()))
 
 if expect("fixed") == "1":
     say(fixed("HEAD"), "defect_fixed", f"HEAD's {path} still compares against group.pk")
