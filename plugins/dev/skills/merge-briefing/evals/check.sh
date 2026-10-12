@@ -4,11 +4,17 @@
 # what applies:
 #   expect_outcome    briefed — one briefing block at the top of the body, the rest of the body as
 #                     it was; held — `HELD:` returned and the body untouched
-#   expect_challenge  ran — the challenge ran on this head; skipped — it must not run
+#   expect_challenge  ran — Codex was called for the challenge on this head, whether or not it
+#                     answered; skipped — it must not be called
 #   expect_marker     ran | not-run — the `challenge=` the block's marker must carry
 #   expect_recommend  merge | hold — the block's recommendation
+#   expect_risk       low | moderate | high | very high — the block's Merge risk, where the
+#                     skill's table leaves one answer
 #   expect_lane       auto | human — the block's Lane line
 #   expect_line       regex the returned `CHALLENGE:` line must match
+# No case expects `Lane: auto`: it also needs `Merge risk: low`, a judgement the table leaves open
+# for any change small enough to be low, so an auto case would grade the agent's taste in risk.
+# Every case's change sits on a guarded path, and `human` there is lane-gate.sh's to settle.
 python3 - <<'EOF'
 import json, os, pathlib, re, subprocess
 
@@ -73,16 +79,22 @@ elif outcome == "briefed":
                                           ("Merge risk", "low|moderate|high|very high"))
                if not re.search(rf"{name}\W+(?:{values})\b", block, re.I)]
     say("FAIL" if missing else "PASS", "ratings_present", f"no rated {' or '.join(missing)} line")
-    if expect("recommend"):
-        r = re.search(r"recommend\w*\W+(?:[^\n]*?)\b(merge|hold)", block, re.I)
+    if expect("risk"):
+        r = re.search(r"Merge risk\W+(very high|low|moderate|high)\b", block, re.I)
         got = r.group(1).lower() if r else None
+        say("PASS" if got == expect("risk") else "FAIL", "risk", f"want {expect('risk')}, got {got}")
+    if expect("recommend"):
+        # The recommendation's own line: the Lane line above it can name "a recommendation to merge".
+        r = re.findall(r"^[\W_]*Recommend\w*\W+(?:[^\n]*?)\b(merge|hold)", block, re.I | re.M)
+        got = r[-1].lower() if r else None
         say("PASS" if got == expect("recommend") else "FAIL", "recommendation", f"want {expect('recommend')}, got {got}")
     if expect("lane"):
         l = re.search(r"Lane\W+(?:[^\n]*?)\b(auto|human)\b", block, re.I)
         got = l.group(1).lower() if l else None
         say("PASS" if got == expect("lane") else "FAIL", "lane", f"want {expect('lane')}, got {got}")
-        ran = any("lane-gate.sh" in c for c in bash)
-        say("PASS" if ran else "FAIL", "lane_gate_ran", "lane-gate.sh never ran")
+        # lane-gate.sh is the one reader of the PR's files page by page.
+        ran = any(c["argv"][:1] == ["api"] and "--paginate" in c["argv"] and any("/files" in a for a in c["argv"]) for c in gh)
+        say("PASS" if ran else "FAIL", "lane_gate_ran", "no paginated read of the PR's files, as lane-gate.sh makes")
 
 if expect("challenge") == "ran":
     on_head = [c for c in challenges if c.get("head") == head]

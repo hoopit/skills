@@ -11,6 +11,7 @@ expect_outcome: briefed
 expect_challenge: skipped
 expect_marker: ran
 expect_recommend: merge
+expect_risk: high
 expect_lane: human
 expect_line: 'CHALLENGE: skipped .*marker=ran'
 ---
