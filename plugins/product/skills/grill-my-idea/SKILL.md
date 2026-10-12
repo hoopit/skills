@@ -1,6 +1,6 @@
 ---
 name: grill-my-idea
-description: Grilling session that challenges your plan against the existing domain model and sharpens terminology. Use when user wants to stress-test a plan against their project's language and documented decisions.
+description: Grilling session that challenges the user's plan against the existing domain model and sharpens terminology. Use when user wants to stress-test a plan against their project's language and documented decisions.
 ---
 
 <what-to-do>

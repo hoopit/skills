@@ -97,7 +97,7 @@ Product work: stress-test plans and ideas against the domain model, sharpen term
 
 | Skill | Invoke | Description |
 |-------|--------|-------------|
-| `grill-my-idea` | Auto | Grilling session that challenges your plan against the existing domain model and sharpens terminology. |
+| `grill-my-idea` | Auto | Grilling session that challenges the user's plan against the existing domain model and sharpens terminology. |
 
 #### `github-tracker`
 
@@ -108,9 +108,9 @@ An agent work tracker on a GitHub project board: file triaged issues, triage and
 | `assess-issue` | Auto | Decides whether one issue is worth fixing — prices the fix, measures the harm against live data, then closes it with the findings or ships it. |
 | `create-gh-issue` | Auto | File a triaged GitHub issue. |
 | `curate-backlog` | Manual | Clean up the agent tracker board — duplicates, merges, stale and invalid issues, missing triage. |
-| `gh-followup` | Manual | Work the board's Manual and Waiting buckets — re-test each blocker, convert what the board can hold itself, walk what only you can do, and summarise what the rest waits for. |
+| `gh-followup` | Manual | Works the board's Manual and Waiting buckets — re-tests each blocker, converts what the board can hold itself, walks the user through what only they can do, and summarises what the rest waits for. |
 | `gh-triage` | Manual | Triage the backlog with the user — fill missing fields, collapse the false decisions, grill the real ones, until every item is Unattended. |
-| `setup-gh-tracker` | Manual | Set up your GitHub tracker board and config. |
+| `setup-gh-tracker` | Manual | Sets up the user's GitHub tracker board and config. |
 <!-- END generated skills -->
 
 The onboarding skills clone their project repo as a **sibling** of wherever you run

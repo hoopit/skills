@@ -1,6 +1,6 @@
 ---
 name: gh-followup
-description: Work the board's Manual and Waiting buckets — re-test each blocker, convert what the board can hold itself, walk what only you can do, and summarise what the rest waits for.
+description: Works the board's Manual and Waiting buckets — re-tests each blocker, converts what the board can hold itself, walks the user through what only they can do, and summarises what the rest waits for.
 argument-hint: "[repo#n] — start with this item, instead of the top of the bucket"
 disable-model-invocation: true
 ---

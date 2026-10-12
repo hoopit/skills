@@ -1,6 +1,6 @@
 ---
 name: setup-gh-tracker
-description: Set up your GitHub tracker board and config.
+description: Sets up the user's GitHub tracker board and config.
 disable-model-invocation: true
 ---
 
