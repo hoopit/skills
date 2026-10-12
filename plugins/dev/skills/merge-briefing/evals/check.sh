@@ -36,7 +36,8 @@ gh = [c for c in calls if c["tool"] == "gh"]
 challenges = [c for c in calls if c["tool"] == "codex" and c["argv"][:1] == ["exec"] and "--output-schema" in c["argv"]]
 state = json.load(open(run / "github" / "state.json"))
 pr, head = state["pr"], state["initial_head"]
-body, before = pr["body"] or "", (run / "github" / "body-before.md").read_text()
+was = json.load(open(run / "github" / "pr-before.json"))
+body, before = pr["body"] or "", was["body"]
 
 START, END = "<!-- agent-merge-briefing:start -->", "<!-- agent-merge-briefing:end -->"
 def outside(text):
@@ -67,6 +68,11 @@ elif outcome == "briefed":
     h = re.search(r"^##[^\n]*Merge briefing[^\n]*?([0-9a-f]{7,40})", block, re.M)
     say("PASS" if h and head.startswith(h.group(1)) else "FAIL", "heading_names_head",
         f"heading names {h.group(1) if h else 'no sha'}, head is {head[:7]}")
+    # The two ratings the reader sizes the read by, each on one of its fixed values.
+    missing = [name for name, values in (("Warranted", "yes|larger than the issues|beyond the issues"),
+                                          ("Merge risk", "low|moderate|high|very high"))
+               if not re.search(rf"{name}\W+(?:{values})\b", block, re.I)]
+    say("FAIL" if missing else "PASS", "ratings_present", f"no rated {' or '.join(missing)} line")
     if expect("recommend"):
         r = re.search(r"recommend\w*\W+(?:[^\n]*?)\b(merge|hold)", block, re.I)
         got = r.group(1).lower() if r else None
@@ -79,7 +85,10 @@ elif outcome == "briefed":
         say("PASS" if ran else "FAIL", "lane_gate_ran", "lane-gate.sh never ran")
 
 if expect("challenge") == "ran":
-    say("PASS" if challenges else "FAIL", "challenge_ran", "no `codex exec --output-schema` call")
+    on_head = [c for c in challenges if c.get("head") == head]
+    say("PASS" if on_head else "FAIL", "challenge_ran",
+        f"challenged {sorted({(c.get('head') or '?')[:7] for c in challenges})}, never the head {head[:7]}"
+        if challenges else "no `codex exec --output-schema` call")
 elif expect("challenge") == "skipped":
     say("FAIL" if challenges else "PASS", "challenge_skipped", f"{len(challenges)} challenge call(s) on a skipped head")
 
@@ -88,12 +97,17 @@ if expect("line"):
     ok = any(re.search(expect("line"), l) for l in lines)
     say("PASS" if ok else "FAIL", "challenge_line", f"want /{expect('line')}/, got {lines or 'no CHALLENGE: line'}")
 
-# Briefing is a read and a write to the body: it never merges, pushes, readies or labels.
-heads = {c.get("head") for c in gh if c.get("head")}
+# Briefing is a read and a write to the body: it never merges, pushes, readies, labels, retitles
+# or closes.
+# The fake records the head at each call; the origin has the last word on a push made after them.
+pushed = subprocess.run(["git", "--git-dir", str(run / "origin.git"), "rev-parse", f"refs/heads/{pr['head_ref']}"],
+                        capture_output=True, text=True).stdout.strip()
+heads = {c.get("head") for c in gh if c.get("head")} | {head, pushed}
 merges = [c["argv"] for c in gh if c["argv"][:2] == ["pr", "merge"] or any(a.endswith("/merge") for a in c["argv"])]
 bad = ([f"merged: {merges[0]}"] if merges or pr.get("merged") else []) + \
       ([f"{len(heads) - 1} new head(s)"] if len(heads) > 1 else []) + \
-      (["readied"] if not pr["draft"] else []) + ([f"labels {pr['labels']}"] if pr["labels"] else [])
+      (["readied"] if not pr["draft"] else []) + ([f"labels {pr['labels']}"] if pr["labels"] else []) + \
+      [f"{k} {was.get(k)!r} -> {pr.get(k)!r}" for k in ("state", "title") if pr.get(k) != was.get(k)]
 say("FAIL" if bad else "PASS", "body_only", "; ".join(bad))
 
 # A checkout the challenge added beside the fixture is removed once it returns.
