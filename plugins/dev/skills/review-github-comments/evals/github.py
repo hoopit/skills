@@ -237,7 +237,10 @@ def literal(v, vars_):
 def mutation(s, query, vars_):
     out = {}
     # One operation per match, aliased or not: `a: resolveReviewThread(input: {threadId: "X"})`.
-    for m in re.finditer(r"(?:(\w+)\s*:\s*)?(\w+)\s*\(\s*input\s*:\s*", query):
+    # Operations are found in the query with its strings blanked, so text in a reply body that
+    # reads like one is never taken for one.
+    masked = re.sub(r'"""[\s\S]*?"""|"(?:\\.|[^"\\])*"', lambda m: '"' + " " * (len(m.group()) - 2) + '"', query)
+    for m in re.finditer(r"(?:(\w+)\s*:\s*)?(\w+)\s*\(\s*input\s*:\s*", masked):
         alias, op, rest = m.group(1), m.group(2), query[m.end():]
         var = re.match(r"\$(\w+)", rest)
         given = vars_.get(var.group(1)) if var else None

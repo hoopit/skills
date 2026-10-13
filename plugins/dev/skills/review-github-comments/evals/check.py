@@ -7,14 +7,15 @@
     expect_workflow    1 when the round must start the Codex re-review (a standalone round that
                        pushed nothing), 0 when it must not (one that pushed, or a caller-owned one)
     expect_dismissed   review ids that must end dismissed
-    expect_dismissal   regex the dismissal message must match
+    expect_dismissal   regex the dismissal message must match, or `commit`: it names a commit
+                       this round made, by a sha of 7 or more characters
     expect_kept        review ids that must not be dismissed
 
 Each thread in the case's pr.json carries `want`: `resolved` (replied to and resolved), `open`
 (replied to and left unresolved) or `untouched` (an earlier round's thread: neither replied to
 nor resolved again).
 """
-import json, os, re, subprocess
+import ast, json, os, re, subprocess
 
 env = os.environ
 expect = lambda k: env.get(f"EVAL_EXPECT_{k.upper()}")
@@ -48,14 +49,35 @@ for want, name in (("resolved", "threads_handled"), ("open", "open_thread_left_o
         bad = [t["id"] for t in threads if t["id"] in touched or not t["isResolved"]]
         say(not bad, name, f"{len(bad)} settled thread(s) replied to or resolved again: {', '.join(bad[:3])}")
 
+def roots(fn):
+    """Names `fn` binds to an expression that calls `get_root()`."""
+    calls_root = lambda node: any(isinstance(n, ast.Call) and getattr(n.func, "attr", None) == "get_root"
+                                  for n in ast.walk(node))
+    bound = set()
+    for n in ast.walk(fn):
+        if isinstance(n, (ast.Assign, ast.AnnAssign)) and n.value is not None and calls_root(n.value):
+            targets = n.targets if isinstance(n, ast.Assign) else [n.target]
+            bound |= {t.id for t in targets if isinstance(t, ast.Name)}
+    return bound, calls_root
+
+
 def fixed(rev):
-    """`_is_org_admin` calls `get_root()` and filters on no `group.pk` that is not the root."""
-    src = git("show", f"{rev}:{path}")
-    body = re.search(r"def _is_org_admin\b[\s\S]*?(?=\n    def |\Z)", src)
-    if not body or "get_root()" not in body.group():
+    """Every `pk=` that `_is_org_admin` filters on is the root's: `<x>.get_root().pk`, or the
+    `.pk` of a name bound to a `get_root()` call."""
+    try:
+        tree = ast.parse(git("show", f"{rev}:{path}"))
+    except SyntaxError:
         return False
-    # `group.pk` is the defect unless the fix rebound `group` to the root.
-    return "filter(pk=group.pk)" not in body.group() or bool(re.search(r"\bgroup\s*(?::[^=\n]+)?=.*get_root\(\)", body.group()))
+    fn = next((n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_is_org_admin"), None)
+    if fn is None:
+        return False
+    bound, calls_root = roots(fn)
+    pks = [k.value for n in ast.walk(fn) if isinstance(n, ast.Call) for k in n.keywords if k.arg == "pk"]
+    def is_root(v):
+        if not (isinstance(v, ast.Attribute) and v.attr == "pk"):
+            return False
+        return calls_root(v.value) or (isinstance(v.value, ast.Name) and v.value.id in bound)
+    return bool(pks) and all(is_root(v) for v in pks)
 
 if expect("fixed") == "1":
     say(fixed("HEAD"), "defect_fixed", f"HEAD's {path} still compares against group.pk")
@@ -89,8 +111,15 @@ if want_dismissed:
     say(want_dismissed <= dismissed, "coderabbit_dismissed", f"not dismissed: {sorted(want_dismissed - dismissed)}")
 if expect("dismissal"):
     msgs = [d["message"] for d in s["dismissals"] if d["review"] in want_dismissed]
-    say(msgs and all(re.search(expect("dismissal"), m, re.I) for m in msgs), "dismissal_says_why",
-        f"messages {msgs} do not match /{expect('dismissal')}/")
+    if expect("dismissal") == "commit":
+        made = git("rev-list", f"{pr_head}..HEAD").split()
+        names = lambda m: any(made_sha.startswith(w.lower()) for w in re.findall(r"\b[0-9a-fA-F]{7,40}\b", m)
+                              for made_sha in made)
+        say(msgs and all(names(m) for m in msgs), "dismissal_says_why",
+            f"messages {msgs} name none of this round's commits {[c[:8] for c in made]}")
+    else:
+        say(msgs and all(re.search(expect("dismissal"), m, re.I) for m in msgs), "dismissal_says_why",
+            f"messages {msgs} do not match /{expect('dismissal')}/")
 kept = {int(x) for x in (expect("kept") or "").split()}
 if kept:
     say(not kept & dismissed, "human_review_kept", f"dismissed a human's review: {sorted(kept & dismissed)}")
