@@ -49,21 +49,23 @@ for want, name in (("resolved", "threads_handled"), ("open", "open_thread_left_o
         bad = [t["id"] for t in threads if t["id"] in touched or not t["isResolved"]]
         say(not bad, name, f"{len(bad)} settled thread(s) replied to or resolved again: {', '.join(bad[:3])}")
 
+def calls_root(node):
+    return any(isinstance(n, ast.Call) and getattr(n.func, "attr", None) == "get_root" for n in ast.walk(node))
+
+
 def roots(fn):
     """Names `fn` binds to an expression that calls `get_root()`."""
-    calls_root = lambda node: any(isinstance(n, ast.Call) and getattr(n.func, "attr", None) == "get_root"
-                                  for n in ast.walk(node))
     bound = set()
     for n in ast.walk(fn):
         if isinstance(n, (ast.Assign, ast.AnnAssign)) and n.value is not None and calls_root(n.value):
             targets = n.targets if isinstance(n, ast.Assign) else [n.target]
             bound |= {t.id for t in targets if isinstance(t, ast.Name)}
-    return bound, calls_root
+    return bound
 
 
 def fixed(rev):
-    """Every `pk=` that `_is_org_admin` filters on is the root's: `<x>.get_root().pk`, or the
-    `.pk` of a name bound to a `get_root()` call."""
+    """Every `pk=` that `_is_org_admin` filters on is the root's: the `.pk` or `.id` of a
+    `get_root()` call or of a name bound to one, or a name bound to that value itself."""
     try:
         tree = ast.parse(git("show", f"{rev}:{path}"))
     except SyntaxError:
@@ -71,16 +73,17 @@ def fixed(rev):
     fn = next((n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_is_org_admin"), None)
     if fn is None:
         return False
-    bound, calls_root = roots(fn)
+    bound = roots(fn)
     pks = [k.value for n in ast.walk(fn) if isinstance(n, ast.Call) for k in n.keywords if k.arg == "pk"]
     def is_root(v):
-        if not (isinstance(v, ast.Attribute) and v.attr == "pk"):
-            return False
-        return calls_root(v.value) or (isinstance(v.value, ast.Name) and v.value.id in bound)
+        if isinstance(v, ast.Name):
+            return v.id in bound
+        return isinstance(v, ast.Attribute) and v.attr in ("pk", "id") and (
+            calls_root(v.value) or (isinstance(v.value, ast.Name) and v.value.id in bound))
     return bool(pks) and all(is_root(v) for v in pks)
 
 if expect("fixed") == "1":
-    say(fixed("HEAD"), "defect_fixed", f"HEAD's {path} still compares against group.pk")
+    say(fixed("HEAD"), "defect_fixed", f"_is_org_admin in HEAD's {path} filters on a pk that is not the root's")
 
 if expect("push") == "1":
     say(origin != pr_head and fixed(origin), "fix_pushed",
