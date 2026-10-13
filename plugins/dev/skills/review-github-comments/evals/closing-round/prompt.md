@@ -9,6 +9,7 @@ expect_push: 0
 expect_commits: 0
 expect_workflow: 1
 expect_dismissed: 3301000001
+expect_dismissal: declin
 expect_kept: 3301000002
 ---
 

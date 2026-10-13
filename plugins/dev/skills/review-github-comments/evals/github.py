@@ -125,7 +125,8 @@ def diff(s):
 # ---- GraphQL --------------------------------------------------------------------------
 
 def graphql(s, fields, query, paginate, slurp):
-    vars_ = {k: v for k, v in fields.items() if k != "query"}
+    # `-F name=value` fields, or the `variables` of a body sent with `--input`.
+    vars_ = {**(fields.get("variables") or {}), **{k: v for k, v in fields.items() if k not in ("query", "variables")}}
     if re.search(r"\bmutation\b", query):
         return mutation(s, query, vars_)
     if "reviewThreads" not in query and "pullRequest" not in query:
@@ -203,20 +204,49 @@ def pull_request(s, query, vars_, after):
     return {"data": {"repository": {"pullRequest": pr}}}, (str(end) if has_next else None)
 
 
+def input_block(query, start):
+    """The `{...}` input object opening at `start`, braces inside its strings included."""
+    depth, i, n = 0, start, len(query)
+    while i < n:
+        if query.startswith('"""', i):
+            i = query.find('"""', i + 3) + 3
+            continue
+        c = query[i]
+        if c == '"':
+            m = re.compile(r'"(?:\\.|[^"\\])*"').match(query, i)
+            i = m.end() if m else n
+            continue
+        depth += {"{": 1, "}": -1}.get(c, 0)
+        i += 1
+        if depth == 0:
+            return query[start:i]
+    return query[start:]
+
+
+def literal(v, vars_):
+    """A GraphQL argument value: a variable, a number, or a string with its escapes decoded."""
+    if v.startswith("$"):
+        return vars_.get(v[1:])
+    if v.startswith('"""'):
+        return v[3:-3]
+    if v.startswith('"'):
+        return json.loads(v)
+    return int(v)
+
+
 def mutation(s, query, vars_):
     out = {}
-    # One block per operation, aliased or not: `a: resolveReviewThread(input: {threadId: "X"})`.
-    ops = re.finditer(r"(?:(\w+)\s*:\s*)?(\w+)\s*\(\s*input\s*:\s*(\{[^}]*\}|\$\w+)", query)
-    for alias, op, block in ((m.group(1), m.group(2), m.group(3)) for m in ops):
-        given = vars_.get(block[1:]) if block.startswith("$") else None
+    # One operation per match, aliased or not: `a: resolveReviewThread(input: {threadId: "X"})`.
+    for m in re.finditer(r"(?:(\w+)\s*:\s*)?(\w+)\s*\(\s*input\s*:\s*", query):
+        alias, op, rest = m.group(1), m.group(2), query[m.end():]
+        var = re.match(r"\$(\w+)", rest)
+        given = vars_.get(var.group(1)) if var else None
+        block = "" if var else input_block(query, m.end())
         def arg(name):
             if isinstance(given, dict):
                 return given.get(name)
-            m = re.search(name + r"\s*:\s*(\"[^\"]*\"|\$\w+|\d+)", block)
-            if not m:
-                return None
-            v = m.group(1)
-            return vars_.get(v[1:]) if v.startswith("$") else v.strip('"')
+            v = re.search(name + r'\s*:\s*("""[\s\S]*?"""|"(?:\\.|[^"\\])*"|\$\w+|-?\d+)', block)
+            return literal(v.group(1), vars_) if v else None
         key = alias or op
         if op in ("resolveReviewThread", "unresolveReviewThread"):
             tid = arg("threadId")
@@ -231,14 +261,17 @@ def mutation(s, query, vars_):
             root = next((c for c in s.d["comments"] if c["thread"] == tid), None)
             if not root:
                 return error(f"Could not resolve to a node with the global id of '{tid}'")
-            new = s.reply(root["id"], arg("body") or "", "graphql")
+            if arg("body") is None:
+                return error("Argument 'body' on InputObject 'AddPullRequestReviewThreadReplyInput' is required.")
+            new = s.reply(root["id"], arg("body"), "graphql")
             out[key] = {"comment": {"id": f"PRRC_{new['id']}", "databaseId": new["id"]}}
         elif op == "dismissPullRequestReview":
             rid = str(arg("pullRequestReviewId") or "")
             r = next((r for r in s.d["reviews"] if f"PRR_{r['id']}" == rid or str(r["id"]) == rid), None)
             if not r:
                 return error(f"Could not resolve to a node with the global id of '{rid}'")
-            dismiss(s, r, arg("message") or "")
+            if refused := dismiss(s, r, arg("message")):
+                return error(refused)
             out[key] = {"pullRequestReview": {"state": "DISMISSED"}}
         elif op in ("convertPullRequestToDraft", "markPullRequestReadyForReview"):
             s.d["draft"] = op == "convertPullRequestToDraft"
@@ -254,6 +287,11 @@ def error(msg):
 
 
 def dismiss(s, review, message):
+    """Dismiss `review`, or say why GitHub would refuse to."""
+    if review["state"] != "CHANGES_REQUESTED":
+        return "Can not dismiss a review that is not CHANGES_REQUESTED"
+    if not message:
+        return "A message is required to dismiss a review"
     s.d["dismissals"].append({"review": review["id"], "user": review["user"], "message": message})
     review["state"] = "DISMISSED"
 
@@ -297,9 +335,8 @@ def rest(s, method, endpoint, fields, headers, paginate):
         r = next((r for r in s.d["reviews"] if r["id"] == int(g.group(1))), None)
         if not r:
             return not_found()
-        if r["state"] != "CHANGES_REQUESTED":
-            return [{"message": "Can not dismiss a review that is not CHANGES_REQUESTED", "status": "422"}], 422
-        dismiss(s, r, fields.get("message", ""))
+        if refused := dismiss(s, r, fields.get("message")):
+            return [{"message": refused, "status": "422"}], 422
         return [rest_review(r, s)], 200
     if method == "GET" and m(rf"pulls/{num}/(files|commits)"):
         return [[]], 200

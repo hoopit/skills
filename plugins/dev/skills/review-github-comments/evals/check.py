@@ -49,13 +49,13 @@ for want, name in (("resolved", "threads_handled"), ("open", "open_thread_left_o
         say(not bad, name, f"{len(bad)} settled thread(s) replied to or resolved again: {', '.join(bad[:3])}")
 
 def fixed(rev):
-    """`_is_org_admin` compares against the root, however the fix spells it."""
+    """`_is_org_admin` calls `get_root()` and filters on no `group.pk` that is not the root."""
     src = git("show", f"{rev}:{path}")
     body = re.search(r"def _is_org_admin\b[\s\S]*?(?=\n    def |\Z)", src)
     if not body or "get_root()" not in body.group():
         return False
     # `group.pk` is the defect unless the fix rebound `group` to the root.
-    return "filter(pk=group.pk)" not in body.group() or bool(re.search(r"\bgroup\s*=.*get_root\(\)", body.group()))
+    return "filter(pk=group.pk)" not in body.group() or bool(re.search(r"\bgroup\s*(?::[^=\n]+)?=.*get_root\(\)", body.group()))
 
 if expect("fixed") == "1":
     say(fixed("HEAD"), "defect_fixed", f"HEAD's {path} still compares against group.pk")
@@ -84,17 +84,17 @@ elif expect("workflow") == "0":
 
 # Step 5b runs in both modes: a caller-owned round skips 1a, 1b, 5a and the push, not 5b.
 dismissed = {d["review"] for d in s["dismissals"]}
-want = {int(x) for x in (expect("dismissed") or "").split()}
-if want:
-    say(want <= dismissed, "coderabbit_dismissed", f"not dismissed: {sorted(want - dismissed)}")
+want_dismissed = {int(x) for x in (expect("dismissed") or "").split()}
+if want_dismissed:
+    say(want_dismissed <= dismissed, "coderabbit_dismissed", f"not dismissed: {sorted(want_dismissed - dismissed)}")
 if expect("dismissal"):
-    msgs = [d["message"] for d in s["dismissals"] if d["review"] in want]
+    msgs = [d["message"] for d in s["dismissals"] if d["review"] in want_dismissed]
     say(msgs and all(re.search(expect("dismissal"), m, re.I) for m in msgs), "dismissal_says_why",
         f"messages {msgs} do not match /{expect('dismissal')}/")
 kept = {int(x) for x in (expect("kept") or "").split()}
 if kept:
     say(not kept & dismissed, "human_review_kept", f"dismissed a human's review: {sorted(kept & dismissed)}")
-say(dismissed <= want, "no_other_dismissal", f"dismissed {sorted(dismissed - want)}")
+say(dismissed <= want_dismissed, "no_other_dismissal", f"dismissed {sorted(dismissed - want_dismissed)}")
 
 if standalone:
     say("+agent-working" in s["label_ops"] and "agent-working" not in s["labels"], "label_cleared",

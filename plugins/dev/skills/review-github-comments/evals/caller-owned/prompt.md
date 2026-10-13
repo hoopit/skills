@@ -10,6 +10,7 @@ expect_push: 0
 expect_commits: 1
 expect_workflow: 0
 expect_dismissed: 3301000001
+expect_dismissal: '[0-9a-f]{7}'
 ---
 
 You are the `monitor-pr` worker for https://github.com/hoopit/api/pull/18420, round 2. This checkout is the round's worktree, on the PR branch `BAC-4412-org-admin-check` at the PR head. The PR is back in draft and carries `agent-working`; the push, the labels, the ledger and the re-review are this briefing's, not the skill's. The merge-conflict axis came back clean.
