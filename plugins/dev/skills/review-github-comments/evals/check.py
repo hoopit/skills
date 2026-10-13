@@ -53,41 +53,49 @@ def calls_root(node):
     return any(isinstance(n, ast.Call) and getattr(n.func, "attr", None) == "get_root" for n in ast.walk(node))
 
 
+def is_pk(v):
+    return isinstance(v, ast.Attribute) and v.attr in ("pk", "id")
+
+
 def roots(fn):
-    """Names `fn` binds to an expression that calls `get_root()`."""
-    bound = set()
+    """The names `fn` binds to the root group, and the names it binds to the root's pk."""
+    groups, pks = set(), set()
     for n in ast.walk(fn):
         if isinstance(n, (ast.Assign, ast.AnnAssign)) and n.value is not None and calls_root(n.value):
             targets = n.targets if isinstance(n, ast.Assign) else [n.target]
-            bound |= {t.id for t in targets if isinstance(t, ast.Name)}
-    return bound
+            (pks if is_pk(n.value) else groups).update(t.id for t in targets if isinstance(t, ast.Name))
+    return groups, pks
 
 
-def fixed(rev):
-    """Every `pk=` that `_is_org_admin` filters on is the root's: the `.pk` or `.id` of a
-    `get_root()` call or of a name bound to one, or a name bound to that value itself."""
+def unfixed(rev):
+    """Why `_is_org_admin` at `rev` is still wrong, or None: every `pk=` or `id=` it filters on
+    must be the root's, the `.pk` or `.id` of a `get_root()` call or of a name bound to one,
+    or a name bound to that pk."""
     try:
         tree = ast.parse(git("show", f"{rev}:{path}"))
-    except SyntaxError:
-        return False
+    except SyntaxError as e:
+        return f"{path} does not parse: {e}"
     fn = next((n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_is_org_admin"), None)
     if fn is None:
-        return False
-    bound = roots(fn)
-    pks = [k.value for n in ast.walk(fn) if isinstance(n, ast.Call) for k in n.keywords if k.arg == "pk"]
+        return f"{path} has no _is_org_admin"
+    groups, root_pks = roots(fn)
+    pks = [k.value for n in ast.walk(fn) if isinstance(n, ast.Call) for k in n.keywords if k.arg in ("pk", "id")]
     def is_root(v):
         if isinstance(v, ast.Name):
-            return v.id in bound
-        return isinstance(v, ast.Attribute) and v.attr in ("pk", "id") and (
-            calls_root(v.value) or (isinstance(v.value, ast.Name) and v.value.id in bound))
-    return bool(pks) and all(is_root(v) for v in pks)
+            return v.id in root_pks
+        return is_pk(v) and (calls_root(v.value) or (isinstance(v.value, ast.Name) and v.value.id in groups))
+    if not pks:
+        return "_is_org_admin filters on no pk"
+    wrong = [ast.unparse(v) for v in pks if not is_root(v)]
+    return f"_is_org_admin filters on {', '.join(wrong)}, not the root's pk" if wrong else None
 
 if expect("fixed") == "1":
-    say(fixed("HEAD"), "defect_fixed", f"_is_org_admin in HEAD's {path} filters on a pk that is not the root's")
+    why = unfixed("HEAD")
+    say(not why, "defect_fixed", f"at HEAD: {why}")
 
 if expect("push") == "1":
-    say(origin != pr_head and fixed(origin), "fix_pushed",
-        "origin's branch never moved" if origin == pr_head else "origin's branch lacks the fix")
+    why = "origin's branch never moved" if origin == pr_head else unfixed(origin)
+    say(not why, "fix_pushed", f"on origin: {why}")
     say(not git("rev-list", f"{origin}..HEAD"), "nothing_left_unpushed",
         f"{git('rev-list', '--count', f'{origin}..HEAD')} commit(s) on HEAD not on origin")
 elif expect("push") == "0":
