@@ -110,14 +110,17 @@ if expect("line"):
 
 # Briefing is a read and a write to the body: it never merges, pushes, readies, labels, retitles
 # or closes.
-# The fake records the head at each call; the origin has the last word on a push made after them.
+# The fake records the head, draft and labels as each call left them, so a label or a ready undone
+# later still shows; the origin has the last word on a push made after them.
 pushed = subprocess.run(["git", "--git-dir", str(run / "origin.git"), "rev-parse", f"refs/heads/{pr['head_ref']}"],
                         capture_output=True, text=True).stdout.strip()
 heads = {c.get("head") for c in gh if c.get("head")} | {head, pushed}
+seen = gh + [pr]
+labels = sorted({n for c in seen for n in c.get("labels") or []})
 merges = [c["argv"] for c in gh if c["argv"][:2] == ["pr", "merge"] or any(a.endswith("/merge") for a in c["argv"])]
 bad = ([f"merged: {merges[0]}"] if merges or pr.get("merged") else []) + \
       ([f"{len(heads) - 1} new head(s)"] if len(heads) > 1 else []) + \
-      (["readied"] if not pr["draft"] else []) + ([f"labels {pr['labels']}"] if pr["labels"] else []) + \
+      (["readied"] if any(c.get("draft") is False for c in seen) else []) + ([f"labels {labels}"] if labels else []) + \
       [f"{k} {was.get(k)!r} -> {pr.get(k)!r}" for k in ("state", "title") if pr.get(k) != was.get(k)]
 say("FAIL" if bad else "PASS", "body_only", "; ".join(bad))
 
