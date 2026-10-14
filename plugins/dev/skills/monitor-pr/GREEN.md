@@ -76,11 +76,15 @@ that skips drafts judges the PR only once it is ready:
 
 ```bash
 gh api repos/<OWNER_REPO>/commits/<head sha>/status --jq '.statuses[] | select(.context | endswith("-approval")) | "\(.context) \(.state) \(.description)"'
-gh pr view <PR> --repo <OWNER_REPO> --json reviewDecision --jq .reviewDecision
+for id in $(gh api repos/<OWNER_REPO>/rules/branches/<base> --jq '.[] | select(.type == "pull_request" and .parameters.required_approving_review_count > 0) | .ruleset_id'); do
+  gh api repos/<OWNER_REPO>/rulesets/$id --jq '"\(.name) \(.current_user_can_bypass)"'
+done
 ```
 
-A status that is not `success`, or a `reviewDecision` of `REVIEW_REQUIRED`, is an approval
-still owed: name it in the merge question — the status with its description — and say
+A status that is not `success`, or a review ruleset whose bypass reads anything but
+`exempt`, is an approval still owed. `reviewDecision` is no stand-in: it reads
+`REVIEW_REQUIRED` for a user the ruleset exempts, whose merge GitHub allows. Name what is
+owed in the merge question — the status with its description, or the ruleset — and say
 GitHub refuses the merge until it is given. It does not turn the recommendation to
 holding — the PR is done on the agent's side. The approval is the team's to give and the
 team's to ask for: naming it in the merge question is the whole of the agent's part, and
