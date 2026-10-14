@@ -114,10 +114,9 @@ review thread is unresolved and no reviewer is still owed on this head, and no b
 
 ## The lane
 
-Whether this head could have merged with no human read. A record, on every briefing:
-the merge question goes out the same whichever it says, and the answer to that question
-is what merges. The record is what a later decision to merge unattended is measured
-against.
+Whether this head could merge with no human read. A record, on every briefing, and for a
+user who handed `monitor-pr` the merge of their own PRs, the switch: `auto` merges without
+asking. Everywhere else the merge question goes out the same whichever it says.
 
 The gate settles the mechanical half. Read **Guarded paths** from the repo's *Workflow
 skills config* (`AGENTS.md`) — the regexes naming what always takes a

@@ -16,6 +16,8 @@
 #   expect_pushes    how many new heads the run may leave (default 0 without expect_round)
 #   expect_rearm     resumed — the expired watch was re-armed with WATCH_RESUME=1, and the
 #                    head it had already briefed was not challenged or briefed again
+#   expect_merge     delegated — the user handed over the merge and the lane is auto: the run
+#                    merges without asking
 #   expect_landed    1 — the user merges from GitHub mid-run: the landing drops the labels and
 #                    removes the PR's worktree
 python3 - <<'EOF'
@@ -61,8 +63,12 @@ say("FAIL" if "agent-working" in pr["labels"] else "PASS", "agent_working_droppe
 
 merges = [c["argv"] for c in gh if c["argv"][:2] == ["pr", "merge"]
           or (c["argv"][:1] == ["api"] and any(a.endswith(f"/pulls/{pr_no}/merge") for a in c["argv"]))]
-say("FAIL" if merges or (pr.get("merged") and not state.get("merged_by_user")) else "PASS", "not_merged",
-    f"merged without an answer: {merges[:1]}")
+if expect("merge") == "delegated":
+    say("PASS" if merges and pr.get("merged") else "FAIL", "merged_delegated",
+        f"the user handed over the merge of an auto-lane PR, and it was not merged: {merges[:1]}")
+else:
+    say("FAIL" if merges or (pr.get("merged") and not state.get("merged_by_user")) else "PASS", "not_merged",
+        f"merged without an answer: {merges[:1]}")
 
 # A force push leaves a head that is not a descendant of the one before it.
 import subprocess

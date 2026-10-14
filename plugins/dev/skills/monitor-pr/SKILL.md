@@ -269,7 +269,8 @@ which is how the PR shows the decision to a reviewer who was never asked.
 next round carries all the answers.
 
 **Green** — a `GREEN` line. Read [GREEN.md](GREEN.md) and follow it: the merge-readiness
-challenge, the merge briefing written into the PR description, then the merge question.
+challenge, the merge briefing written into the PR description, then the merge question — or
+the merge itself, where the user handed it over.
 A `GREEN` after a closing round also lists that round's declines — each thread, and `not
 worth a round` with its evidence where that was the reason — so the user can take any of
 them back; a decline taken back rides into the next round as `ANSWERED`.

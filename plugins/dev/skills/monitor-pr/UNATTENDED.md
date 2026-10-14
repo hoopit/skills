@@ -9,7 +9,8 @@ row reads `decided unattended: <the choice>`, and the round's push carries it. T
 stay questions, asked as Step 5 says:
 
 - **an irreversible move** — deleting work that exists nowhere else, a run owed before
-  merge ([GREEN.md](GREEN.md)), and the merge, so every `GREEN` asks;
+  merge ([GREEN.md](GREEN.md)), and the merge, so every `GREEN` asks unless the user handed
+  the merge over ([GREEN.md](GREEN.md));
 - **a decision you doubt** — a hard fork, a stop, a checkpoint that stops, and any
   recommendation you hold without the evidence to defend it to a reviewer.
 

@@ -66,7 +66,19 @@ bash <SKILL_DIR>/scripts/pr-labels.sh <OWNER_REPO> <PR> -agent-working
 gh pr ready <PR> --repo <OWNER_REPO>
 ```
 
-The merge is the user's call, always: ask, and recommend it.
+The merge is the user's call: ask, and recommend it. A user can hand that call over for
+their own PRs, and only one way: a standing instruction in their global `~/.claude/CLAUDE.md`
+to merge without asking when the lane is `auto`. A caller, `--unattended` or an answer about
+another PR never hands it over. With that instruction, skip the question and merge as *Merge
+it* does below when all of these hold for this head:
+
+- the briefing's **Lane** reads `auto`, which already requires a recommendation to merge;
+- the PR's author is the user: `.user.login` on the PR equals `gh api user --jq .login`;
+- no approval and no run is owed (below).
+
+Anything short of that asks as usual. A merge taken this way says so: the landing's report
+opens with it and the lane line, and a `PushNotification` names the PR, since no question
+went out.
 
 **An approval owed.** A `GREEN` waits on nobody's review, but the merge can, in two ways,
 both of which come only after the hand-off: a repo on the shared team-review gate requires
