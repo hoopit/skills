@@ -77,6 +77,24 @@ def test_wrapped_lines():
     assert not pr_state.wrapped_lines(fenced)
 
 
+def test_api_jq_applies_to_the_mock():
+    d = run_dir()
+    shim = d / "shims" / "gh.shim"
+    shim.write_text(shim.read_text() + 'print(json.dumps({"login": "ilyakonrad", "id": 1}))\n')
+    assert gh(d, "api", "user", "--jq", ".login").stdout.strip() == "ilyakonrad"
+    assert json.loads(gh(d, "api", "user").stdout)["id"] == 1
+
+
+def test_skill_started():
+    log = pathlib.Path(tempfile.mkdtemp()) / "log.jsonl"
+    use = lambda name, inp: json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "name": name, "input": inp}]}})
+    log.write_text(use("Read", {"file_path": "/x/monitor-pr/SKILL.md"}) + "\n")
+    assert not pr_state.skill_started(str(log), "monitor-pr")
+    log.write_text(log.read_text() + use("Skill", {"skill": "hoopit-dev:monitor-pr", "args": "18412"}) + "\n")
+    assert pr_state.skill_started(str(log), "monitor-pr")
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

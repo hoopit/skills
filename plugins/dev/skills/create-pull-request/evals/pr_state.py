@@ -112,3 +112,13 @@ def wrapped_lines(body):
                 and re.search(r"[\w,;`)\]*_'\"-]$", a.rstrip()):
             hits.append(f"{a.rstrip()[-30:]!r} / {b.strip()[:20]!r}")
     return hits
+
+
+def skill_started(log_path, name):
+    """Whether the agent's stream-json log shows a Skill call loading skill `name`."""
+    for rec in _calls(log_path):
+        for block in (rec.get("message") or {}).get("content") or []:
+            if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name") == "Skill" \
+                    and str((block.get("input") or {}).get("skill", "")).split(":")[-1] == name:
+                return True
+    return False

@@ -5,6 +5,8 @@
 - Answers a `closingIssuesReferences` query from the body the PR carries at that moment,
   the way GitHub would, so the skill's own check sees a missing closing keyword.
 - Answers `gh pr view` with "no pull requests found" until `gh pr create` has run.
+- Applies a `gh api` call's `--jq` to the JSON its mock answers, as gh would, so a mock
+  holds the whole response whichever field the agent selects.
 
 Everything else goes to the shim, which records the call and answers it from the case's
 mocks.
@@ -35,7 +37,32 @@ def main(run_dir, calls, shim):
             print("no pull requests found for branch", file=sys.stderr)
             sys.exit(1)
         sys.exit(answer_closing(argv, run_dir, calls))
+    jq = _jq(argv)
+    if argv[:1] == ["api"] and jq and shutil.which("jq"):
+        p = subprocess.run([shim] + argv, capture_output=True, text=True)
+        sys.stderr.write(p.stderr)
+        if p.returncode:
+            sys.stdout.write(p.stdout)
+            sys.exit(p.returncode)
+        sys.exit(_emit(p.stdout, jq))
     os.execv(shim, [shim] + argv)
+
+
+def _jq(argv):
+    return next((v for n, v in zip(argv, argv[1:]) if n in ("--jq", "-q")), None)
+
+
+def _emit(out, jq):
+    """Writes `out` through `jq`, or as it is when it is not JSON."""
+    try:
+        json.loads(out)
+    except ValueError:
+        sys.stdout.write(out)
+        return 0
+    p = subprocess.run(["jq", "-r", jq], input=out, capture_output=True, text=True)
+    sys.stdout.write(p.stdout)
+    sys.stderr.write(p.stderr)
+    return p.returncode
 
 
 def answer_closing(argv, run_dir, calls):
@@ -51,12 +78,9 @@ def answer_closing(argv, run_dir, calls):
             "closingIssuesReferences": {"nodes": refs, "totalCount": len(refs)}}}}}
     else:
         data = {"closingIssuesReferences": refs}
-    jq = next((v for n, v in zip(argv, argv[1:]) if n in ("--jq", "-q")), None)
+    jq = _jq(argv)
     out = json.dumps(data)
     if jq and shutil.which("jq"):
-        p = subprocess.run(["jq", "-r", jq], input=out, capture_output=True, text=True)
-        sys.stdout.write(p.stdout)
-        sys.stderr.write(p.stderr)
-        return p.returncode
+        return _emit(out, jq)
     print(out)
     return 0

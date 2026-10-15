@@ -120,6 +120,40 @@ and link that copy.
 
 ## Creating the PR
 
+### Draft or ready: the author's team decides first
+
+Before `gh pr create`, find out whether the author — the account `gh` is logged in as — is
+on the team that reviews this repo's PRs. That team is the `team:` the repo passes to the
+shared `hoopit/workflows` team-review gate, which every Hoopit product repo calls from a
+workflow of its own. The gate runs the base branch's copy, so read that one, not the
+checkout's:
+
+```bash
+git fetch -q origin "$DEFAULT_BRANCH"
+F=$(git grep -l 'hoopit/workflows/.github/workflows/team-review.yml' "origin/$DEFAULT_BRANCH" -- .github/workflows | head -1)
+TEAM=$([ -n "$F" ] && git grep -h -E '^[[:space:]]*team:' "origin/$DEFAULT_BRANCH" -- "${F#*:}" \
+  | sed 's/^[[:space:]]*team:[[:space:]]*\([A-Za-z0-9_-]*\).*/\1/' | head -1)
+ME=$(gh api user --jq .login)
+if [ -z "$TEAM" ]; then echo NO_TEAM
+elif [ "$(gh api "orgs/hoopit/teams/$TEAM/memberships/$ME" --jq .state 2>/dev/null)" = active ]; then echo "IN_TEAM $TEAM"
+else echo "OUT_OF_TEAM $TEAM"; fi
+```
+
+A lookup that fails prints `OUT_OF_TEAM`, which is the safe answer.
+
+- **`OUT_OF_TEAM` — born a draft, with `monitor-pr` on it. Always**, whatever the caller
+  says about who works the rounds, and even when the PR is meant for humans at once. The
+  gate asks the team to review an out-of-team author's open, non-draft PR the moment
+  `merge-briefing` passes, and reads no other check: a PR opened ready goes to the team
+  with `codex-review` or CI still red. `monitor-pr` holds the draft until every check is
+  green, then runs `gh pr ready`, so the request goes out once, on a green head. Start
+  `monitor-pr` on the new PR with `--subagent` right after it opens — unless the caller's
+  next step starts it (`ship`'s Step 8) — and report the watch with the URL.
+- **`IN_TEAM` or `NO_TEAM`** — the gate never asks anyone for an in-team author's PR.
+  Decide by who works the review rounds, below.
+
+### Who works the review rounds
+
 **A PR an agent will work the review rounds of is born a draft** — the `ship` →
 `monitor-pr` path. Draft says the rounds are still the agent's, and `gh pr ready` is the
 hand-off — the only one a workflow can trigger on, since a resolved review thread raises
@@ -132,7 +166,10 @@ merge briefing before it can merge: say so when handing it over (`/merge-briefin
 *Born*, never opened-then-converted: a PR ready for even an instant is a human's turn on the
 board, and one opened ready never emits `ready_for_review` — the hand-off event.
 
-Open the PR with the GitHub CLI, from inside the worktree:
+### Open it
+
+Open the PR with the GitHub CLI, from inside the worktree. Drop the `--draft` line when
+the decision above opens the PR ready:
 
 ```bash
 cd "$WORKTREE_DIR"   # if working in a worktree
