@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Pins `hoopit-board batch`'s write loop, `next`'s collision judgement, `decisions`'
 naming judgement, `scan`'s duplicate judgement, the deploy gate, the per-user config
-(`init`, `config`, and the refusal without one), what `provision` writes to a board, and the
-Agent field: the hook's state machine, `start` and `bind`, and the sync that writes the board.
+(`init`, `config`, and the refusal without one), what `provision` writes to a board, the
+Issue field an added item gets, and the Agent field: the hook's state machine, `start` and
+`bind`, and the sync that writes the board.
 Run it by hand after editing any of them:
 
     python3 scripts/test_hoopit_board.py
@@ -1077,10 +1078,11 @@ AGENT_STATES = ["Working", "Needs you", "Idle", "Gone"]
 
 
 def board_answer(statuses=None, board_fields=None, org_fields=None, items=3, disabled=(),
-                 own_fields=(), agent=AGENT_STATES, note=True):
+                 own_fields=(), agent=AGENT_STATES, note=True, issue_ref=True):
     """A VERIFY_QUERY answer. The defaults are a board carrying everything. `statuses`
     are names or `status()` dicts; `own_fields` are board fields of the project's own;
-    `agent` the Agent field's options (None: no field), `note` whether Agent note exists."""
+    `agent` the Agent field's options (None: no field), `note` whether Agent note exists,
+    `issue_ref` whether Issue does."""
     statuses = ["Backlog", "Ready", "In progress", "In review", "Done"] \
         if statuses is None else statuses
     org = {"Priority": ["P0", "P1", "P2", "P3"], "Effort": ["XS", "S", "M", "L", "XL"],
@@ -1104,7 +1106,9 @@ def board_answer(statuses=None, board_fields=None, org_fields=None, items=3, dis
                     "options": [status(o, f"agent-{o}") for o in agent]}]
                   if agent is not None else []),
                 *([{"id": "F_note", "name": "Agent note", "isIssueField": False,
-                    "dataType": "TEXT"}] if note else [])]}},
+                    "dataType": "TEXT"}] if note else []),
+                *([{"id": "F_issue", "name": "Issue", "isIssueField": False,
+                    "dataType": "TEXT"}] if issue_ref else [])]}},
         "issueFields": {"nodes": [
             {"id": f"IF_{f}", "name": f,
              **({"options": [{"name": o} for o in opts]} if opts else {})}
@@ -1913,6 +1917,38 @@ def test_provision_adds_the_agent_fields():
     assert code == 0 and writes == [] and "OK\tfield 'Agent'" in lines, lines
     print("  both created on a bare board; missing options appended on their ids; a full one is OK")
 
+
+def test_provision_adds_the_issue_field():
+    lines, _, code, writes = run_provision(board_answer(issue_ref=False), "--apply")
+    assert code == 0 and len(writes) == 1, (code, writes)
+    assert "dataType:TEXT" in writes[0] and 'name:"Issue"' in writes[0], writes
+    assert "ADDED\tfield 'Issue', as text" in lines, lines
+    print("  a board without it gets the text field, and nothing else is written")
+
+
+def adding_module(fields):
+    """A module whose hoopit/api#5 is off the board, recording every gql call."""
+    m = load()
+    m.calls = []
+    res = {"id": "C5", "projectItems": {"nodes": []}}
+    m.locate = lambda repo, n: ("PVT_7", fields, res, None)
+    def gql(q, **v):
+        m.calls.append(v)
+        return {"addProjectV2ItemById": {"item": {"id": "I5"}}}
+    m.gql = gql
+    return m
+
+
+def test_an_added_item_is_named_in_the_issue_field():
+    m = adding_module({"Status": {}, "Issue": {"id": "F_issue"}})
+    assert m.ensure_item("hoopit/api", 5)[3] == "I5"
+    assert m.calls == [{"p": "PVT_7", "c": "C5"},
+                       {"p": "PVT_7", "i": "I5", "f": "F_issue", "t": "api#5"}], m.calls
+
+    m = adding_module({"Status": {}})
+    _, _, code = main(m, "triage", "hoopit/api", "5", "--priority", "P2")
+    assert "no 'Issue' field" in str(code) and m.calls == [], (code, m.calls)
+    print("  added with `api#5`; a board without the field is refused before anything is added")
 
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

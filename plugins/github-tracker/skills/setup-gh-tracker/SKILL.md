@@ -104,7 +104,9 @@ means before applying: missing statuses are added and a differently-cased one re
 every existing option keeps its id — so no item loses its status — and nothing is
 deleted except GitHub's default `Todo` on an empty board. It also creates the `Agent` and
 `Agent note` fields, which the plugin's hooks keep in step with the session working each
-item. Showing them is a view setting `provision` leaves alone, so suggest it to the
+item, and the `Issue` text field, which `hoopit-board` sets to `<repo>#<n>` on every
+item it adds: a project table has no column for the number. Items added before it stay
+blank. Showing them is a view setting `provision` leaves alone, so suggest it to the
 developer: a column in their views, or *Slice by* `Agent`.
 
 Then re-run the dry run and work every `MANUAL` line:
