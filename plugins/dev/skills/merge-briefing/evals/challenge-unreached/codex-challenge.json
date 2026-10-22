@@ -1,0 +1,19 @@
+{
+ "verdict": "needs-attention",
+ "summary": "The refactor looks behaviour-preserving; one defensive gap in the new helper.",
+ "findings": [
+  {
+   "severity": "medium",
+   "title": "_is_org_admin dereferences a permission object that may be None",
+   "body": "`BaseView.get_permission_object` is typed `OrganizationGroup | TModel | None`, and `_is_org_admin` calls `.get_root()` on it without a None check. A request whose permission object resolves to None would raise AttributeError in `_is_org_admin` and return a 500 instead of a 403/404.",
+   "file": "payments/web/views/organization_bank_account_list_view.py",
+   "line_start": 293,
+   "line_end": 297,
+   "confidence": 0.4,
+   "recommendation": "Guard against a None permission object in `_is_org_admin`."
+  }
+ ],
+ "next_steps": [
+  "Add a None guard to _is_org_admin."
+ ]
+}

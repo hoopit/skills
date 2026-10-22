@@ -1,0 +1,20 @@
+{
+ "verdict": "needs-attention",
+ "summary": "The extracted helper checks the wrong group, so it widens access rather than preserving it.",
+ "findings": [
+  {
+   "severity": "high",
+   "title": "_is_org_admin compares against the permission object, not its root",
+   "body": "`_can_view_balance` filtered admin groups on `group.get_root().pk`; `_is_org_admin` filters on `group.pk`. A team admin requesting the list for their own team (`OrganizationBankAccountListView.get` with the team as the permission object) now passes `_is_org_admin`, so `get_queryset` skips the connected-accounts narrowing and `get_serializer_context` sets `can_view_balance=True`: they see every account in the org with its balance, and the export carries the balances too. The PR says no behaviour change.",
+   "file": "payments/web/views/organization_bank_account_list_view.py",
+   "line_start": 293,
+   "line_end": 297,
+   "confidence": 0.9,
+   "recommendation": "Filter on `group.get_root().pk`, as `_can_view_balance` did."
+  }
+ ],
+ "next_steps": [
+  "Restore the root lookup in _is_org_admin.",
+  "Add a test for a team admin on their own team's list."
+ ]
+}
