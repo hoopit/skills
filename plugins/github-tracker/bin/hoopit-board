@@ -283,8 +283,6 @@ def dispatch_model():
 
 # GitHub's built-in date field, read as "not before": see the module docstring.
 DATE_FIELD = "Start date"
-# A text field holding `<repo>#<n>`: a project table has no column for an item's number.
-ISSUE_REF_FIELD = "Issue"
 IN_REVIEW = "In review"
 IN_FLIGHT = ("In progress", IN_REVIEW)
 # Where dispatch picks from. `Ready` is work already committed to; anything whose
@@ -757,22 +755,11 @@ def set_axes(issue_id, assigns):
                      f'issueFields:[{", ".join(assigns)}]}}){{ clientMutationId }} }}')
 
 
-def add_item(project_id, fields, res, repo, number):
-    """Put the issue or PR on the board with its `ISSUE_REF_FIELD` set. Returns the item id."""
-    if ISSUE_REF_FIELD not in fields:
-        sys.exit(f"the board has no {ISSUE_REF_FIELD!r} field: run `hoopit-board provision --apply`")
-    item_id = gql('mutation($p:ID!,$c:ID!){ addProjectV2ItemById(input:{projectId:$p, contentId:$c}){ item{ id } } }',
-                  p=project_id, c=res["id"])["addProjectV2ItemById"]["item"]["id"]
-    gql('mutation($p:ID!,$i:ID!,$f:ID!,$t:String!){ updateProjectV2ItemFieldValue(input:{projectId:$p, '
-        'itemId:$i, fieldId:$f, value:{text:$t}}){ clientMutationId } }',
-        p=project_id, i=item_id, f=fields[ISSUE_REF_FIELD]["id"], t=f"{repo.split('/')[1]}#{number}")
-    return item_id
-
-
 def ensure_item(repo, number):
     project_id, fields, res, item_id = locate(repo, number)
     if not item_id:
-        item_id = add_item(project_id, fields, res, repo, number)
+        item_id = gql('mutation($p:ID!,$c:ID!){ addProjectV2ItemById(input:{projectId:$p, contentId:$c}){ item{ id } } }',
+                      p=project_id, c=res["id"])["addProjectV2ItemById"]["item"]["id"]
     return project_id, fields, res, item_id
 
 
@@ -3075,7 +3062,8 @@ def cmd_triage(a):
                  "fields, and only an issue can carry them")
     added = item_id is None
     if added:
-        item_id = add_item(project_id, fields, res, a.repo, a.number)
+        item_id = gql('mutation($p:ID!,$c:ID!){ addProjectV2ItemById(input:{projectId:$p, contentId:$c}){ item{ id } } }',
+                      p=project_id, c=res["id"])["addProjectV2ItemById"]["item"]["id"]
     assigns = [axis_assign(f, v) for f, v in values]
     if a.not_before:
         assigns.append(date_assign(a.not_before))
@@ -3320,7 +3308,7 @@ def verify_board(owner, number):
             have = {o["name"] for o in org_fields[field].get("options") or []}
             missing += [f"{field} has no option {o!r}" for o in options if o not in have]
     missing += [f"{what}: {how}" if how else f"the board lacks {what}"
-                for kind, what, how, _ in own_field_plan(proj["id"], on_board) if kind != "OK"]
+                for kind, what, how, _ in agent_field_plan(proj["id"], on_board) if kind != "OK"]
     enabled = {w["name"] for w in proj["workflows"]["nodes"] if w["enabled"]}
     missing += [f"workflow {name!r} is not enabled (it must set Status to {status!r})"
                 for name, status in REQUIRED_WORKFLOWS if name not in enabled]
@@ -3379,12 +3367,12 @@ def status_plan(field, items):
     return (options if any(k == "FIX" for k, _ in lines) else None), lines
 
 
-def own_field_plan(project_id, on_board):
-    """What the board needs of its own fields: `(kind, what, how, mutation)` per line,
+def agent_field_plan(project_id, on_board):
+    """What the board needs for the Agent fields: `(kind, what, how, mutation)` per line,
     kind OK, FIX (the mutation adds it) or MANUAL (`how` says what a person must do).
 
-    `Agent` is a single-select of AGENT_STATES; `Agent note` and `Issue` are text fields.
-    Options already there keep their ids, so no item loses its value."""
+    `Agent` is a single-select of AGENT_STATES and `Agent note` a text field, both the
+    project's own. Options already there keep their ids, so no item loses its value."""
     out, pid = [], json.dumps(project_id)
     agent = on_board.get(AGENT_FIELD)
     styled = [{"name": n, "color": c, "description": d} for n, (c, d) in AGENT_STYLE.items()]
@@ -3407,18 +3395,17 @@ def own_field_plan(project_id, on_board):
         out.append(("FIX" if lacking else "OK",
                     f"{what} option{'s' if len(lacking) != 1 else ''} "
                     f"{', '.join(o['name'] for o in lacking)}" if lacking else what, "", write))
-    for name in (AGENT_NOTE_FIELD, ISSUE_REF_FIELD):
-        field = on_board.get(name)
-        what = f"field {name!r}"
-        if field is None:
-            out.append(("FIX", f"{what}, as text", "",
-                        f'mutation{{ createProjectV2Field(input:{{projectId:{pid}, dataType:TEXT, '
-                        f'name:{json.dumps(name)}}}){{ clientMutationId }} }}'))
-        elif field.get("dataType", "TEXT") != "TEXT":
-            out.append(("MANUAL", what, f"the board has a field named {name!r} that is "
-                        "not text: rename or delete it, then run this again", None))
-        else:
-            out.append(("OK", what, "", None))
+    note = on_board.get(AGENT_NOTE_FIELD)
+    what = f"field {AGENT_NOTE_FIELD!r}"
+    if note is None:
+        out.append(("FIX", f"{what}, as text", "",
+                    f'mutation{{ createProjectV2Field(input:{{projectId:{pid}, dataType:TEXT, '
+                    f'name:{json.dumps(AGENT_NOTE_FIELD)}}}){{ clientMutationId }} }}'))
+    elif note.get("dataType", "TEXT") != "TEXT":
+        out.append(("MANUAL", what, f"the board has a field named {AGENT_NOTE_FIELD!r} that is "
+                    "not text: rename or delete it, then run this again", None))
+    else:
+        out.append(("OK", what, "", None))
     return out
 
 
@@ -3434,10 +3421,11 @@ def cmd_provision(a):
     """Make a board carry what this script reads, and name what no call of this token can
     add. Needs no config: it runs before one exists.
 
-    Adds the Status options and the board's own fields, and puts the org's issue fields on the
-    board. The org fields themselves and their options are an org admin's to add, and no API
-    enables a built-in workflow, so those come back as MANUAL with how. Writes only with
-    `--apply`, and issues no request at all when the board already has what it adds.
+    Adds the Status options and the Agent fields, and puts the org's issue fields on the
+    board. The org fields
+    themselves and their options are an org admin's to add, and no API enables a built-in
+    workflow, so those come back as MANUAL with how. Writes only with `--apply`, and
+    issues no request at all when the board already has what it adds.
 
     Prints one line per item — OK, MISSING (a dry run) or ADDED (applied), or MANUAL with
     how — then READY or NOT READY and the board's URL, exiting 1 on NOT READY."""
@@ -3489,7 +3477,7 @@ def cmd_provision(a):
         else:
             entries.append(("OK", what, "", None))
 
-    for kind, what, how, write in own_field_plan(proj["id"], on_board):
+    for kind, what, how, write in agent_field_plan(proj["id"], on_board):
         if write:
             writes[what] = write
         entries.append((kind, what, how, what if write else None))
