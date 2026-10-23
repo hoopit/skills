@@ -1,0 +1,42 @@
+[
+ {
+  "match": "^api user( |$)",
+  "stdout": "{\"login\": \"zublenko\", \"id\": 4242, \"type\": \"User\"}\n"
+ },
+ {
+  "match": "^api .*orgs/hoopit/teams/backend/memberships/zublenko( |$)",
+  "stdout": "{\"state\": \"active\", \"role\": \"member\"}\n"
+ },
+ {
+  "match": "^api .*orgs/hoopit/teams/backend/members( |$)",
+  "stdout": "[{\"login\": \"ezet\"}, {\"login\": \"zublenko\"}]\n"
+ },
+ {
+  "match": "^label ",
+  "stdout": ""
+ },
+ {
+  "match": "^pr create",
+  "stdout": "https://github.com/hoopit/api/pull/18412\n"
+ },
+ {
+  "match": "^pr edit",
+  "stdout": "https://github.com/hoopit/api/pull/18412\n"
+ },
+ {
+  "match": "^pr list",
+  "stdout": "[]\n"
+ },
+ {
+  "match": "^pr view",
+  "stdout": "{\"number\": 18412, \"url\": \"https://github.com/hoopit/api/pull/18412\", \"isDraft\": false, \"state\": \"OPEN\"}\n"
+ },
+ {
+  "match": "^repo view",
+  "stdout": "hoopit/api\n"
+ },
+ {
+  "match": "^auth status",
+  "stdout": "github.com\n  \u2713 Logged in to github.com account zublenko (keyring)\n"
+ }
+]
