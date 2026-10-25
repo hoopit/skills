@@ -115,8 +115,9 @@ names, prefix `GATE_CHECKS=<a>,<b>`, and tune how long a head waits on a silent 
 `GATE_TIMEOUT=<seconds>` (default 900), and how long a verdict may sit unanswered with
 `STALL_AFTER=<seconds>` (default 900).
 
-The script polls every 60 s and prints only the lines below. Each `head=` is the full
-40-character SHA: compare it with `git rev-parse HEAD`, never with an abbreviation.
+The script polls every 60 s and prints only the lines below. Each `head=` is the PR head's
+full 40-character SHA: compare it with the PR's `headRefOid`, or with `git rev-parse HEAD`
+run in the PR's worktree.
 
 - `ROUND head=… unresolved=N new_threads=K failing=<names> conflicting=0|1
   [pending_gates=<names>]` — there is work the previous round did not see: a new or
