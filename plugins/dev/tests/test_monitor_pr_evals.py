@@ -148,6 +148,13 @@ def test_thread_and_conflict_fire_a_round():
         "threads=PRRT_t1:1\nfailing=\nconflicting=1\n"
 
 
+def test_a_lone_gate_verdict_stalls_the_head():
+    r = Run(issue_comments=coderabbit("{HEAD}"), statuses=[{"context": "codex-review", "state": "failure"}])
+    lines = r.watch(4, STALL_AFTER="0")
+    assert lines[:2] == [f"ROUND head={r.head} unresolved=0 new_threads=0 failing=codex-review conflicting=0",
+                         f"STALLED head={r.head} verdicts=codex-review:1"], lines
+
+
 def test_a_push_and_a_resolve_take_the_head_to_green():
     r = Run(issue_comments=coderabbit("{CURRENT_HEAD}"), threads=[thread()], conflicting=True)
     (r.clone / "a.txt").write_text("three\n")
