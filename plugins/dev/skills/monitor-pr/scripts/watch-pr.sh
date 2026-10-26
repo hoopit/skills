@@ -164,7 +164,7 @@ while true; do
 
   if [ "$actionable" = 1 ]; then
     gate_wait_start=0
-    echo "ROUND head=${head:0:7} unresolved=$(grep -c . <<<"$threads") new_threads=$new_threads failing=${failing:+$(paste -sd, - <<<"$failing")} conflicting=$conflicting${pending_gates:+ pending_gates=$pending_gates}"
+    echo "ROUND head=$head unresolved=$(grep -c . <<<"$threads") new_threads=$new_threads failing=${failing:+$(paste -sd, - <<<"$failing")} conflicting=$conflicting${pending_gates:+ pending_gates=$pending_gates}"
     fired_threads=$threads; fired_fail=$failing; fired_conflict=$conflicting
     save_state
   elif [ "$fired_green" != "$head" ] && [ -z "$threads" ] && [ -z "$failing" ] \
@@ -178,7 +178,7 @@ while true; do
       if [ $((now - gate_wait_start)) -lt "$GATE_TIMEOUT" ]; then sleep "$INTERVAL"; continue; fi
     fi
     gate_wait_start=0
-    echo "GREEN head=${head:0:7}${pending_gates:+ pending_gates=$pending_gates}"
+    echo "GREEN head=$head${pending_gates:+ pending_gates=$pending_gates}"
     fired_green=$head
     save_state
   elif [ "$stalled" = 1 ]; then
@@ -187,7 +187,7 @@ while true; do
     [ "$stall_start" = 0 ] && stall_start=$now
     verdicts=$(while IFS= read -r g; do echo "$g:$(grep -cFx "$g" <<<"$verdict_events")"; done       <<<"$gate_fail" | paste -sd, -)
     if [ $((now - stall_start)) -ge "$STALL_AFTER" ] && [ "$fired_stall" != "$head $verdicts" ]; then
-      echo "STALLED head=${head:0:7} verdicts=$verdicts"
+      echo "STALLED head=$head verdicts=$verdicts"
       fired_stall="$head $verdicts"
     fi
   else

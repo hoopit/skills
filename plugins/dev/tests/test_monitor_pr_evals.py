@@ -97,7 +97,7 @@ def thread():
 def test_clean_head_is_green_on_first_poll():
     r = Run(issue_comments=coderabbit("{HEAD}"))
     lines = r.watch(3)
-    assert lines and lines[0] == f"GREEN head={r.head[:7]}", lines
+    assert lines and lines[0] == f"GREEN head={r.head}", lines
 
 
 def test_statuses_read_as_the_watch_buckets_them():
@@ -112,7 +112,7 @@ def test_a_pending_team_approval_does_not_hold_green():
         {"context": "codex-review", "state": "success"},
         {"context": "web-approval", "state": "pending", "description": "Waiting for an approval from @hoopit/web"}])
     lines = r.watch(3)
-    assert lines and lines[0] == f"GREEN head={r.head[:7]}", lines
+    assert lines and lines[0] == f"GREEN head={r.head}", lines
 
 
 def test_a_failed_team_approval_is_no_failing_check():
@@ -123,7 +123,7 @@ def test_a_failed_team_approval_is_no_failing_check():
     assert sh("bash", str(SCRIPTS / "pr-state.sh"), "hoopit/api", str(PR), cwd=r.clone, env=r.env) == \
         "threads=\nfailing=\nconflicting=0\n"
     lines = r.watch(3)
-    assert lines and lines[0] == f"GREEN head={r.head[:7]}", lines
+    assert lines and lines[0] == f"GREEN head={r.head}", lines
 
 
 def test_a_gate_stuck_pending_goes_green_once_gate_timeout_elapses():
@@ -131,7 +131,7 @@ def test_a_gate_stuck_pending_goes_green_once_gate_timeout_elapses():
     r = Run(issue_comments=coderabbit("{HEAD}"), statuses=stuck)
     assert r.watch(4, GATE_TIMEOUT="60") == []
     r = Run(issue_comments=coderabbit("{HEAD}"), statuses=stuck)
-    assert r.watch(6, GATE_TIMEOUT="2") == [f"GREEN head={r.head[:7]} pending_gates=codex-review"]
+    assert r.watch(6, GATE_TIMEOUT="2") == [f"GREEN head={r.head} pending_gates=codex-review"]
 
 
 def test_a_running_check_that_is_no_gate_still_holds_green():
@@ -143,9 +143,16 @@ def test_a_running_check_that_is_no_gate_still_holds_green():
 def test_thread_and_conflict_fire_a_round():
     r = Run(issue_comments=coderabbit("{HEAD}"), threads=[thread()], conflicting=True)
     lines = r.watch(3)
-    assert lines[0] == f"ROUND head={r.head[:7]} unresolved=1 new_threads=1 failing= conflicting=1", lines
+    assert lines[0] == f"ROUND head={r.head} unresolved=1 new_threads=1 failing= conflicting=1", lines
     assert sh("bash", str(SCRIPTS / "pr-state.sh"), "hoopit/api", str(PR), cwd=r.clone, env=r.env) == \
         "threads=PRRT_t1:1\nfailing=\nconflicting=1\n"
+
+
+def test_a_lone_gate_verdict_stalls_the_head():
+    r = Run(issue_comments=coderabbit("{HEAD}"), statuses=[{"context": "codex-review", "state": "failure"}])
+    lines = r.watch(4, STALL_AFTER="0")
+    assert lines[:2] == [f"ROUND head={r.head} unresolved=0 new_threads=0 failing=codex-review conflicting=0",
+                         f"STALLED head={r.head} verdicts=codex-review:1"], lines
 
 
 def test_a_push_and_a_resolve_take_the_head_to_green():
@@ -157,7 +164,7 @@ def test_a_push_and_a_resolve_take_the_head_to_green():
     r.gh("api", "graphql", "-f", 'query=mutation { resolveReviewThread(input: {threadId: "PRRT_t1"}) { thread { isResolved } } }')
     new = sh("git", "rev-parse", "HEAD", cwd=r.clone).strip()
     assert r.gh("api", "repos/hoopit/api/pulls/4242", "--jq", ".head.sha").strip() == new
-    assert r.watch(3) == [f"GREEN head={new[:7]}"]
+    assert r.watch(3) == [f"GREEN head={new}"]
     t = r.state()["threads"][0]
     assert t["resolved"] and len(t["comments"]) == 2
 
@@ -180,7 +187,7 @@ def test_labels_draft_and_body_persist():
 def test_user_merge_after_polls_closes_the_watch():
     r = Run(issue_comments=coderabbit("{HEAD}"), merge_after_polls=2)
     lines = r.watch(6)
-    assert lines == [f"GREEN head={r.head[:7]}", "PR_CLOSED state=MERGED"], lines
+    assert lines == [f"GREEN head={r.head}", "PR_CLOSED state=MERGED"], lines
     assert r.gh("pr", "list", "--head", BRANCH, "--state", "merged", "--json", "number", "--jq", ".[].number").strip() == str(PR)
 
 
