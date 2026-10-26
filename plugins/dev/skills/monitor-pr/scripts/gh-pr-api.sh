@@ -34,8 +34,9 @@ pr_meta() {
 # pr_checks <owner/repo> <head_sha> — prints "<bucket>\t<name>\t<link>" per check.
 # Reads check runs and commit statuses both: external CI reports as a status, not a
 # run, and on a Hoopit PR the codex-review reviewer is a status.
-# Buckets carry the same names `gh pr checks --json bucket` used: pass, fail, pending,
-# skipping, cancel.
+# Buckets carry the names `gh pr checks --json bucket` uses: pass, fail, pending, skipping.
+# Every other conclusion — cancelled, timed_out, action_required, startup_failure — is fail:
+# GitHub refuses the merge on any of them, so none may let a head read as GREEN.
 #
 # One name can come back several times — a re-run, or two workflows defining the same job
 # name — so the newest run wins. Downstream reads a check by name, so a name has to answer
@@ -62,7 +63,6 @@ pr_checks() {
       if .status != "completed" then "pending"
       elif .conclusion == "success" then "pass"
       elif .conclusion == "neutral" or .conclusion == "skipped" then "skipping"
-      elif .conclusion == "cancelled" then "cancel"
       else "fail" end), .name, (.html_url // "")] | @tsv' <<<"$runs"
   jq -r '[.[].statuses[] | select(.context != "merge-briefing" and (.context | endswith("-approval") | not))] | group_by(.context) | map(max_by(.updated_at // "9999")) | .[]
     | [(

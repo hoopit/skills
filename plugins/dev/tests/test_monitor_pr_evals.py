@@ -107,6 +107,17 @@ def test_statuses_read_as_the_watch_buckets_them():
     assert rows == [["fail", "ci"], ["pass", "lint"], ["pending", "codex-review"]], rows
 
 
+def test_a_cancelled_or_timed_out_check_fails_and_fires_a_round():
+    r = Run(issue_comments=coderabbit("{HEAD}"), checks=[{"name": "lint", "conclusion": "success"},
+            {"name": "test", "conclusion": "cancelled"}, {"name": "e2e", "conclusion": "timed_out"}])
+    out = sh("bash", "-c", f"source {SCRIPTS / 'gh-pr-api.sh'}; pr_checks hoopit/api {r.head}", cwd=r.clone, env=r.env)
+    rows = sorted(line.split("\t")[:2] for line in out.splitlines())
+    assert rows == [["fail", "e2e"], ["fail", "test"], ["pass", "codex-review"], ["pass", "lint"]], rows
+    lines = r.watch(3)
+    assert lines and lines[0].startswith(f"ROUND head={r.head[:7]}") and "failing=e2e,test " in lines[0], lines
+    assert not any(l.startswith("GREEN") for l in lines), lines
+
+
 def test_a_pending_team_approval_does_not_hold_green():
     r = Run(issue_comments=coderabbit("{HEAD}"), statuses=[
         {"context": "codex-review", "state": "success"},
