@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Pins `hoopit-board batch`'s write loop, `next`'s collision judgement, `decisions`'
-naming judgement, `scan`'s duplicate judgement, the deploy gate, the per-user config
-(`init`, `config`, and the refusal without one), what `provision` writes to a board, and the
-Agent field: the hook's state machine, `start` and `bind`, and the sync that writes the board.
+"""Pins `hoopit-board batch`'s write loop, `next`'s collision judgement, the claims
+registry and `collide`, `decisions`' naming judgement, `scan`'s duplicate judgement, the
+deploy gate, the per-user config (`init`, `config`, and the refusal without one), what
+`provision` writes to a board, and the Agent field: the hook's state machine, `start` and
+`bind`, and the sync that writes the board.
 Run it by hand after editing any of them:
 
     python3 scripts/test_hoopit_board.py
@@ -511,6 +512,304 @@ def test_a_migration_file_in_the_body_is_a_hard_token():
     assert only(d, "blocked") == ["hoopit/api#1"], d
     assert d["blocked"][0]["collides"] == {"MIGRATION-GRAPH:payments": ["#900"]}, d
     print("  a migration file named in the body holds its app's graph")
+
+
+# ── the claims registry, and `collide` ─────────────────────────────────────────────────
+#
+# A second dispatcher's starts live in the registry, not on the board. Miss one and two
+# dispatchers put agents on one file with nobody watching, or each fills its own caps.
+
+CLAIM_DIRS = iter(range(1000))
+LINEAR_PR = "https://github.com/hoopit/api/pull/950"
+
+
+@contextlib.contextmanager
+def registry_at(*claims):
+    """A fresh registry holding `claims`, written through `claims put`. The state
+    directory is put back after, so no later test reads these claims."""
+    saved = os.environ["XDG_STATE_HOME"]
+    os.environ["XDG_STATE_HOME"] = str(TMP / f"claims-{next(CLAIM_DIRS)}")
+    try:
+        for c in claims:
+            sys.stdin = io.StringIO(json.dumps(c))
+            out, err, code = main(load(), "claims", "put")
+            assert code == 0 and out.startswith("CLAIMED"), (out, err, code)
+        yield
+    finally:
+        os.environ["XDG_STATE_HOME"] = saved
+
+
+def claim(key="BE-12", body="", prs=None, agent="lin-be-12"):
+    c = {"source": "linear", "key": key, "repo": "hoopit/api", "title": f"linear {key}",
+         "url": f"https://linear.app/hoopit/issue/{key}", "agent": agent, "body": body}
+    if prs:
+        c["prs"] = prs
+    return c
+
+
+def with_pulls(m, states):
+    """`states` is url -> (state, draft); what `pull_state` reads from GitHub."""
+    m.pull_state = lambda url: (*states[url], None) if url in states else None
+    return m
+
+
+def run_collide(m, candidates, target=15, max_active=None, max_review=None,
+                live_agents=None, no_judge=True):
+    sys.stdin = io.StringIO(json.dumps(candidates))
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        code = m.cmd_collide(argparse.Namespace(
+            target=target, max_active=max_active, max_review=max_review,
+            live_agents=live_agents, idle_agents=None, scope=[], no_judge=no_judge))
+    return json.loads(out.getvalue()), code
+
+
+def test_a_claim_with_no_pr_holds_the_paths_its_body_names():
+    """Minutes after a Linear agent starts there is no PR, and the board's daemon must
+    still see what it is about to touch."""
+    with registry_at(claim(body="rework `payments/models.py`")):
+        m = next_module([item(1)], bodies={1: "fix `payments/models.py`"},
+                        paths=["payments/models.py"])
+        d, code = run_next(m, no_judge=True)
+    assert only(d, "blocked") == ["hoopit/api#1"], d
+    assert d["blocked"][0]["collides"] == {
+        "payments/models.py": ["linear:BE-12 (claimed, no PR)"]}, d
+    assert d["in_flight"] == 1 and d["flight"][0]["source"] == "linear", d["flight"]
+    print("  a Linear claim's body holds payments/models.py against a board candidate")
+
+
+def test_a_claims_open_pr_holds_its_files():
+    """Once it has a PR, the PR's files are what a claim holds — swept like the board's."""
+    with registry_at(claim(prs=[LINEAR_PR])):
+        m = with_pulls(next_module(
+            [item(1)], owners={("hoopit/api", "a.py"): ["#950"]},
+            bodies={1: "edit `a.py`"}, paths=["a.py"]), {LINEAR_PR: ("OPEN", True)})
+        swept, footprints = [], m.footprints
+        m.footprints = lambda repos, only=None: swept.append(only) or footprints(repos, only)
+        d, code = run_next(m, no_judge=True)
+    assert swept == [{LINEAR_PR}], swept
+    assert only(d, "blocked") == ["hoopit/api#1"] and d["active"] == 1, d
+    print("  the claim's draft PR is swept and holds a.py; it counts as active")
+
+
+def test_claims_count_toward_every_cap():
+    """Two dispatchers with one set of caps: a ready claim PR is a human's turn under
+    --max-review, a claim without one is the agent's turn under --max-active."""
+    ready_pr = "https://github.com/hoopit/api/pull/951"
+    with registry_at(claim("BE-1"), claim("BE-2", prs=[ready_pr])):
+        m = with_pulls(next_module([item(1, status="In progress"), item(2)],
+                                   bodies={2: "anything"}), {ready_pr: ("OPEN", False)})
+        d, _ = run_next(m, target=3, no_judge=True)
+        assert (d["in_flight"], d["active"], d["review"], d["deficit"]) == (3, 2, 1, 0), d
+        d, _ = run_next(m, target=None, max_active=3, max_review=1, no_judge=True)
+        assert d["deficit"] == 0, d
+        d, code = run_next(m, target=None, max_active=3, max_review=2, no_judge=True)
+        assert d["deficit"] == 1 and only(d, "startable") == ["hoopit/api#2"], d
+    print("  claims fill the target, the active cap and the review gate alike")
+
+
+def test_a_finished_claim_holds_nothing_and_is_named():
+    merged = "https://github.com/hoopit/api/pull/952"
+    with registry_at(claim(body="edit `a.py`", prs=[merged])):
+        m = with_pulls(next_module([item(1)], bodies={1: "edit `a.py`"}, paths=["a.py"]),
+                       {merged: ("MERGED", False)})
+        d, code = run_next(m, no_judge=True)
+    assert d["in_flight"] == 0 and only(d, "startable") == ["hoopit/api#1"], d
+    assert [e["n"] for e in d["finished_claims"]] == ["BE-12"], d
+    print("  a claim whose PR merged frees its slot and is listed for its dispatcher to drop")
+
+
+def test_a_claim_whose_agent_is_gone_goes_quiet():
+    with registry_at(claim(agent="lin-gone")):
+        m = next_module([item(1)], bodies={1: "anything"})
+        d, _ = run_next_live(m, live="someone-else")
+    assert [q["n"] for q in d["quiet"]] == ["BE-12"] and d["active"] == 0, d
+    assert d["quiet"][0]["agent"] == "lin-gone", d
+    print("  a claim names its own agent, and a gone one leaves the active cap")
+
+
+def run_next_live(m, live):
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        code = m.cmd_next(argparse.Namespace(target=None, exclude=[], scope=None,
+                                             no_judge=True, max_active=1, max_review=None,
+                                             live_agents=live, idle_agents=None,
+                                             skip_type=[], allow_manual=False))
+    return json.loads(out.getvalue()), code
+
+
+def test_collide_walks_outside_candidates_against_the_board():
+    """The Linear daemon's question. A candidate on a board PR's file is blocked, a clear
+    one is priced off the ladder by its own Effort, and one already claimed is in flight
+    rather than a candidate."""
+    board_pr = "https://github.com/hoopit/api/pull/90"
+    with registry_at(claim("BE-9")):
+        m = next_module([item(1, status="In progress", prs=[board_pr])],
+                        owners={("hoopit/api", "a.py"): ["#90"]}, paths=["a.py", "b.py"])
+        cands = [
+            {"source": "linear", "key": "BE-10", "repo": "hoopit/api", "title": "on a",
+             "body": "touch `a.py`", "effort": "S"},
+            {"source": "linear", "key": "BE-11", "repo": "hoopit/api", "title": "on b",
+             "body": "touch `b.py`", "effort": "XS"},
+            {"source": "linear", "key": "BE-12", "repo": "hoopit/api", "title": "also b",
+             "body": "touch `b.py` too"},
+            {"source": "linear", "key": "BE-9", "repo": "hoopit/api", "title": "claimed",
+             "body": ""},
+        ]
+        d, code = run_collide(m, cands)
+    ladder = m.dispatch_model()
+    assert code == 0 and d["in_flight"] == 2, d
+    assert [e["n"] for e in d["blocked"]] == ["BE-10", "BE-12"], d["blocked"]
+    assert d["blocked"][0]["collides"] == {"a.py": ["#90"]}, d["blocked"]
+    assert d["blocked"][1]["collides"] == {"b.py": ["linear:BE-11 (picked this tick)"]}, d
+    (s,) = d["startable"]
+    assert (s["n"], s["source"], s["footprint"]) == ("BE-11", "linear", ["b.py"]), s
+    assert (s["model"], s["reasoning_effort"]) == ladder["XS"], s
+    assert [e["n"] for e in d["excluded"]] == ["BE-9"], d["excluded"]
+    print("  blocked on #90's a.py, BE-11 priced at XS, BE-12 behind it, BE-9 in flight")
+
+
+def test_collide_refuses_a_malformed_candidate():
+    m = next_module([])
+    for bad, why in (({"source": "linear", "key": "BE-1", "title": "t"}, "lacks repo"),
+                     ({"source": "linear", "key": "BE-1", "repo": "hoopit/api", "title": "t",
+                       "effort": "huge"}, "effort 'huge'")):
+        sys.stdin = io.StringIO(json.dumps([bad]))
+        try:
+            m.cmd_collide(argparse.Namespace(target=None, max_active=None, max_review=None,
+                                             live_agents=None, idle_agents=None, scope=[],
+                                             no_judge=True))
+        except SystemExit as e:
+            assert why in str(e.code), e.code
+        else:
+            raise AssertionError(f"accepted {bad}")
+    print("  a missing field and an unknown Effort are refused before the board is read")
+
+
+def test_claims_put_pr_drop_round_trip():
+    with registry_at(claim(body="b")):
+        m = load()
+        out, err, code = main(m, "claims", "pr", "linear", "BE-12", LINEAR_PR)
+        assert code == 0 and out.strip() == f"PR\tlinear:BE-12\t{LINEAR_PR}", (out, err)
+        main(m, "claims", "pr", "linear", "BE-12", LINEAR_PR)
+        (c,) = m.registry()
+        assert c["prs"] == [LINEAR_PR] and c["claimed_at"], c
+        out, _, code = main(m, "claims", "pr", "linear", "BE-12", "https://example.com/x")
+        assert "not a GitHub PR URL" in str(code), code
+        out, _, code = main(m, "claims", "drop", "linear", "BE-12")
+        assert out.strip() == "DROPPED\tlinear:BE-12" and m.registry() == [], out
+        out, _, code = main(m, "claims", "drop", "linear", "BE-12")
+        assert code == 0 and out.strip() == "ABSENT\tlinear:BE-12", out
+        sys.stdin = io.StringIO(json.dumps({"source": "linear", "key": "../x"}))
+        _, _, code = main(m, "claims", "put")
+        assert "needs source, key, repo" in str(code), code
+        sys.stdin = io.StringIO(json.dumps(claim("../etc")))
+        _, _, code = main(m, "claims", "put")
+        assert "must be letters" in str(code), code
+    print("  put, pr (once), drop and drop again; a bad key never reaches a path")
+
+
+def test_a_claim_whose_pr_cannot_be_read_holds_its_body_and_sweeps_nothing():
+    """A typo'd or hidden PR must neither send the sweep to a repo `gh` will exit on nor
+    leave the claim holding no files at all."""
+    hidden = "https://github.com/hoopit/no-such-repo/pull/1"
+    with registry_at(claim(body="edit `a.py`", prs=[hidden])):
+        m = with_pulls(next_module([item(1)], bodies={1: "edit `a.py`"}, paths=["a.py"]), {})
+        swept, footprints = [], m.footprints
+        m.footprints = lambda repos, only=None: swept.append((repos, only)) or footprints(repos, only)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            d, code = run_next(m, no_judge=True)
+    assert swept == [(["hoopit/api"], set())], swept
+    assert d["blocked"][0]["collides"] == {"a.py": ["linear:BE-12 (claimed, no PR)"]}, d
+    assert d["active"] == 1 and d["finished_claims"] == [] and hidden in err.getvalue(), d
+    print("  the unreadable PR is named and skipped; the body holds a.py and the slot holds")
+
+
+def test_a_claim_with_a_non_string_body_never_reaches_a_tick():
+    """`put` refuses it, and a file written past `put` is skipped rather than crashing
+    `body_footprint` inside the board daemon's tick."""
+    with registry_at():
+        m = load()
+        sys.stdin = io.StringIO(json.dumps(claim() | {"body": {"x": 1}}))
+        _, _, code = main(m, "claims", "put")
+        assert "body must be a string" in str(code), code
+        for bad in (claim() | {"prs": [1]}, claim("a--b"), [claim()]):
+            sys.stdin = io.StringIO(json.dumps(bad))
+            _, _, code = main(m, "claims", "put")
+            assert code and code != 0 and m.registry() == [], (bad, code)
+        with open(m.claim_file("linear", "BE-12"), "w") as fh:
+            json.dump(claim() | {"body": {"x": 1}}, fh)
+        n = next_module([item(1)], bodies={1: "anything"})
+        with contextlib.redirect_stderr(io.StringIO()):
+            d, code = run_next(n, no_judge=True)
+    assert d["in_flight"] == 0 and only(d, "startable") == ["hoopit/api#1"], d
+    print("  a dict body, an int PR, a '--' key and a list are refused; a bad file is skipped")
+
+
+def test_a_claim_outside_the_repo_scope_holds_no_slot():
+    with registry_at(claim() | {"repo": "hoopit/web-admin"}):
+        m = next_module([item(1)], bodies={1: "anything"})
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            m.cmd_next(argparse.Namespace(target=1, exclude=[], scope=["hoopit/api"],
+                                          no_judge=True, max_active=None, max_review=None,
+                                          live_agents=None, idle_agents=None, skip_type=[],
+                                          allow_manual=False))
+        d = json.loads(out.getvalue())
+    assert d["in_flight"] == 0 and only(d, "startable") == ["hoopit/api#1"], d
+    print("  --repo hoopit/api leaves a web-admin claim out of every cap")
+
+
+def test_a_claims_prose_is_put_to_the_judgement():
+    """A claim whose body names no path is held by the judgement alone, and the hit names
+    the claim by its source key."""
+    with registry_at(claim(body="the member import stalls")):
+        m = next_module([item(1)], bodies={1: "speed up the member import"})
+        asked = []
+
+        def ask(state, questions):
+            asked.append(sorted(state["in_progress"]))
+            return {"claim:linear:BE-12": {"noul": 0.9}, "adds_migration": {"noul": 0.0}}, None
+
+        m.judge_candidate.ask = ask
+        d, code = run_next(m)
+    assert asked == [["linear:BE-12"]], asked
+    assert d["blocked"][0]["judged"] == {"linear:BE-12": 0.9}, d
+    print("  0.9 against linear:BE-12 blocks the board candidate")
+
+
+def test_collide_takes_a_repeated_key_once_and_respects_a_full_board():
+    with registry_at():
+        m = next_module([], paths=[])
+        same = {"source": "linear", "key": "BE-1", "repo": "hoopit/api", "title": "t"}
+        d, code = run_collide(m, [same, same | {"title": "again"}])
+        assert [e["n"] for e in d["startable"]] == ["BE-1"] and d["candidates_total"] == 1, d
+        full = next_module([item(1, status="In progress"), item(2, status="In progress")])
+        d, code = run_collide(full, [same], target=2)
+        assert code == 1 and d["deficit"] == 0 and d["startable"] == [], d
+        sys.stdin = io.StringIO(json.dumps(["BE-1"]))
+        try:
+            m.cmd_collide(argparse.Namespace(target=None, max_active=None, max_review=None,
+                                             live_agents=None, idle_agents=None, scope=[],
+                                             no_judge=True))
+        except SystemExit as e:
+            assert "is a JSON object" in str(e.code), e.code
+        else:
+            raise AssertionError("accepted a bare string candidate")
+    print("  a repeated key walks once, a full board starts nothing, a bare string is refused")
+
+
+def test_a_corrupt_claim_is_skipped_not_fatal():
+    with registry_at(claim()):
+        m = load()
+        with open(os.path.join(m.claims_dir(), "broken--x.json"), "w") as fh:
+            fh.write("{not json")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            claims = m.registry()
+    assert [c["key"] for c in claims] == ["BE-12"] and "broken--x.json" in err.getvalue()
+    print("  one unreadable file is named on stderr; the rest of the registry still counts")
 
 
 

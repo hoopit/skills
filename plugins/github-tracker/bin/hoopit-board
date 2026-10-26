@@ -23,6 +23,12 @@ guessing at migrations from prose in the judgement's place, with the reason in t
 between `COLLIDE_LOW` and `COLLIDE_HIGH` goes to `needs_judgement` rather than being
 dispatched or rejected: untuned thresholds hand work back.
 
+The board is not the only dispatcher. A second one — whose tracker is somewhere else —
+records each start in the claims registry (`claims`), and `next` counts those claims as
+flight beside the board's own: they share its caps and hold their files against its
+candidates. That dispatcher asks `collide` before it starts anything, which runs the same
+caps and walk over candidates it brings itself, so the footprint rules live here alone.
+
 `scan` asks it which pairs of open issues are one piece of work. Code draws the
 shortlist — title overlap plus BM25 neighbours over title and body — and the model judges
 each pair off both bodies. It fails open to the title-overlap list, and it only nominates:
@@ -91,6 +97,13 @@ session, tie it to the items it works.
        [--repo R]... [--skip-type TYPE]...
        [--exclude REPO#N]... [--no-judge]
                                  one tick, as JSON; exit 1 = nothing to do
+  collide [X] [--max-active N] [--max-review M] [--live-agents A,B] [--idle-agents C,D]
+          [--repo R]... [--no-judge]
+                                 the same caps and collision walk, for candidates the board
+                                 does not hold, as a JSON list on stdin
+  claims put|pr <source> <key> <url>|drop <source> <key>|list
+                                 the registry of work another dispatcher started; put reads
+                                 one claim as JSON on stdin. Needs no config
   decisions [N] [--unnamed] [--manual] [--waiting] [--no-judge]   the top N decisions to answer (default 5)
   stale [--older-than H]         flight that may have lost its agent: no-pr | pr-quiet\n  dispatches [--since D] [--repo R]... [--no-judge]  merged PRs by the rung that wrote them
   open [--type TYPE]...          every open item, one line each
@@ -657,6 +670,137 @@ def awaits_human(i):
             and not any(i["pr_draft"].get(u) for u in prs))
 
 
+# Work a second dispatcher has started — one whose tracker is not this board — as one JSON
+# file per claim, shared by every dispatcher on the machine. `next` and `collide` count it
+# as flight beside the board's own items, so two dispatchers share one set of caps and
+# never start agents onto each other's files. `claims` is its only writer.
+CLAIM_FIELDS = ("source", "key", "repo", "title", "url", "agent")
+# `--` joins source and key in a claim's file name, so neither may hold one: `a`/`b--c`
+# and `a--b`/`c` would be one file.
+CLAIM_NAME = re.compile(r"(?!.*--)[\w.-]+")
+PR_URL = re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)")
+
+
+def claims_dir(create=False):
+    """Per machine, like the agents directory: an agent is only ever visible from the
+    machine it runs on, and so is the claim that says what it is working."""
+    base = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
+    d = os.path.join(base, "agent-dispatch", "claims")
+    if create:
+        os.makedirs(d, exist_ok=True)
+    return d
+
+
+@contextlib.contextmanager
+def claims_lock():
+    with open(os.path.join(claims_dir(create=True), ".lock"), "a") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        yield
+
+
+def claim_file(source, key):
+    return os.path.join(claims_dir(create=True), f"{source}--{key}.json")
+
+
+def claim_problem(c):
+    """Why `c` is not a claim `next` can read, or None. `claims put` refuses on it and
+    `registry` skips on it, so a malformed claim never reaches a tick."""
+    if not isinstance(c, dict):
+        return "a claim is a JSON object"
+    if missing := [k for k in CLAIM_FIELDS if not (isinstance(c.get(k), str) and c[k])]:
+        return f"needs {', '.join(CLAIM_FIELDS)} as strings; missing {', '.join(missing)}"
+    for name in ("source", "key"):
+        if not CLAIM_NAME.fullmatch(c[name]):
+            return f"{name} {c[name]!r} must be letters, digits, '.', '_' or '-', with no '--'"
+    if not REPO_NAME.fullmatch(c["repo"]):
+        return f'repo {c["repo"]!r} is not owner/name'
+    if not isinstance(c.get("body", ""), str):
+        return "body must be a string"
+    prs = c.get("prs", [])
+    if not isinstance(prs, list) or not all(isinstance(u, str) and PR_URL.fullmatch(u)
+                                            for u in prs):
+        return "prs must be a list of GitHub PR URLs"
+    return None
+
+
+def registry():
+    """Every claim in the registry. A file that does not parse, or is not a claim, is named
+    on stderr and skipped: one dispatcher's bad write must not stall the other's tick."""
+    d = claims_dir()
+    if not os.path.isdir(d):
+        return []
+    out = []
+    for name in sorted(os.listdir(d)):
+        if not name.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(d, name)) as fh:
+                c = json.load(fh)
+            if why := claim_problem(c):
+                raise ValueError(why)
+        except (OSError, ValueError) as e:
+            print(f"claims: skipping {name}: {e}", file=sys.stderr)
+            continue
+        out.append(c)
+    return out
+
+
+def pull_state(url):
+    """`(state, draft, updated)` of one PR, with the state spelled as the board spells it —
+    OPEN, CLOSED or MERGED — or None where it cannot be read."""
+    m = PR_URL.match(url)
+    p = m and rest_one(f"repos/{m[1]}/pulls/{m[2]}")
+    if not p:
+        return None
+    state = "MERGED" if p.get("merged_at") else (p.get("state") or "").upper()
+    return state, bool(p.get("draft")), p.get("updated_at")
+
+
+def registry_flight():
+    """`(flight, finished)`: the registry's claims shaped as board items in flight, and the
+    ones whose PRs have all closed — finished work its dispatcher has not dropped yet,
+    which holds nothing.
+
+    A PR that cannot be read — a typo, a repo GitHub will not show — is left out of the
+    claim's PRs, so nothing sweeps a repo it cannot list, and it keeps the claim on the
+    agent's turn and out of `finished`: nothing is concluded from a failed read. With no
+    open PR left readable, the claim's body holds its files, as before it had a PR."""
+    flight, finished = [], []
+    for c in registry():
+        read = {u: pull_state(u) for u in dict.fromkeys(c.get("prs") or [])}
+        unread = [u for u, r in read.items() if not r]
+        read = {u: r for u, r in read.items() if r}
+        for u in unread:
+            print(f'claims: {c["source"]}:{c["key"]} names a PR GitHub will not show: {u}',
+                  file=sys.stderr)
+        i = {"n": c["key"], "source": c["source"], "repo": c["repo"], "url": c["url"],
+             "title": c["title"], "type": "Issue", "state": "OPEN", "issue_type": "",
+             "open_children": 0, "updated": c.get("claimed_at"), "priority": "",
+             "effort": "", "autonomy": "", "not_before": "", "blockers": [],
+             "body": c.get("body") or "", "agent": c["agent"], "prs": list(read),
+             "pr_state": {u: r[0] for u, r in read.items()},
+             "pr_draft": {u: r[1] for u, r in read.items()},
+             "pr_updated": {u: r[2] for u, r in read.items()},
+             "prs_complete": not unread}
+        if read and not open_prs(i) and not unread:
+            finished.append(i)
+            continue
+        i["status"] = IN_REVIEW if open_prs(i) else "In progress"
+        flight.append(i)
+    return flight, finished
+
+
+def ref(i):
+    """An item's handle: `repo#n` on the board, `source:key` for a registry claim."""
+    return f'{i["source"]}:{i["n"]}' if i.get("source") else f'{i["repo"]}#{i["n"]}'
+
+
+def tag(i):
+    """How a collision names its holder: `#n` within the candidate's own repo for a board
+    item, `source:key` for a registry claim."""
+    return f'{i["source"]}:{i["n"]}' if i.get("source") else f'#{i["n"]}'
+
+
 LOCATE_QUERY = """query($login:String!,$number:Int!,$url:URI!){
   organization(login:$login){ projectV2(number:$number){ id
     fields(first:50){ nodes{
@@ -775,7 +919,8 @@ def triaged(it):
 def rank_key(it):
     p = PRIORITIES.index(it["priority"]) if it["priority"] in PRIORITIES else len(PRIORITIES)
     s = EFFORTS.index(it["effort"]) if it["effort"] in EFFORTS else len(EFFORTS)
-    return (p, s, it["n"])
+    # A registry claim's `n` is its key, a string; it sorts after the board's numbers.
+    return (p, s, isinstance(it["n"], str), it["n"])
 
 
 def row(it, *extra):
@@ -2060,6 +2205,65 @@ def cmd_footprint(a):
         print("(no open PRs)")
 
 
+def brief(i, *keys):
+    """An item's identity plus `keys`; a registry claim's also names its source."""
+    out = {k: i[k] for k in ("repo", "n", "url", "title", *keys)}
+    if i.get("source"):
+        out["source"] = i["source"]
+    return out
+
+
+def flight_state(items, a):
+    """What `next` and `collide` both count: flight on the board and in the claims
+    registry, split by whose turn it is, and the deficit the caps leave. Settles
+    `a.target` to 15 when no cap is given, as `next` documents."""
+    unsettled = [i for i in items if closed_in_review(i)]
+    claimed, finished = registry_flight()
+    flight = [i for i in items if i["status"] in IN_FLIGHT and not closed_in_review(i)]
+    flight = [i for i in flight + claimed if not a.scope or i["repo"] in a.scope]
+    parents = [i for i in flight if tracking(i)]
+    flight = [i for i in flight if not tracking(i)]
+    review, active = [], []
+    for i in flight:
+        (review if awaits_human(i) else active).append(i)
+    quiet = []
+    if a.live_agents is not None:
+        live_agents = {n for n in a.live_agents.split(",") if n}
+        known = live_agents | {n for n in (a.idle_agents or "").split(",") if n}
+        for i in active:
+            if i.get("source"):
+                continue                       # a registry claim names its agent itself
+            i["agent"] = claim_of(i)[0]
+            if i["agent"] == "-" and f'gh{i["n"]}' in known:
+                i["agent"] = f'gh{i["n"]}'
+        quiet = [i for i in active if i["agent"] != "-" and i["agent"] not in live_agents]
+        active = [i for i in active if i not in quiet]
+    if a.target is None and a.max_active is None:
+        if a.max_review is not None:
+            sys.exit("--max-review gates starts and bounds none: give a target or --max-active")
+        a.target = 15
+    deficit = min(cap - len(held_by) for cap, held_by in ((a.target, flight),
+                                                          (a.max_active, active))
+                  if cap is not None)
+    if a.max_review is not None and len(review) >= a.max_review:
+        deficit = 0
+    return {"unsettled": unsettled, "finished": finished, "flight": flight,
+            "parents": parents, "review": review, "active": active, "quiet": quiet,
+            "deficit": deficit}
+
+
+def flight_out(a, st):
+    """The fields `next` and `collide` report alike about flight and the caps."""
+    return {
+        "target": a.target, "in_flight": len(st["flight"]), "deficit": max(st["deficit"], 0),
+        "max_active": a.max_active, "active": len(st["active"]),
+        "max_review": a.max_review, "review": len(st["review"]),
+        "quiet": [brief(i, "status", "prs", "agent") for i in st["quiet"]],
+        "flight": [brief(i, "status", "prs") for i in sorted(st["flight"], key=rank_key)],
+        "finished_claims": [brief(i, "prs") for i in st["finished"]],
+    }
+
+
 def cmd_next(a):
     """One tick of a dispatch loop: the deficit, and which `Ready` items can fill it
     without colliding with work already in flight on the board. An open PR no board item
@@ -2082,6 +2286,14 @@ def cmd_next(a):
 
     `unsettled` lists the closed issues a linked PR pulled back into review. They hold no
     place in flight, and `settle --apply` moves them to Done.
+
+    Work another dispatcher started is flight too: every claim in the registry `claims`
+    writes counts toward the caps beside the board's own items, splits into active and
+    review by its PRs' draft state, holds its open PRs' files — or, before it has a PR,
+    the paths its body names — and goes quiet like a board item when its agent is not
+    among `--live-agents`. Its entries carry `source`, and `n` is its key in that source.
+    `finished_claims` lists the claims whose PRs have all closed: they hold nothing, and
+    the dispatcher that wrote them drops them.
 
     Three caps, each optional, and the tightest sets the deficit. The target caps all of
     flight. `--max-active` caps the agent's turn — flight that `awaits_human` leaves out —
@@ -2135,33 +2347,7 @@ def cmd_next(a):
     ladder = dispatch_model()
     exclude = {e.strip() for e in a.exclude}
     items = board()
-    unsettled = [i for i in items if closed_in_review(i)]
-    flight = [i for i in items if i["status"] in IN_FLIGHT and not closed_in_review(i)
-              and (not a.scope or i["repo"] in a.scope)]
-    parents = [i for i in flight if tracking(i)]
-    flight = [i for i in flight if not tracking(i)]
-    review, active = [], []
-    for i in flight:
-        (review if awaits_human(i) else active).append(i)
-    quiet = []
-    if a.live_agents is not None:
-        live_agents = {n for n in a.live_agents.split(",") if n}
-        known = live_agents | {n for n in (a.idle_agents or "").split(",") if n}
-        for i in active:
-            i["agent"] = claim_of(i)[0]
-            if i["agent"] == "-" and f'gh{i["n"]}' in known:
-                i["agent"] = f'gh{i["n"]}'
-        quiet = [i for i in active if i["agent"] != "-" and i["agent"] not in live_agents]
-        active = [i for i in active if i not in quiet]
-    if a.target is None and a.max_active is None:
-        if a.max_review is not None:
-            sys.exit("--max-review gates starts and bounds none: give a target or --max-active")
-        a.target = 15
-    deficit = min(cap - len(held_by) for cap, held_by in ((a.target, flight),
-                                                          (a.max_active, active))
-                  if cap is not None)
-    if a.max_review is not None and len(review) >= a.max_review:
-        deficit = 0
+    st = flight_state(items, a)
     backlog = sorted([i for i in items if i["status"] == POOL], key=rank_key)
     parked = [i for i in items if i["status"] == PARKED]
     # Fields are needed on both sides of the promotion — a Backlog item without them
@@ -2186,7 +2372,7 @@ def cmd_next(a):
     ranked = [i for i in ranked if i["issue_type"] not in a.skip_type]
     waiting = [i for i in ranked if scheduled(i)]
     ranked = [i for i in ranked if not scheduled(i)]
-    parents += [i for i in ranked if tracking(i)]
+    st["parents"] += [i for i in ranked if tracking(i)]
     ranked = [i for i in ranked if not tracking(i)]
     dependent = [i for i in ranked if i["blockers"]]
     ranked = [i for i in ranked if not i["blockers"]]
@@ -2195,19 +2381,9 @@ def cmd_next(a):
     excluded = [i for i in ranked if f'{i["repo"]}#{i["n"]}' in exclude]
     candidates = [i for i in ranked if f'{i["repo"]}#{i["n"]}' not in exclude]
 
-    def brief(i, *keys):
-        return {k: i[k] for k in ("repo", "n", "url", "title", *keys)}
-
-    # The walk runs down the ranking until the deficit is filled or a budget runs out.
-    # What it never reached is `unexamined`.
-    shortlist = candidates
-    out = {
-        "target": a.target, "in_flight": len(flight), "deficit": max(deficit, 0),
+    out = flight_out(a, st) | {
         "ready": len(backlog), "backlog": len(parked),
-        "max_active": a.max_active, "active": len(active),
-        "max_review": a.max_review, "review": len(review),
-        "unsettled": [brief(i) for i in unsettled],
-        "quiet": [brief(i, "status", "prs", "agent") for i in quiet],
+        "unsettled": [brief(i) for i in st["unsettled"]],
         "untriaged": [brief(i) for i in untriaged],
         "held": [brief(i, "autonomy") for i in held],
         "attended": [brief(i, "issue_type") for i in attended],
@@ -2216,21 +2392,34 @@ def cmd_next(a):
         "blocked_by_issue": [brief(i, "blockers") for i in dependent],
         "excluded": [brief(i) for i in excluded],
         "out_of_scope": [brief(i) for i in out_of_scope],
-        "parents": [brief(i, "status", "open_children") for i in parents],
-        "flight": [brief(i, "status", "prs") for i in sorted(flight, key=rank_key)],
+        "parents": [brief(i, "status", "open_children") for i in st["parents"]],
         "candidates_total": len(candidates), "unexamined": len(candidates),
         "startable": [], "blocked": [], "needs_judgement": [], "awaiting_deploy": [],
         "no_checkout": [], "open_prs": {},
         "ladder": config()["ladder"],
     }
-    if deficit <= 0 or not candidates:
+    if st["deficit"] <= 0 or not candidates:
         print(json.dumps(out, indent=2))
         return 1
+    walk(out, candidates, st, ladder, a.no_judge, {f'{i["repo"]}#{i["n"]}' for i in items})
+    print(json.dumps(out, indent=2))
+    return 0 if out["startable"] else 1
 
-    # Only the board's own work holds files: the open PRs linked to an item in flight.
-    # Anyone else's open PR is theirs to rebase over, and a candidate waits on none of them.
+
+def walk(out, candidates, st, ladder, no_judge, live):
+    """The collision walk both dispatch commands share: down `candidates` in order until
+    `st["deficit"]` is filled or a budget runs out, sorting each into `out`'s
+    `startable`, `blocked`, `needs_judgement` or `awaiting_deploy`. `live` is the board
+    keys whose cached bodies are worth keeping.
+
+    A board candidate's body is read here, through the body cache; a candidate carrying a
+    `source` brought its own."""
+    deficit, flight, parents, quiet = st["deficit"], st["flight"], st["parents"], st["quiet"]
+    # Only the dispatchers' own work holds files: the open PRs linked to an item in flight,
+    # on the board or in the registry. Anyone else's open PR is theirs to rebase over, and
+    # a candidate waits on none of them.
     ours = {u for i in flight + parents for u in i["prs"] if i["pr_state"][u] == "OPEN"}
-    repos = sorted({i["repo"] for i in flight} | {i["repo"] for i in shortlist})
+    repos = sorted({i["repo"] for i in flight} | {i["repo"] for i in candidates})
     out["no_checkout"] = [r for r in repos if not repo_files(r)[2]]
     pr_repos = {"/".join(u.split("/")[3:5]) for u in ours}
     owners, pr_files = footprints(sorted(set(repos) | pr_repos), only=ours)
@@ -2250,18 +2439,18 @@ def cmd_next(a):
     for i in flight:
         if i in quiet or any(i["pr_state"][u] == "OPEN" for u in i["prs"]):
             continue
-        body = gh("api", f'repos/{i["repo"]}/issues/{i["n"]}', "--jq", ".body", parse=False)
-        claims[f'{i["repo"]}#{i["n"]}'] = {"repo": i["repo"], "title": i["title"],
-                                           "body": body or ""}
-        tag = f'#{i["n"]} (claimed, no PR)'
+        body = (i["body"] if i.get("source") else
+                gh("api", f'repos/{i["repo"]}/issues/{i["n"]}', "--jq", ".body", parse=False))
+        claims[ref(i)] = {"repo": i["repo"], "title": i["title"], "body": body or ""}
+        held_by = f'{tag(i)} (claimed, no PR)'
         hard = body_footprint(i["repo"], body)
         for path in hard:
-            owners[(i["repo"], path)].append(tag)
+            owners[(i["repo"], path)].append(held_by)
         for path in body_footprint(i["repo"], body, judged=False):
             if path not in hard:
-                hint[(i["repo"], path)].append(tag)
+                hint[(i["repo"], path)].append(held_by)
 
-    judge = not a.no_judge
+    judge = not no_judge
     if judge and (why := judgement_unavailable()):
         judge, out["judgement"] = False, f"failed: {why}"
     else:
@@ -2276,24 +2465,27 @@ def cmd_next(a):
     if not judge:
         fall_back_to_the_regex()
     bodies, fetched, asked = body_cache_load(), 0, 0
-    live = {f'{i["repo"]}#{i["n"]}' for i in items}
-    for i in shortlist:
+    for i in candidates:
         if len(out["startable"]) >= deficit or asked >= NEXT_MAX_JUDGED:
             break
-        # An edit moves `updatedAt`, so a hit is the body as it stands. A blocked candidate
-        # is re-decided against this tick's open PRs from it, at no request.
-        key, hit = f'{i["repo"]}#{i["n"]}', None
-        if (c := bodies.get(key)) and c["updated"] == i["updated"]:
-            hit = c["body"]
-        elif fetched >= NEXT_MAX_BODIES:
-            break
-        out["unexamined"] -= 1
-        if hit is None:
-            hit = gh("api", f'repos/{i["repo"]}/issues/{i["n"]}', "--jq", ".body",
-                     parse=False) or ""
-            bodies[key] = {"updated": i["updated"], "body": hit}
-            fetched += 1
-        body = hit
+        if i.get("source"):
+            out["unexamined"] -= 1
+            body = i["body"]
+        else:
+            # An edit moves `updatedAt`, so a hit is the body as it stands. A blocked
+            # candidate is re-decided against this tick's open PRs from it, at no request.
+            key, hit = f'{i["repo"]}#{i["n"]}', None
+            if (c := bodies.get(key)) and c["updated"] == i["updated"]:
+                hit = c["body"]
+            elif fetched >= NEXT_MAX_BODIES:
+                break
+            out["unexamined"] -= 1
+            if hit is None:
+                hit = gh("api", f'repos/{i["repo"]}/issues/{i["n"]}', "--jq", ".body",
+                         parse=False) or ""
+                bodies[key] = {"updated": i["updated"], "body": hit}
+                fetched += 1
+            body = hit
         gate = deploy_gate(i["repo"], body)
         if gate:
             out["awaiting_deploy"].append(brief(i, "priority", "effort") | {"gate": gate})
@@ -2327,7 +2519,7 @@ def cmd_next(a):
         if judge:
             prs = {k: v for k, v in pr_files.items() if v["repo"] == i["repo"]}
             mine = {k: v for k, v in claims.items()
-                    if v["repo"] == i["repo"] and k != f'{i["repo"]}#{i["n"]}'}
+                    if v["repo"] == i["repo"] and k != ref(i)}
             if len(prs) > JUDGE_MAX_PRS:
                 out["judgement"] = (f"on (only {JUDGE_MAX_PRS} of {len(prs)} open PRs in "
                                     f'{i["repo"]} are judged)')
@@ -2368,22 +2560,153 @@ def cmd_next(a):
         entry = brief(i, "priority", "effort", "autonomy")
         # Effort prices the hunt along with the fix: unattended, it is the only price there is.
         # `effort` here is the board axis (XS..XL); `reasoning_effort` is the model's. With
-        # no ladder both are null, and the caller starts the agent on its own default.
-        entry["model"], entry["reasoning_effort"] = (ladder[i["effort"]] if ladder
-                                                     else (None, None))
+        # no ladder, or no Effort to price, both are null, and the caller starts the agent
+        # on its own default.
+        entry["model"], entry["reasoning_effort"] = ((ladder or {}).get(i["effort"])
+                                                     or (None, None))
         entry["footprint"] = fp
         out["startable"].append(entry)
         # Later picks in this same tick must not tread on this one.
         for path in fp:
-            taken.setdefault((i["repo"], path), []).append(f'#{i["n"]} (picked this tick)')
+            taken.setdefault((i["repo"], path), []).append(f'{tag(i)} (picked this tick)')
 
-    body_cache_save({k: v for k, v in bodies.items() if k in live})
+    # `collide` reads no board body, and saving its startup snapshot would overwrite what
+    # a `next` running beside it just fetched.
+    if any(not i.get("source") for i in candidates):
+        body_cache_save({k: v for k, v in bodies.items() if k in live})
     # Who holds what a `blocked` entry collided with, so a reader can see whose PR to wait
     # on. The PR sweep already fetched it; nothing here costs a query.
     out["open_prs"] = {k: {"author": v.get("author"), "url": v.get("url")}
                       for k, v in pr_files.items()}
+
+
+def cmd_collide(a):
+    """`next`'s caps and collision walk, for candidates the board does not hold: what a
+    second dispatcher asks before it starts an agent, so it never carries a copy of the
+    footprint rules.
+
+    Stdin is a JSON list, in the caller's rank order, of
+    `{"source", "key", "repo", "title", "body", "url"?, "priority"?, "effort"?}`.
+    Flight is everything `next` counts — the board's and every registry claim — and so
+    are the caps and `--live-agents`. The output carries `next`'s flight fields and its
+    verdict lists, each entry naming its `source` and with its key as `n`; a startable
+    one is priced off the ladder by its `effort`, null where it names none.
+
+    A candidate already in the registry is in flight, never a candidate: it comes back
+    under `excluded`. Exit 1 means nothing is startable, with the JSON printed either way.
+    """
+    ladder = dispatch_model()
+    try:
+        raw = json.load(sys.stdin)
+    except json.JSONDecodeError as e:
+        sys.exit(f"collide: stdin is not JSON: {e}")
+    if not isinstance(raw, list):
+        sys.exit("collide: stdin must be a JSON list of candidates")
+    candidates, seen = [], set()
+    for c in raw:
+        if not isinstance(c, dict):
+            sys.exit(f"collide: a candidate is a JSON object, not {json.dumps(c)[:200]}")
+        missing = [k for k in ("source", "key", "repo", "title")
+                   if not (isinstance(c.get(k), str) and c[k])]
+        if missing:
+            sys.exit(f"collide: a candidate lacks {', '.join(missing)}: {json.dumps(c)[:200]}")
+        if not all(isinstance(c.get(k) or "", str) for k in ("body", "url", "priority")):
+            sys.exit(f'collide: {c["source"]}:{c["key"]} has a body, url or priority that '
+                     f'is not a string')
+        if c.get("effort") and c["effort"] not in EFFORTS:
+            sys.exit(f'collide: {c["source"]}:{c["key"]} has effort {c["effort"]!r}, '
+                     f'not one of {", ".join(EFFORTS)}')
+        # The caller's first mention of a key is its rank; a repeat would pass the walk
+        # twice and come back startable twice.
+        if (c["source"], c["key"]) in seen:
+            continue
+        seen.add((c["source"], c["key"]))
+        candidates.append({"source": c["source"], "n": c["key"], "repo": c["repo"],
+                           "title": c["title"], "body": c.get("body") or "",
+                           "url": c.get("url") or "", "priority": c.get("priority") or "",
+                           "effort": c.get("effort") or "", "autonomy": ""})
+    items = board()
+    st = flight_state(items, a)
+    claimed = {ref(i) for i in st["flight"] + st["finished"] if i.get("source")}
+    excluded = [i for i in candidates if ref(i) in claimed]
+    out_of_scope = [i for i in candidates if a.scope and i["repo"] not in a.scope]
+    candidates = [i for i in candidates if i not in excluded and i not in out_of_scope]
+    out = flight_out(a, st) | {
+        "excluded": [brief(i) for i in excluded],
+        "out_of_scope": [brief(i) for i in out_of_scope],
+        "candidates_total": len(candidates), "unexamined": len(candidates),
+        "startable": [], "blocked": [], "needs_judgement": [], "awaiting_deploy": [],
+        "no_checkout": [], "open_prs": {},
+        "ladder": config()["ladder"],
+    }
+    if st["deficit"] <= 0 or not candidates:
+        print(json.dumps(out, indent=2))
+        return 1
+    walk(out, candidates, st, ladder, a.no_judge, {f'{i["repo"]}#{i["n"]}' for i in items})
     print(json.dumps(out, indent=2))
     return 0 if out["startable"] else 1
+
+
+def cmd_claims(a):
+    """The claims registry: work a dispatcher whose tracker is not this board has started,
+    which `next` and `collide` count as flight.
+
+    `put` reads one claim as a JSON object on stdin —
+    `{"source", "key", "repo", "title", "url", "agent", "body"?, "prs"?}` — and writes
+    it, stamped with `claimed_at`; a claim already there under that source and key is
+    replaced. `body` is what the work will touch, read for a footprint until it has a PR.
+    `pr` adds an open PR to a claim, which from then on holds that PR's files. `drop`
+    removes a claim once its work has merged, closed or been handed back. `list` prints
+    one line a claim."""
+    if a.action == "list":
+        for c in registry():
+            print("\t".join([f'{c["source"]}:{c["key"]}', c["repo"], c["agent"],
+                             c.get("claimed_at") or "-", ",".join(c.get("prs") or []) or "-",
+                             c["title"][:90]]))
+        return 0
+    if a.action == "put":
+        try:
+            c = json.load(sys.stdin)
+        except json.JSONDecodeError as e:
+            sys.exit(f"claims put: stdin is not JSON: {e}")
+        if why := claim_problem(c):
+            sys.exit(f"claims put: {why}")
+        a.source, a.key = c["source"], c["key"]
+    for name, value in (("source", a.source), ("key", a.key)):
+        if not CLAIM_NAME.fullmatch(value):
+            sys.exit(f"claims: {name} {value!r} must be letters, digits, '.', '_' or '-', "
+                     f"with no '--'")
+    path = claim_file(a.source, a.key)
+    with claims_lock():
+        if a.action == "put":
+            c["claimed_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        else:
+            if not os.path.exists(path):
+                if a.action == "drop":
+                    print(f"ABSENT\t{a.source}:{a.key}")
+                    return 0
+                sys.exit(f"claims {a.action}: no claim {a.source}:{a.key}")
+            if a.action == "drop":
+                os.remove(path)
+                print(f"DROPPED\t{a.source}:{a.key}")
+                return 0
+            if not PR_URL.fullmatch(a.url):
+                sys.exit(f"claims pr: not a GitHub PR URL: {a.url}")
+            try:
+                with open(path) as fh:
+                    c = json.load(fh)
+            except (OSError, json.JSONDecodeError) as e:
+                sys.exit(f"claims pr: {a.source}:{a.key} cannot be read ({e}); put it again")
+            if why := claim_problem(c):
+                sys.exit(f"claims pr: {a.source}:{a.key} is not a claim ({why}); put it again")
+            c["prs"] = list(dict.fromkeys([*(c.get("prs") or []), a.url]))
+        tmp = f"{path}.tmp"
+        with open(tmp, "w") as fh:
+            json.dump(c, fh, indent=2)
+        os.replace(tmp, path)
+    print(f'{"CLAIMED" if a.action == "put" else "PR"}\t{a.source}:{a.key}'
+          + (f"\t{a.url}" if a.action == "pr" else ""))
+    return 0
 
 
 def body_cache_load():
@@ -3676,6 +3999,24 @@ def main():
     s.add_argument("--no-judge", action="store_true",
                    help="skip the System One collision judgement; exact paths only")
     s.set_defaults(fn=cmd_next)
+    s = sub.add_parser("collide", description=cmd_collide.__doc__,
+                       formatter_class=argparse.RawDescriptionHelpFormatter)
+    s.add_argument("target", nargs="?", type=int, default=None)
+    s.add_argument("--max-active", type=int, default=None, metavar="N")
+    s.add_argument("--max-review", type=int, default=None, metavar="M")
+    s.add_argument("--live-agents", default=None, metavar="A,B")
+    s.add_argument("--idle-agents", default=None, metavar="C,D")
+    s.add_argument("--repo", action="append", dest="scope", default=[], metavar="OWNER/NAME")
+    s.add_argument("--no-judge", action="store_true")
+    s.set_defaults(fn=cmd_collide)
+    s = sub.add_parser("claims", description=cmd_claims.__doc__,
+                       formatter_class=argparse.RawDescriptionHelpFormatter)
+    cs = s.add_subparsers(dest="action", required=True)
+    cs.add_parser("put")
+    c = cs.add_parser("pr"); c.add_argument("source"); c.add_argument("key"); c.add_argument("url")
+    c = cs.add_parser("drop"); c.add_argument("source"); c.add_argument("key")
+    cs.add_parser("list")
+    s.set_defaults(fn=cmd_claims)
     s = sub.add_parser("decisions"); s.add_argument("n", nargs="?", type=int, default=5)
     s.add_argument("--lines", type=int, default=8)
     s.add_argument("--unnamed", action="store_true")
@@ -3715,7 +4056,7 @@ def main():
     a = p.parse_args()
     # The Agent commands read only the session files, which carry their own board ids, and
     # a hook must never fail a session for want of a config.
-    if a.cmd not in ("init", "provision", "agents", "agent-hook"):
+    if a.cmd not in ("init", "provision", "agents", "agent-hook", "claims"):
         config()
     if a.cmd == "dispatches" and a.repos is None:
         a.repos = list(config()["repos"])
