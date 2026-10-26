@@ -41,9 +41,13 @@ if endpoint == "graphql":
 elif m := re.fullmatch(rf"repos/{re.escape(repo)}/pulls/{pr['number']}/files\?per_page=(\d+)&page=(\d+)",
                        endpoint or ""):
     size, page = int(m[1]), int(m[2])
-    out = pr["files"][:pr.get("cap", len(pr["files"]))][(page - 1) * size:page * size]
+    out = pr["files"][:pr["cap"]][(page - 1) * size:page * size]
 elif endpoint == f"repos/{repo}/pulls/{pr['number']}":
+    reads = os.environ["LANE_TEST_PR"] + ".reads"
+    n = int(open(reads).read()) if os.path.exists(reads) else 0
+    open(reads, "w").write(str(n + 1))
     out = {"changed_files": len(pr["files"]), "user": {"type": pr["author_type"]},
+           "head": {"sha": "b" if n and pr["moves"] else "a"}, "base": {"sha": "c"},
            "requested_reviewers": [], "requested_teams": []}
 else:
     sys.stderr.write(f"gh: Not Found (HTTP 404) {endpoint}\n"); sys.exit(1)
@@ -60,13 +64,14 @@ def file(name, lines, previous=None):
     return f
 
 
-def gate(files, guarded="", closing=1, author_type="User", cap=None, **env):
+def gate(files, guarded="", closing=1, author_type="User", cap=None, moves=False, **env):
     """The gate's one line for a PR with these files, under these LANE_* overrides. GitHub lists
-    only the first `cap` files, when one is given."""
+    only the first `cap` files, when one is given; `moves` pushes a new head after the first read
+    of the PR."""
     d = pathlib.Path(tempfile.mkdtemp(prefix="lane-gate-"))
     try:
         (d / "pr.json").write_text(json.dumps({"number": PR, "files": files, "closing": closing,
-                                               "author_type": author_type, **({"cap": cap} if cap else {})}))
+                                               "author_type": author_type, "cap": cap, "moves": moves}))
         gh = d / "gh"
         gh.write_text(SHIM.replace("PYTHON", sys.executable, 1))
         gh.chmod(0o755)
@@ -156,6 +161,11 @@ def test_a_listing_short_of_the_file_count_passes_nothing():
     files = [file(f"tests/t{i}.py", 1) for i in range(120)] + [file("sql/grant.sql", 1000)]
     out = gate(files, guarded="^sql/", cap=120)
     assert out == "gate=human reason=could read only 120 of the 121 changed files", out
+
+
+def test_a_push_while_the_files_are_read_passes_nothing():
+    out = gate([file(f"tests/t{i}.py", 1) for i in range(101)], moves=True)
+    assert out == "gate=human reason=the PR moved while its files were read", out
 
 
 def test_every_reason_is_named():

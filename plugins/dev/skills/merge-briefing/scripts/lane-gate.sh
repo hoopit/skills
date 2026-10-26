@@ -17,9 +17,10 @@
 # LANE_MAX_LINES and LANE_MAX_FILES replace the default limits; the merge briefing sets them
 # from a repo's Lane limits line.
 #
-# REST for everything but the closing issues, which only GraphQL exposes. The files read
-# page by page, as many pages as the PR's own file count, and a listing short of that count
-# is a read that failed: GitHub serves at most 3,000 of a PR's files.
+# REST for everything but the closing issues, which only GraphQL exposes. The files are read
+# page by page, as many pages as the PR's own file count. A listing short of that count is a
+# read that failed — GitHub serves at most 3,000 of a PR's files — and so is one the PR's head
+# or base moved under, since a push between pages can swap a file without changing the count.
 set -u
 export MISE_QUIET=1
 export REPO=$1
@@ -32,10 +33,10 @@ done
 TEST_FILE='(^|/)(tests?|__snapshots__)/|(^|/)test_[^/]*\.[^/]*$|_test\.[^/]*$|\.snap$'
 reasons=()
 
-pr=$(gh api "repos/$REPO/pulls/$PR" --jq '[.changed_files, .user.type,
+pr=$(gh api "repos/$REPO/pulls/$PR" --jq '[.changed_files, "\(.head.sha)..\(.base.sha)", .user.type,
   (([.requested_reviewers[].login] + [.requested_teams[].slug]) | join(" "))] | @tsv') \
   || { echo "gate=human reason=could not read the PR"; exit 0; }
-IFS=$'\t' read -r changed author_type asked <<<"$pr"
+IFS=$'\t' read -r changed revision author_type asked <<<"$pr"
 
 # A rename is judged under both names: moving a file out of a guarded path touches it.
 paths="" lines=0 files=0 seen=0
@@ -54,6 +55,8 @@ for (( page = 1; page <= (changed + 99) / 100; page++ )); do
 done
 (( seen == changed )) \
   || { echo "gate=human reason=could read only $seen of the $changed changed files"; exit 0; }
+[[ $(gh api "repos/$REPO/pulls/$PR" --jq '"\(.head.sha)..\(.base.sha)"') == "$revision" ]] \
+  || { echo "gate=human reason=the PR moved while its files were read"; exit 0; }
 (( lines > MAX_LINES )) && reasons+=("$lines changed lines outside tests, over $MAX_LINES")
 (( files > MAX_FILES )) && reasons+=("$files changed files outside tests, over $MAX_FILES")
 [[ $author_type == Bot ]] && reasons+=("a bot opened it")
