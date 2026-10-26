@@ -122,8 +122,8 @@ The gate settles the mechanical half. Read three lines from the repo's *Workflow
 config* (`AGENTS.md`):
 
 - **Guarded paths** — the regexes naming what always takes a human there: migrations,
-  payment code, permission classes. A line reading `none` is an empty list: hand the gate
-  `''`, never the word.
+  payment code, permission classes. A line whose value is `none`, prose after it or not, is
+  an empty list: hand the gate `''`, never the word.
 - **Lane limits** *(optional)* — `<lines> lines, <files> files`, the most a PR may change
   outside its test files and still be `auto`. Without the line the gate's defaults hold.
 - **Auto lane risk ceiling** *(optional)* — `low` or `moderate`, the highest **Merge
