@@ -17,7 +17,8 @@
 # from a repo's Lane limits line.
 #
 # REST for everything but the closing issues, which only GraphQL exposes. The files read
-# page by page, as many pages as the PR's own file count.
+# page by page, as many pages as the PR's own file count, and a listing short of that count
+# is a read that failed: GitHub serves at most 3,000 of a PR's files.
 set -u
 export MISE_QUIET=1
 export REPO=$1
@@ -36,19 +37,22 @@ pr=$(gh api "repos/$REPO/pulls/$PR" --jq '[.changed_files, .user.type,
 IFS=$'\t' read -r changed author_type asked <<<"$pr"
 
 # A rename is judged under both names: moving a file out of a guarded path touches it.
-paths="" lines=0 files=0
+paths="" lines=0 files=0 seen=0
 for (( page = 1; page <= (changed + 99) / 100; page++ )); do
   rows=$(gh api "repos/$REPO/pulls/$PR/files?per_page=100&page=$page" \
     --jq '.[] | [.filename, .changes, (.previous_filename // "")] | @tsv') \
     || { echo "gate=human reason=could not read the changed files"; exit 0; }
   while IFS=$'\t' read -r name changes previous; do
     [[ -n $name ]] || continue
+    (( seen += 1 ))
     paths+=$name$'\n'
     [[ -n $previous ]] && paths+=$previous$'\n'
     [[ $name =~ $TEST_FILE ]] && continue
     (( lines += changes, files += 1 ))
   done <<<"$rows"
 done
+(( seen == changed )) \
+  || { echo "gate=human reason=could read only $seen of the $changed changed files"; exit 0; }
 (( lines > MAX_LINES )) && reasons+=("$lines changed lines outside tests, over $MAX_LINES")
 (( files > MAX_FILES )) && reasons+=("$files changed files outside tests, over $MAX_FILES")
 [[ $author_type == Bot ]] && reasons+=("a bot opened it")
