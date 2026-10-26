@@ -9,19 +9,24 @@ its list to `hoopit-board collide`, which owns the caps and the file-overlap rul
 dispatchers. Every claim goes into `hoopit-board`'s claims registry, so the board's daemon
 sees Linear work in flight and the other way round.
 
-The verdict lives on the issue in two places. A label from the workspace `agent` group —
-`doable`, `not-doable`, `split`, or `released` once an agent handed it back — is what
-filters read, and what a person removes to send the issue back to triage. A comment
-carries the reasoning, ending in one machine-readable line (`TRIAGE_LINE`) with the repo
-and Effort an implementer is started on. The newest such comment is the verdict in force.
+Every verdict is a comment carrying the reasoning, ending in one machine-readable line
+(`TRIAGE_LINE`) with the repo and Effort an implementer is started on; the newest such
+comment is the verdict in force. Triage also sets the issue's type label — `Bug`,
+`Improvement` or `Feature` (`TYPES`) — since reports arrive typed by whoever filed them.
 
-The flow reads one queue: the Support team's issues in its Triage state. An issue there
-with no `agent` label is in `inbox`. Agents never work a Support issue itself. One that
-waits on Support or product as a whole gets `not-doable` and the question. Every other is
-`split`: one sub-issue per platform, created in the team that owns the repo (`TEAM_FOR_REPO`)
-so that team's workflow and git automation apply, each with its own verdict. The Support
-issue then reads `split` and moves to Support's Todo, and closes by itself once its
-sub-issues are done — Support's team setting, not this script's.
+The flow reads one queue: the Support team's issues in its Triage state. Being there is
+what makes an issue untriaged, whatever its labels, and every verdict moves it out — so a
+person sends a Support issue back to triage by moving it back to Triage. Agents never work
+a Support issue itself. One that waits on a person as a whole moves to Support's Backlog,
+assigned to whoever must answer (`PRODUCT_OWNER` for a product, UX or scope question;
+nobody, for Support to route, when it waits on logs, access or an outside party). Every
+other is `split`: one sub-issue per platform, created in the team that owns the repo
+(`TEAM_FOR_REPO`) so that team's workflow and git automation apply, each with its own
+verdict. The Support issue then reads `split` and moves to Support's Todo, and closes by
+itself once its sub-issues are done — Support's team setting, not this script's.
+
+On a sub-issue the verdict is also a label from the workspace `agent` group — `doable`,
+`not-doable`, or `released` once an agent handed it back — which is what dispatch reads.
 
 Where triage judges that a split's parts must ship `together`, the sub-issues of one
 Support issue are one **unit**: one report, worked at once by agents that talk to each
@@ -31,9 +36,9 @@ their own unit. Either way an offered part is a sub-issue the flow made, still w
 and unassigned or assigned to the key's own user, so no agent opens a PR on work somebody
 else holds.
 
-A person sends any issue back to triage by removing its `agent` label: a Support issue
-returns to `inbox` from Support's Triage, and a sub-issue — a held part whose question is
-now answered, say — returns from its team's Backlog, to be judged again on its own. A claim assigns it to that user and moves it to its team's In
+A sub-issue lives in its team's workflow, which has no Triage state, so a person sends
+one back — a held part whose question is now answered, say — by removing its `agent`
+label, and it is judged again on its own. A claim assigns it to that user and moves it to its team's In
 Progress; the PRs go out under that user's name. No other issue of another team is read,
 labelled or commented on.
 
@@ -41,7 +46,8 @@ Linear is reached through `linear-gql`, which finds the key itself (`LINEAR_API_
 first). The registry is reached through `hoopit-board claims`.
 
   inbox [--limit N]              the triage queue, newest first, as JSON
-  verdict <KEY> --not-doable [--repo R] | <PART> (--doable --effort E | --not-doable)
+  verdict <KEY> --not-doable --type T --waits-on W [--repo R]
+          | <PART> (--doable --effort E | --not-doable --waits-on W) [--type T]
                                  a Support issue waiting on a person, or one part judged
                                  again; the findings on stdin
   fetch <url>... --into DIR      download Linear uploads (screenshots, HAR files) with the key
@@ -62,6 +68,13 @@ TEAM, QUEUE = "SUP", "triage"
 TEAM_FOR_REPO = {"hoopit/api": "BE", "hoopit/web-admin": "ADM", "hoopit/flutter-app": "APP",
                  "hoopit/public-calendar": "CAL"}
 REPO_FOR_TEAM = {team: repo for repo, team in TEAM_FOR_REPO.items()}
+# The workspace labels that say what kind of work an issue is.
+TYPES = ("Bug", "Improvement", "Feature")
+# Who a not-doable issue goes to, by what it waits on: a product, UX or scope question to
+# the product owner, by email; anything else — logs, access, an outside party — to nobody,
+# for Support to route.
+PRODUCT_OWNER = "lukas@hoopit.io"
+WAITS_ON = ("product", "support")
 # Where a sub-issue waits until an agent takes it.
 WAITING = ("backlog", "unstarted")
 EFFORTS = ["XS", "S", "M", "L", "XL"]
@@ -203,6 +216,40 @@ def group_labels():
     return (g["id"], {c["name"]: c["id"] for c in g["children"]["nodes"]}) if g else (None, {})
 
 
+def type_swap(i, name):
+    """The update fields that leave `name` as the issue's one type label."""
+    ids = {n["name"]: n["id"] for n in gql("""query Types($names:[String!]) { issueLabels(
+              filter:{ name:{ in:$names }, team:{ null:true } }) { nodes { id name } } }""",
+              names=list(TYPES))["issueLabels"]["nodes"]}
+    if name not in ids:
+        raise LinearError(f"no workspace label {name!r}")
+    have = [l["id"] for l in i["labels"]["nodes"] if l["name"] in TYPES and not l.get("parent")]
+    fields = {"removedLabelIds": [l for l in have if l != ids[name]]}
+    if ids[name] not in have:
+        fields["addedLabelIds"] = [ids[name]]
+    return {k: v for k, v in fields.items() if v}
+
+
+def merge(*swaps):
+    """One update's label fields from several swaps."""
+    out = {}
+    for sw in swaps:
+        for k, v in sw.items():
+            out[k] = out.get(k, []) + v
+    return out
+
+
+def owner_for(waits_on):
+    """The assignee a not-doable issue goes to, or None for Support to route."""
+    if waits_on != "product":
+        return None
+    users = gql("""query Owner($email:String!) { users(filter:{ email:{ eq:$email } }) {
+                   nodes { id } } }""", email=PRODUCT_OWNER)["users"]["nodes"]
+    if not users:
+        raise LinearError(f"no Linear user {PRODUCT_OWNER}")
+    return users[0]["id"]
+
+
 def label_id(name):
     _, children = group_labels()
     if name not in children:
@@ -314,10 +361,10 @@ def is_part(i, me):
 
 def cmd_inbox(a):
     """What no verdict covers yet, newest first, so a new report is triaged on the tick it
-    arrives and the backlog drains behind it: the queue's unlabelled Support issues, and
-    the sub-issues a person sent back by removing their label. A part names its `parent`
-    and `repo`: it is judged again alone, with `verdict`, never split."""
-    todo = [i for i in open_issues() if agent_label(i) is None] + reopened_parts()
+    arrives and the backlog drains behind it: every Support issue in Triage, whatever its
+    labels, and the sub-issues a person sent back by removing their label. A part names
+    its `parent` and `repo`: it is judged again alone, with `verdict`, never split."""
+    todo = open_issues() + reopened_parts()
     todo.sort(key=lambda i: i["createdAt"], reverse=True)
     rows = []
     for i in todo[:a.limit]:
@@ -331,16 +378,23 @@ def cmd_inbox(a):
 
 
 def cmd_verdict(a):
-    """Write a verdict: the comment that carries it, then the label. The label is what
-    every filter reads, so it is the commit point: a comment that fails leaves the issue in
-    `inbox` untouched, and a label that fails after it leaves the issue there with a
-    comment the next triage supersedes.
+    """Write a verdict: the comment that carries it, then one update — the commit point,
+    since it is what moves the issue where every filter reads it. A comment that fails
+    leaves the issue untouched, and an update that fails after it leaves the issue where it
+    was, with a comment the next triage supersedes.
 
     On a Support issue the verdict is only ever not-doable — one that waits on a person as
-    a whole. Doable work there is `split`. On a part — a sub-issue a person sent back — it
-    is either, with the part's own repo; a doable part keeps whether its unit ships
-    `together` from its last verdict."""
+    a whole; doable work there is `split`. The update sets its `--type`, assigns it by
+    `--waits-on`, clears any `agent` label an earlier pass left, and moves it from Triage to
+    Support's Backlog. On a part — a sub-issue a person sent back — it is either, with the
+    part's own repo, and the update is its `agent` label, plus the assignee for a
+    not-doable one; a doable part keeps whether its unit ships `together` from its last
+    verdict."""
     verdict = "doable" if a.doable else "not-doable"
+    if not a.doable and a.waits_on not in WAITS_ON:
+        sys.exit(f"verdict: a not-doable verdict needs --waits-on {' or '.join(WAITS_ON)}")
+    if a.doable and a.waits_on:
+        sys.exit("verdict: a doable verdict waits on nobody; drop --waits-on")
     if a.repo and not REPO_NAME.fullmatch(a.repo):
         sys.exit(f"verdict: repo {a.repo!r} is not owner/name")
     findings = sys.stdin.read().strip()
@@ -351,6 +405,11 @@ def cmd_verdict(a):
     if i["team"]["key"] == TEAM:
         if a.doable:
             sys.exit(f"verdict: a doable {TEAM} issue is split, never labelled: use `split`")
+        if i["state"]["type"] != QUEUE:
+            sys.exit(f'verdict: {a.key} is in {i["state"]["name"]}, not {TEAM} Triage; move it '
+                     f'back to Triage to triage it again')
+        if a.type not in TYPES:
+            sys.exit(f"verdict: a {TEAM} verdict needs --type {', '.join(TYPES)}")
         repo, effort = a.repo, None
     elif is_part(i, viewer()):
         repo = REPO_FOR_TEAM[i["team"]["key"]]
@@ -363,11 +422,17 @@ def cmd_verdict(a):
         together = bool((before or {}).get("together", True))
     else:
         sys.exit(f'verdict: {a.key} is neither a {TEAM} issue nor a part this flow split off')
-    swap = swap_label(i, verdict)
+    support = i["team"]["key"] == TEAM
+    fields = merge(swap_label(i, None if support else verdict),
+                   type_swap(i, a.type) if a.type else {})
+    if not a.doable:
+        fields["assigneeId"] = owner_for(a.waits_on)
+    if support:
+        fields["stateId"] = team_state(i, "Backlog", "backlog")
     comment(i, triage_comment(verdict, repo, effort, findings, together))
-    if swap:
-        update(i, **swap)
-    print(f"{verdict.upper()}\t{a.key}\t{repo or '-'}" + (f"\t{effort}" if effort else ""))
+    update(i, **fields)
+    print(f"{verdict.upper()}\t{a.key}\t{repo or '-'}" + (f"\t{effort}" if effort else "")
+          + (f"\t{a.waits_on}" if a.waits_on else ""))
     return 0
 
 
@@ -380,6 +445,8 @@ def split_plan(raw):
     parts = plan.get("parts") if isinstance(plan, dict) else None
     if not isinstance(parts, list) or not parts:
         sys.exit('split: the plan is {"parts": [...]}, one part per platform')
+    if plan.get("type") not in TYPES:
+        sys.exit(f'split: the plan names the issue\'s "type": one of {", ".join(TYPES)}')
     if len(parts) > 1 and not isinstance(plan.get("together"), bool):
         sys.exit('split: a plan of several parts says whether they ship together: '
                  '"together": true or false')
@@ -393,24 +460,36 @@ def split_plan(raw):
         if p["repo"] in seen:
             sys.exit(f'split: {p["repo"]} appears twice; one part per platform')
         seen.add(p["repo"])
+        if p.get("type", plan["type"]) not in TYPES:
+            sys.exit(f'split: the {p["repo"]} part\'s type is one of {", ".join(TYPES)}')
         if p["verdict"] == "doable":
             if p.get("effort") not in EFFORTS[:-1]:
                 sys.exit(f'split: the {p["repo"]} part is doable and needs an Effort of '
                          f'{", ".join(EFFORTS[:-1])}; XL is not doable')
+            if p.get("waits_on"):
+                sys.exit(f'split: the {p["repo"]} part is doable and waits on nobody')
         elif p["verdict"] == "not-doable":
             if p.get("effort"):
                 sys.exit(f'split: the {p["repo"]} part is not doable and prices nothing')
+            if p.get("waits_on") not in WAITS_ON:
+                sys.exit(f'split: the not-doable {p["repo"]} part needs "waits_on": '
+                         f'{" or ".join(WAITS_ON)}')
         else:
             sys.exit(f'split: verdict {p["verdict"]!r} is doable or not-doable')
-    return parts, len(parts) > 1 and plan["together"]
+    return parts, len(parts) > 1 and plan["together"], plan["type"]
 
 
 def cmd_split(a):
     """Split a Support issue into one sub-issue per platform, from the plan on stdin:
 
-      {"together": true,
+      {"type": "Bug", "together": true,
        "parts": [{"repo": "hoopit/api", "title": "...", "verdict": "doable",
-                  "effort": "S", "findings": "..."}, ...]}
+                  "effort": "S", "findings": "..."},
+                 {"repo": "hoopit/flutter-app", "title": "...", "verdict": "not-doable",
+                  "waits_on": "product", "findings": "..."}]}
+
+    `type` labels the Support issue and, unless a part names its own, each part. A
+    not-doable part is assigned by its `waits_on`, as `verdict` assigns.
 
     `together` — required with several parts — says the parts must ship as one: they start
     at once, as one unit, and a part that waits holds the rest. With it false each doable
@@ -420,16 +499,14 @@ def cmd_split(a):
     with Support's priority. Its description is the findings; its triage comment carries
     the verdict line; then its label. Only after every part stands does the Support issue
     read `split` and move to Support's Todo — the commit point. So a run cut short leaves
-    the Support issue in `inbox`, and the next run finishes the job: a team that already
+    the Support issue in Triage, and the next run finishes the job: a team that already
     holds a sub-issue this flow made is not given a second, and one left unlabelled is
-    labelled."""
-    parts, together = split_plan(sys.stdin.read())
+    labelled. A Support issue moved back to Triage is split again the same way."""
+    parts, together, kind = split_plan(sys.stdin.read())
     me = viewer()
     sup = issue(a.key)
     if sup["team"]["key"] != TEAM or sup["state"]["type"] != QUEUE:
         sys.exit(f'split: {a.key} is not in {TEAM} Triage')
-    if agent_label(sup) is not None:
-        sys.exit(f"split: {a.key} already reads {GROUP}/{agent_label(sup)}")
     made = gql(f"""query Children($id:String!) {{ issue(id:$id) {{ children(first:50) {{
                    nodes {{ {ISSUE} }} }} }} }}""", id=a.key)["issue"]["children"]["nodes"]
     mine = {c["team"]["key"]: c for c in made if (c.get("creator") or {}).get("id") == me}
@@ -450,12 +527,16 @@ def cmd_split(a):
                                f'report and its conversation are there.\n\n{p["findings"]}'})["issueCreate"]["issue"]
         comment(child, triage_comment(p["verdict"], p["repo"], p.get("effort"),
                                       "The findings are in the description.", together))
-        update(child, **swap_label(child, p["verdict"]))
+        fields = merge(swap_label(child, p["verdict"]), type_swap(child, p.get("type", kind)))
+        if p["verdict"] == "not-doable":
+            fields["assigneeId"] = owner_for(p["waits_on"])
+        update(child, **fields)
         lines.append(f'MADE\t{child["identifier"]}\t{p["verdict"]}\t{p["repo"]}\t{child["url"]}')
     keys = ", ".join(f'{l.split(chr(9))[1]} ({l.split(chr(9))[2]})' for l in lines)
     comment(sup, f"**Agent triage: split** into {keys}. Each carries its own findings; this "
                  f"issue closes when they are done.")
-    update(sup, **swap_label(sup, "split"), stateId=team_state(sup, "Todo", "unstarted"))
+    update(sup, **merge(swap_label(sup, "split"), type_swap(sup, kind)),
+           stateId=team_state(sup, "Todo", "unstarted"))
     print("\n".join(lines + [f"SPLIT\t{a.key}"]))
     return 0
 
@@ -764,6 +845,7 @@ def main():
     g = s.add_mutually_exclusive_group(required=True)
     g.add_argument("--doable", action="store_true"); g.add_argument("--not-doable", action="store_true")
     s.add_argument("--repo"); s.add_argument("--effort", choices=EFFORTS)
+    s.add_argument("--type", choices=TYPES); s.add_argument("--waits-on", choices=WAITS_ON)
     s.set_defaults(fn=cmd_verdict)
     s = sub.add_parser("fetch", description=cmd_fetch.__doc__)
     s.add_argument("urls", nargs="+"); s.add_argument("--into", required=True)

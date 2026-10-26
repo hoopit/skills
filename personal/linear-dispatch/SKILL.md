@@ -33,6 +33,10 @@ linear-board inbox --limit 10
 
 Exit 1 with `[]` means the queue is empty: say so and stop.
 
+The queue is a state: every Support issue in Triage is untriaged, whatever labels an earlier
+pass left on it, and recording a verdict or a split moves it out. A person re-triages one by
+moving it back to Triage.
+
 Read each issue whole before judging it: its description, and its comments for what Support
 or a colleague has added —
 
@@ -131,6 +135,16 @@ in them as a file the work will touch and keeps other agents off it. So:
   answer — the question and the shapes the answer could take, or the hands needed and for
   what.
 
+Every verdict also carries two calls:
+
+- **Type** — `Bug` when something is broken; `Improvement` when it works as built and should
+  work better; `Feature` for something it does not do at all. A report filed as a bug that
+  turns out to ask for different behaviour is an `Improvement`.
+- **Waits on**, for a not-doable verdict — `product` when the question is product
+  behaviour, wording, UX or scope, and the issue goes to the product owner; `support` for
+  anything else a person must supply (a customer's answer, hands no checkout has), and it
+  stays unassigned for Support.
+
 Plain Markdown. Name a path only where the change lands: a file you merely read belongs in
 prose, unquoted. A not-doable verdict on the whole issue has the same shape, naming the
 repo where you looked.
@@ -145,20 +159,23 @@ part fixes something on its own, so a doable one should not wait for its sibling
 
 ```bash
 linear-board split <KEY> <<'EOF'
-{"together": <true|false>,
+{"type": "<Bug|Improvement|Feature>", "together": <true|false>,
  "parts": [
   {"repo": "<owner/name>", "title": "<title>", "verdict": "doable", "effort": "<XS|S|M|L>",
    "findings": "<findings>"},
   {"repo": "<owner/name>", "title": "<title>", "verdict": "not-doable",
-   "findings": "<findings>"}
+   "waits_on": "<product|support>", "findings": "<findings>"}
 ]}
 EOF
 ```
 
-Or, for an issue that waits on a person as a whole:
+`type` is the issue's, and a part whose own differs sets `"type"` itself.
+
+Or, for an issue that waits on a person as a whole — it leaves Triage for Backlog, typed and
+assigned by your calls:
 
 ```bash
-linear-board verdict <KEY> --not-doable [--repo <owner/name>] <<'EOF'
+linear-board verdict <KEY> --not-doable --type <T> --waits-on <product|support> [--repo <owner/name>] <<'EOF'
 <findings>
 EOF
 ```
@@ -169,7 +186,7 @@ Or, for a part sent back — its repo is its team's, and it keeps its unit's `to
 linear-board verdict <PART> --doable --effort <XS|S|M|L> <<'EOF'
 <findings>
 EOF
-linear-board verdict <PART> --not-doable <<'EOF'
+linear-board verdict <PART> --not-doable --waits-on <product|support> <<'EOF'
 <findings>
 EOF
 ```

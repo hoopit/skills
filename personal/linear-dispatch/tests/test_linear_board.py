@@ -13,7 +13,7 @@ import argparse, contextlib, importlib.machinery, importlib.util, io, json, os, 
 import subprocess, sys, tempfile
 
 SCRIPT = pathlib.Path(__file__).resolve().parent.parent / "scripts" / "linear-board"
-ME, OTHER = "user-me", "user-other"
+ME, OTHER, LUKAS = "user-me", "user-other", "user-lukas"
 STATES = [{"id": "s-Triage", "name": "Triage", "type": "triage", "position": 0},
           {"id": "s-Backlog", "name": "Backlog", "type": "backlog", "position": 1},
           {"id": "s-Todo", "name": "Todo", "type": "unstarted", "position": 2},
@@ -34,7 +34,7 @@ def issue(key, state="Triage", kind="triage", label=None, assignee=None, team="S
             "creator": {"id": creator},
             "parent": ({"id": f"id-{parent}", "identifier": parent, "team": {"key": "SUP"}}
                        if parent else None),
-            "labels": {"nodes": labels + [{"id": "L-bug", "name": "Bug", "parent": None}]}}
+            "labels": {"nodes": labels + [{"id": "L-Bug", "name": "Bug", "parent": None}]}}
 
 
 def child(key, team="BE", parent="SUP-1", label="doable", state="Backlog", kind="backlog",
@@ -97,6 +97,10 @@ class Fake:
             return {"issueLabels": {"nodes": [{"id": "G", "team": None, "children": {"nodes": [
                 {"id": f"L-{n}", "name": n}
                 for n in ("doable", "not-doable", "split", "released")]}}]}}
+        if op == "Types":
+            return {"issueLabels": {"nodes": [{"id": f"L-{n}", "name": n} for n in v["names"]]}}
+        if op == "Owner":
+            return {"users": {"nodes": [{"id": LUKAS}]}}
         if op == "States":
             return {"team": {"states": {"nodes": STATES}}}
         if op == "Team":
@@ -114,7 +118,8 @@ class Fake:
         if op == "Update":
             i, inp = self.by_id(v["id"]), v["input"]
             nodes = [l for l in i["labels"]["nodes"] if l["id"] not in inp.get("removedLabelIds", [])]
-            nodes += [{"id": l, "name": l[2:], "parent": {"name": "agent"}}
+            nodes += [{"id": l, "name": l[2:],
+                       "parent": None if l[2:] in ("Bug", "Improvement", "Feature") else {"name": "agent"}}
                       for l in inp.get("addedLabelIds", [])]
             i["labels"] = {"nodes": nodes}
             if "stateId" in inp:
@@ -156,8 +161,8 @@ def run(m, fn, stdin="", **ns):
     return out.getvalue(), code
 
 
-def plan(*parts, together=True):
-    return json.dumps({"together": together,
+def plan(*parts, together=True, kind="Bug"):
+    return json.dumps({"type": kind, "together": together,
                        "parts": [dict({"title": f"t {p['repo']}", "findings": "Edit `a.py`."}, **p)
                                  for p in parts]})
 
@@ -172,36 +177,59 @@ def test_inbox_is_supports_triage_queue_alone_newest_first():
                  issue("BE-1", team="BE"),
                  issue("BE-2", "Backlog", "backlog", team="BE")])
     out, code = run(load(fake), "cmd_inbox", limit=10)
-    assert [r["key"] for r in json.loads(out)] == ["SUP-1", "SUP-2"], out
+    assert [r["key"] for r in json.loads(out)] == ["SUP-1", "SUP-2", "SUP-3"], out
     out, _ = run(load(fake), "cmd_inbox", limit=1)
     assert [r["key"] for r in json.loads(out)] == ["SUP-1"]
     _, code = run(load(fake), "cmd_verdict", stdin="x", key="BE-1", doable=False, not_doable=True,
-                  repo=None, effort=None)
+                  repo=None, effort=None, type="Bug", waits_on="support")
     assert "nor a part this flow split off" in str(code) and fake.ops("Comment") == [], code
-    print("  SUP Triage only; other teams and other SUP states are untouched, a BE verdict refused")
+    print("  every SUP Triage issue, labelled or not; other teams and states untouched, a BE verdict refused")
 
 
-def test_a_not_doable_verdict_swaps_the_label_and_round_trips():
-    fake = Fake([issue("SUP-1", label="released")])
+def test_a_not_doable_verdict_types_assigns_and_moves_it_to_backlog():
+    """A Support issue that waits on a person leaves Triage for Backlog, typed by triage,
+    assigned to whoever must answer, with no agent label — a stale one from an earlier pass
+    is cleared."""
+    fake = Fake([issue("SUP-1", label="split")])
     m = load(fake)
     out, code = run(m, "cmd_verdict", stdin="Which wording? A or B.", key="SUP-1",
-                    doable=False, not_doable=True, repo="hoopit/web-admin", effort=None)
+                    doable=False, not_doable=True, repo="hoopit/web-admin", effort=None,
+                    type="Improvement", waits_on="product")
     assert code == 0 and out.startswith("NOT-DOABLE\tSUP-1"), (out, code)
-    (u,) = fake.ops("Update")
-    assert u["input"] == {"removedLabelIds": ["L-released"], "addedLabelIds": ["L-not-doable"]}, u
+    sup = fake.issues["SUP-1"]
+    assert sup["state"]["name"] == "Backlog" and sup["assignee"] == {"id": LUKAS}, sup
+    assert sorted(l["name"] for l in sup["labels"]["nodes"]) == ["Improvement"], sup["labels"]
+    assert fake.calls.index(("Comment", fake.ops("Comment")[0])) < len(fake.calls) - 1
     (c,) = fake.ops("Comment")
     fake.comments["SUP-1"] = [{"body": c["input"]["body"], "createdAt": "2026-10-05T00:00:00Z",
                                "user": {"id": ME}}]
     fields, findings = m.triage_of("SUP-1")
     assert fields == {"verdict": "not-doable", "repo": "hoopit/web-admin", "effort": None}, fields
     assert "Which wording" in findings and "agent-triage" not in findings, findings
+
+    fake = Fake([issue("SUP-2")])
+    run(load(fake), "cmd_verdict", stdin="Ask NIF.", key="SUP-2", doable=False, not_doable=True,
+        repo=None, effort=None, type="Bug", waits_on="support")
+    assert fake.issues["SUP-2"]["assignee"] is None and fake.ops("Owner") == []
+
+    m = load(Fake([issue("SUP-3", "Backlog", "backlog")]))
+    for kw, why in (({"type": "Bug", "waits_on": "support"}, "move it back to Triage"),):
+        _, code = run(m, "cmd_verdict", stdin="x", key="SUP-3", doable=False, not_doable=True,
+                      repo=None, effort=None, **kw)
+        assert why in str(code), code
+    m = load(Fake([issue("SUP-1")]))
+    for kw, why in (({"type": None, "waits_on": "support"}, "needs --type"),
+                    ({"type": "Bug", "waits_on": None}, "needs --waits-on")):
+        _, code = run(m, "cmd_verdict", stdin="x", key="SUP-1", doable=False, not_doable=True,
+                      repo=None, effort=None, **kw)
+        assert why in str(code), (kw, code)
     _, code = run(m, "cmd_verdict", stdin="  ", key="SUP-1", doable=False, not_doable=True,
-                  repo=None, effort=None)
+                  repo=None, effort=None, type="Bug", waits_on="support")
     assert "findings on stdin are empty" in str(code), code
     _, code = run(m, "cmd_verdict", stdin="x", key="SUP-1", doable=True, not_doable=False,
-                  repo="hoopit/api", effort="S")
+                  repo="hoopit/api", effort="S", type="Bug", waits_on=None)
     assert "is split, never labelled" in str(code), code
-    print("  released -> not-doable in one update; the comment parses back; an empty reason refused")
+    print("  Improvement, Lukas, Backlog, stale split label gone; support waits stay unassigned; refusals")
 
 
 def test_split_makes_one_sub_issue_per_platform_then_commits_on_the_parent():
@@ -209,8 +237,12 @@ def test_split_makes_one_sub_issue_per_platform_then_commits_on_the_parent():
     m = load(fake)
     out, code = run(m, "cmd_split", key="SUP-1", stdin=plan(
         {"repo": "hoopit/api", "verdict": "doable", "effort": "S"},
-        {"repo": "hoopit/flutter-app", "verdict": "not-doable", "findings": "Which screen?"}))
+        {"repo": "hoopit/flutter-app", "verdict": "not-doable", "waits_on": "product",
+         "findings": "Which screen?", "type": "Improvement"}))
     assert code == 0, (out, code)
+    names = lambda i: sorted(l["name"] for l in i["labels"]["nodes"] if not l.get("parent"))
+    assert names(fake.issues["BE-101"]) == ["Bug"] and names(fake.issues["APP-102"]) == ["Improvement"]
+    assert fake.issues["APP-102"]["assignee"] == {"id": LUKAS} and fake.issues["BE-101"]["assignee"] is None
     be, app = fake.issues["BE-101"], fake.issues["APP-102"]
     assert (be["state"]["name"], be["priority"], be["parent"]["identifier"]) == ("Backlog", 2, "SUP-1")
     assert be["description"].startswith("Split from [SUP-1]") and "Edit `a.py`." in be["description"]
@@ -263,10 +295,14 @@ def test_split_refuses_a_bad_plan_before_writing():
             (plan({"repo": "hoopit/api", "verdict": "not-doable", "effort": "S"}), "prices nothing"),
             (plan({"repo": "hoopit/api", "verdict": "doable", "effort": "S"},
                   {"repo": "hoopit/api", "verdict": "doable", "effort": "M"}), "appears twice"),
-            (json.dumps({"parts": [{"repo": "hoopit/api", "title": "t", "verdict": "doable",
-                                    "effort": "S", "findings": "f"},
-                                   {"repo": "hoopit/web-admin", "title": "t", "verdict": "doable",
-                                    "effort": "S", "findings": "f"}]}), "ship together")):
+            (json.dumps({"type": "Bug", "parts": [
+                {"repo": "hoopit/api", "title": "t", "verdict": "doable", "effort": "S", "findings": "f"},
+                {"repo": "hoopit/web-admin", "title": "t", "verdict": "doable", "effort": "S",
+                 "findings": "f"}]}), "ship together"),
+            (plan({"repo": "hoopit/api", "verdict": "doable", "effort": "S"}, kind="Chore"), '"type"'),
+            (plan({"repo": "hoopit/api", "verdict": "not-doable"}), '"waits_on"'),
+            (plan({"repo": "hoopit/api", "verdict": "doable", "effort": "S", "waits_on": "product"}),
+             "waits on nobody")):
         _, code = run(m, "cmd_split", key="SUP-1", stdin=bad)
         assert why in str(code), (bad, code)
     assert fake.ops("Create") == [] and fake.ops("Update") == []
@@ -274,11 +310,11 @@ def test_split_refuses_a_bad_plan_before_writing():
     _, code = run(m, "cmd_split", key="SUP-1", stdin=plan({"repo": "hoopit/api",
                                                           "verdict": "doable", "effort": "S"}))
     assert "not in SUP Triage" in str(code), code
-    m = load(Fake([issue("SUP-1", label="not-doable")]))
+    m = load(fake := Fake([issue("SUP-1", label="not-doable")]))
     _, code = run(m, "cmd_split", key="SUP-1", stdin=plan({"repo": "hoopit/api",
                                                           "verdict": "doable", "effort": "S"}))
-    assert "already reads agent/not-doable" in str(code), code
-    print("  eight bad plans, an issue outside the queue and a labelled one are refused, nothing written")
+    assert code == 0 and m.agent_label(fake.issues["SUP-1"]) == "split", code
+    print("  bad plans and an issue outside Triage are refused unwritten; a labelled one in Triage splits")
 
 
 def test_candidates_offer_whole_units_only():
@@ -335,7 +371,7 @@ def test_a_held_part_sent_back_is_judged_again_and_frees_its_unit():
     assert set(rows) == {"APP-1", "SUP-2"}, rows
     assert (rows["APP-1"]["parent"], rows["APP-1"]["repo"]) == ("SUP-1", "hoopit/flutter-app")
     out, code = run(m, "cmd_verdict", stdin="Answered: screen B.", key="APP-1", doable=True,
-                    not_doable=False, repo=None, effort="S")
+                    not_doable=False, repo=None, effort="S", type=None, waits_on=None)
     assert code == 0 and out.startswith("DOABLE\tAPP-1\thoopit/flutter-app\tS"), (out, code)
     fake.comments["APP-1"].append({"body": fake.ops("Comment")[-1]["input"]["body"],
                                    "createdAt": "2026-10-09T00:00:00Z", "user": {"id": ME}})
@@ -343,7 +379,7 @@ def test_a_held_part_sent_back_is_judged_again_and_frees_its_unit():
     out, _ = run(m, "cmd_candidates")
     assert [r["key"] for r in json.loads(out)] == ["BE-1", "APP-1"], out
     _, code = run(m, "cmd_verdict", stdin="x", key="APP-1", doable=True, not_doable=False,
-                  repo=None, effort=None)
+                  repo=None, effort=None, type=None, waits_on=None)
     assert "needs --effort" in str(code), code
     print("  APP-1 reappears in the inbox unlabelled, reads doable again, and SUP-1's unit starts whole")
 
