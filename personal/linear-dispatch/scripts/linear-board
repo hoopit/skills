@@ -1,0 +1,506 @@
+#!/usr/bin/env python3
+"""Mechanical half of the autonomous Linear flow: the triage queue, the verdict, the
+dispatch candidates and every state change a dispatched issue goes through.
+
+Nothing here judges. The triage agent reads an issue and decides; `verdict` writes what it
+decided. The Linear daemon ranks nothing beyond Linear's own priority; `candidates` hands
+its list to `hoopit-board collide`, which owns the caps and the file-overlap rules for both
+dispatchers. Every claim goes into `hoopit-board`'s claims registry, so the board's daemon
+sees Linear work in flight and the other way round.
+
+The verdict lives on the issue in two places. A label from the workspace `agent` group —
+`doable`, `not-doable`, or `released` once an agent handed it back — is what filters
+read, and what a person removes to send the issue back to triage. A comment carries the
+reasoning, ending in one machine-readable line (`TRIAGE_LINE`) with the repo and Effort an
+implementer is started on. The newest such comment is the verdict in force.
+
+Every open issue that has not been started and carries no `agent` label is in `inbox`,
+whatever its team or assignee. Dispatch is narrower: `candidates` offers a doable issue
+only while it is unassigned or assigned to the key's own user, so no agent opens a PR on
+work somebody else holds. A claim assigns the issue to that user and moves it to the
+team's In Progress state; the PRs go out under that user's name.
+
+Linear is reached through `linear-gql`, which finds the key itself (`LINEAR_API_KEY`
+first). The registry is reached through `hoopit-board claims`.
+
+  inbox [--limit N]              the triage queue, newest first, as JSON
+  verdict <KEY> (--doable --repo R --effort E | --not-doable [--repo R])
+                                 label the issue and comment the findings read from stdin
+  candidates                     doable issues an agent may take, in `collide`'s input shape
+  claim <KEY> --agent A [--model M] [--reasoning-effort E]
+                                 registry first, then assign, In Progress and a claim comment
+  pr <KEY> <url>                 add an open PR to the issue's claim
+  release <KEY> --reason R       hand the issue back: `released`, unassigned, Backlog
+  settle [--apply]               drop or release the claims whose work has ended
+  provision [--apply]            create the `agent` label group; a dry run without --apply
+"""
+import argparse, json, os, re, subprocess, sys
+
+# The repo a team's work lands in. Every other team — Support above all — has no repo of its
+# own, and its verdict names one.
+TEAM_REPOS = {"BE": "hoopit/api", "ADM": "hoopit/web-admin", "APP": "hoopit/flutter-app",
+              "CAL": "hoopit/public-calendar"}
+EFFORTS = ["XS", "S", "M", "L", "XL"]
+NOT_STARTED = ["triage", "backlog", "unstarted"]
+ENDED = ("completed", "canceled", "duplicate")
+GROUP = "agent"
+VERDICTS = {"doable": "Triaged: an agent can take it to a PR unattended.",
+            "not-doable": "Triaged: needs a person first.",
+            "released": "An agent took it and handed it back."}
+LABEL_COLORS = {"agent": "#5e6ad2", "doable": "#4cb782", "not-doable": "#eb5757",
+                "released": "#f2994a"}
+SOURCE = "linear"
+# The last line of a triage comment, and only the last: findings may quote an older one.
+TRIAGE_LINE = re.compile(r"(?:\A|\n)`agent-triage v1 (\{.*\})`\s*\Z")
+REPO_NAME = re.compile(r"[\w.-]+/[\w.-]+")
+PR_URL = re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)")
+# Linear's priority: 1 urgent .. 4 low, 0 none. `collide` passes it through as the board's
+# axis, so a reader of either dispatcher's output reads one scale.
+PRIORITY = {1: "P0", 2: "P1", 3: "P2", 4: "P3"}
+
+ISSUE = """id identifier title description url priority createdAt updatedAt
+  team { id key } state { id name type } assignee { id }
+  labels { nodes { id name parent { name } } }"""
+
+
+class LinearError(Exception):
+    pass
+
+
+def gql(query, **variables):
+    """One Linear request. A transport failure or a GraphQL error raises LinearError, so a
+    caller part-way through a change can undo the half it made."""
+    r = subprocess.run(["linear-gql", query, json.dumps(variables)],
+                       capture_output=True, text=True)
+    try:
+        d = json.loads(r.stdout) if r.stdout.strip() else {}
+    except json.JSONDecodeError:
+        d = {}
+    if r.returncode != 0 or d.get("errors") or "data" not in d:
+        why = "; ".join(e.get("message", "") for e in d.get("errors") or []) or r.stderr.strip()
+        raise LinearError(why or f"linear-gql exited {r.returncode}")
+    return d["data"]
+
+
+def hb(*args, stdin=None):
+    """`hoopit-board <args>`, as (exit code, stdout, stderr)."""
+    r = subprocess.run(["hoopit-board", *args], input=stdin, capture_output=True, text=True)
+    return r.returncode, r.stdout, r.stderr
+
+
+def gh_pull(repo, n):
+    """A PR's state over REST — MERGED, CLOSED or OPEN — or None where it cannot be read."""
+    r = subprocess.run(["gh", "api", f"repos/{repo}/pulls/{n}"], capture_output=True,
+                       text=True, env={**os.environ, "MISE_QUIET": "1"})
+    try:
+        p = json.loads(r.stdout) if r.returncode == 0 else None
+    except json.JSONDecodeError:
+        p = None
+    if not p:
+        return None
+    return "MERGED" if p.get("merged_at") else (p.get("state") or "").upper()
+
+
+def viewer():
+    if not hasattr(viewer, "id"):
+        viewer.id = gql("query Viewer { viewer { id } }")["viewer"]["id"]
+    return viewer.id
+
+
+def open_issues():
+    """Every issue not yet started, in every team."""
+    out, after = [], None
+    while True:
+        page = gql(f"""query Open($after:String, $types:[String!]) {{
+            issues(first:100, after:$after, filter:{{ state:{{ type:{{ in:$types }} }} }}) {{
+              pageInfo {{ hasNextPage endCursor }} nodes {{ {ISSUE} }} }} }}""",
+                   after=after, types=NOT_STARTED)["issues"]
+        out += page["nodes"]
+        if not page["pageInfo"]["hasNextPage"]:
+            return out
+        after = page["pageInfo"]["endCursor"]
+
+
+def issue(key):
+    i = gql(f"query Issue($id:String!) {{ issue(id:$id) {{ {ISSUE} }} }}", id=key)["issue"]
+    if not i:
+        raise LinearError(f"no issue {key}")
+    return i
+
+
+def agent_label(i):
+    """The issue's label from the `agent` group, or None. A group holds one label at a time."""
+    return next((l["name"] for l in i["labels"]["nodes"]
+                 if (l.get("parent") or {}).get("name") == GROUP), None)
+
+
+def agent_label_ids(i):
+    return [l["id"] for l in i["labels"]["nodes"]
+            if (l.get("parent") or {}).get("name") == GROUP]
+
+
+def swap_label(i, name):
+    """The update fields that leave `name` as the issue's one `agent` label, or none of them
+    where `name` is None. An id is never both added and removed."""
+    have = agent_label_ids(i)
+    if name is None:
+        return {"removedLabelIds": have} if have else {}
+    want = label_id(name)
+    fields = {"removedLabelIds": [l for l in have if l != want]}
+    if want not in have:
+        fields["addedLabelIds"] = [want]
+    return {k: v for k, v in fields.items() if v}
+
+
+def group_labels():
+    """`(group id or None, {child name: id})` for the workspace `agent` group."""
+    d = gql("""query Labels($name:String!) { issueLabels(filter:{ name:{ eq:$name },
+                 isGroup:{ eq:true } }) { nodes { id team { id } children { nodes { id name } } } } }""",
+            name=GROUP)["issueLabels"]["nodes"]
+    g = next((n for n in d if not n.get("team")), None)
+    return (g["id"], {c["name"]: c["id"] for c in g["children"]["nodes"]}) if g else (None, {})
+
+
+def label_id(name):
+    _, children = group_labels()
+    if name not in children:
+        raise LinearError(f"no label {GROUP}/{name}: run `linear-board provision --apply`")
+    return children[name]
+
+
+def triage_of(key):
+    """`(fields, findings)` from the newest triage comment, or `(None, "")` with none.
+
+    Only a comment the key's own user wrote counts. Anyone else's — a colleague, a synced
+    customer on a Support issue — is never a verdict, since its repo picks where an
+    unattended agent works and its text becomes that agent's brief."""
+    me, nodes, after = viewer(), [], None
+    while True:
+        page = gql("""query Comments($id:String!, $after:String) { issue(id:$id) {
+                     comments(first:100, after:$after) { pageInfo { hasNextPage endCursor }
+                     nodes { body createdAt user { id } } } } }""",
+                   id=key, after=after)["issue"]["comments"]
+        nodes += page["nodes"]
+        if not page["pageInfo"]["hasNextPage"]:
+            break
+        after = page["pageInfo"]["endCursor"]
+    mine = [c for c in nodes if (c.get("user") or {}).get("id") == me]
+    for c in sorted(mine, key=lambda c: c["createdAt"], reverse=True):
+        if m := TRIAGE_LINE.search(c["body"]):
+            try:
+                return json.loads(m[1]), c["body"][:m.start()].strip()
+            except json.JSONDecodeError:
+                continue
+    return None, ""
+
+
+def update(i, **fields):
+    gql("""mutation Update($id:String!, $input:IssueUpdateInput!) {
+             issueUpdate(id:$id, input:$input) { success } }""", id=i["id"], input=fields)
+
+
+def comment(i, body):
+    gql("""mutation Comment($input:CommentCreateInput!) { commentCreate(input:$input) {
+             success } }""", input={"issueId": i["id"], "body": body})
+
+
+def team_state(i, name, kind):
+    """The team's state called `name`, else its first of type `kind`."""
+    nodes = gql("""query States($id:String!) { team(id:$id) { states { nodes {
+                     id name type position } } } }""", id=i["team"]["id"])["team"]["states"]["nodes"]
+    nodes = sorted(nodes, key=lambda s: s["position"])
+    s = (next((s for s in nodes if s["name"] == name), None)
+         or next((s for s in nodes if s["type"] == kind), None))
+    if not s:
+        raise LinearError(f'team {i["team"]["key"]} has no {name!r} state')
+    return s["id"]
+
+
+def brief(i):
+    return {"key": i["identifier"], "team": i["team"]["key"],
+            "repo": TEAM_REPOS.get(i["team"]["key"]), "title": i["title"],
+            "description": i.get("description") or "", "url": i["url"],
+            "state": i["state"]["name"], "assigned": bool(i.get("assignee")),
+            "priority": PRIORITY.get(i.get("priority"), ""), "created": i["createdAt"]}
+
+
+def cmd_inbox(a):
+    """The issues no verdict covers yet: not started, no `agent` label, newest first, so a
+    new report is triaged on the tick it arrives and the backlog drains behind it."""
+    todo = [i for i in open_issues() if agent_label(i) is None]
+    todo.sort(key=lambda i: i["createdAt"], reverse=True)
+    print(json.dumps([brief(i) for i in todo[:a.limit]], indent=2))
+    return 0 if todo else 1
+
+
+def cmd_verdict(a):
+    """Write a verdict: the comment that explains it, then the label. The label is what
+    every filter reads, so it is the commit point: a comment that fails leaves the issue in
+    `inbox` untouched, and a label that fails after it leaves the issue there with a
+    comment the next triage supersedes. Findings come on stdin and become the comment's
+    body, which an implementer reads as its brief."""
+    verdict = "doable" if a.doable else "not-doable"
+    if a.doable and not (a.repo and a.effort):
+        sys.exit("verdict: --doable needs --repo and --effort")
+    if not a.doable and a.effort:
+        sys.exit("verdict: --not-doable prices nothing; drop --effort")
+    if a.repo and not REPO_NAME.fullmatch(a.repo):
+        sys.exit(f"verdict: repo {a.repo!r} is not owner/name")
+    findings = sys.stdin.read().strip()
+    if not findings:
+        sys.exit("verdict: the findings on stdin are empty — say why")
+    i = issue(a.key)
+    swap = swap_label(i, verdict)
+    fields = {"verdict": verdict, "repo": a.repo, "effort": a.effort}
+    head = f"**Agent triage: {verdict}**"
+    if a.repo:
+        head += f" — `{a.repo}`" + (f", Effort `{a.effort}`" if a.effort else "")
+    comment(i, f"{head}\n\n{findings}\n\n`agent-triage v1 {json.dumps(fields)}`")
+    if swap:
+        update(i, **swap)
+    print(f"{verdict.upper()}\t{a.key}\t{a.repo or '-'}\t{a.effort or '-'}")
+    return 0
+
+
+def eligible(i, me):
+    """Whether a doable issue may be dispatched now: not started, and held by nobody else."""
+    return (agent_label(i) == "doable" and i["state"]["type"] in NOT_STARTED
+            and (i.get("assignee") or {}).get("id") in (None, me))
+
+
+def usable(fields):
+    """Whether a verdict comment can start an agent: it says doable, as the label does, and
+    names the repo and the Effort the start is priced on."""
+    return bool(fields) and fields.get("verdict") == "doable" and bool(fields.get("repo")) \
+        and fields.get("effort") in EFFORTS
+
+
+def cmd_candidates(a):
+    """The doable issues an agent may take, ranked by Linear priority then Effort, in
+    `hoopit-board collide`'s input shape. The body is the issue's description followed by
+    the triage findings, which is what `collide` footprints and judges.
+
+    A doable issue whose newest verdict comment is missing, says otherwise, or names no repo
+    and Effort is skipped and named on stderr: the label without its reasoning is not enough
+    to price a start."""
+    me = viewer()
+    out = []
+    for i in open_issues():
+        if not eligible(i, me):
+            continue
+        fields, findings = triage_of(i["identifier"])
+        if not usable(fields):
+            print(f'candidates: {i["identifier"]} is labelled doable but its newest verdict '
+                  f'comment is missing or disagrees; skipped', file=sys.stderr)
+            continue
+        body = (i.get("description") or "").strip()
+        out.append({"source": SOURCE, "key": i["identifier"], "repo": fields["repo"],
+                    "title": i["title"], "url": i["url"],
+                    "body": f"{body}\n\n## Triage findings\n\n{findings}".strip(),
+                    "priority": PRIORITY.get(i.get("priority"), ""),
+                    "effort": fields["effort"]})
+    rank = lambda c: (c["priority"] or "P9", EFFORTS.index(c["effort"]), c["key"])
+    print(json.dumps(sorted(out, key=rank), indent=2))
+    return 0 if out else 1
+
+
+def cmd_claim(a):
+    """Take an issue for agent `--agent`. The registry is written first, so the file-overlap
+    check holds the work from the moment it is claimed. Linear is then moved — assigned and
+    In Progress — and the claim commented. Whatever Linear refuses, the claim is undone
+    whole: the issue's assignee and state are put back and the registry entry dropped, and
+    the error says what could not be undone, if anything. An issue already in the registry
+    is never claimed again: its claim may hold a PR."""
+    me = viewer()
+    i = issue(a.key)
+    if not eligible(i, me):
+        sys.exit(f"claim: {a.key} is not dispatchable (label {agent_label(i)}, state "
+                 f'{i["state"]["name"]}, assigned {bool(i.get("assignee"))})')
+    if any(key == a.key for key, _ in linear_claims()):
+        sys.exit(f"claim: {a.key} is already in the claims registry")
+    fields, findings = triage_of(a.key)
+    if not usable(fields):
+        sys.exit(f"claim: {a.key} has no doable verdict comment naming a repo and Effort")
+    body = f'{(i.get("description") or "").strip()}\n\n## Triage findings\n\n{findings}'
+    claim = {"source": SOURCE, "key": a.key, "repo": fields["repo"], "title": i["title"],
+             "url": i["url"], "agent": a.agent, "body": body.strip()}
+    code, out, err = hb("claims", "put", stdin=json.dumps(claim))
+    if code:
+        sys.exit(f"claim: the registry refused {a.key}: {err.strip() or out.strip()}")
+    moved = False
+    try:
+        update(i, assigneeId=me, stateId=team_state(i, "In Progress", "started"))
+        moved = True
+        on = f" on `{a.model}`" if a.model else ""
+        at = f" at `{a.reasoning_effort}` effort" if a.reasoning_effort else ""
+        comment(i, f"Started as herdr agent `{a.agent}`{on}{at}.")
+    except LinearError as e:
+        left = []
+        if moved:
+            try:
+                update(i, assigneeId=(i.get("assignee") or {}).get("id"), stateId=i["state"]["id"])
+            except LinearError as undo:
+                left.append(f'the issue is still assigned and In Progress ({undo}); move it '
+                            f'back to {i["state"]["name"]} by hand')
+        if (why := drop(a.key)):
+            left.append(why)
+        sys.exit(f"claim: Linear refused {a.key} ({e}); "
+                 + ("; ".join(left) if left else "the claim is undone"))
+    print(f'CLAIMED\t{a.key}\t{fields["repo"]}\t{a.agent}')
+    return 0
+
+
+def cmd_pr(a):
+    code, out, err = hb("claims", "pr", SOURCE, a.key, a.url)
+    sys.stdout.write(out)
+    if code:
+        sys.exit(err.strip() or f"pr: hoopit-board exited {code}")
+    return 0
+
+
+def drop(key):
+    """Drop the issue's registry claim; the reason it could not be, or None."""
+    code, out, err = hb("claims", "drop", SOURCE, key)
+    return None if code == 0 else (f"the registry claim is still there: "
+                                   f"{err.strip() or out.strip() or f'exit {code}'}")
+
+
+def release(key, reason):
+    i = issue(key)
+    fields = {**swap_label(i, "released"), "stateId": team_state(i, "Backlog", "backlog")}
+    if (i.get("assignee") or {}).get("id") == viewer():
+        fields["assigneeId"] = None
+    update(i, **fields)
+    comment(i, f"Handed back by the agent: {reason}")
+    if why := drop(key):
+        raise LinearError(why)
+
+
+def cmd_release(a):
+    """Hand an issue back: `released` replaces the verdict, so no tick offers it again until
+    a person removes the label, and the issue returns to Backlog with the reason."""
+    release(a.key, a.reason)
+    print(f"RELEASED\t{a.key}")
+    return 0
+
+
+def linear_claims():
+    """`[(key, [pr urls])]` for every Linear claim in the registry."""
+    code, out, err = hb("claims", "list")
+    if code:
+        raise LinearError(f"hoopit-board claims list failed: {err.strip()}")
+    rows = []
+    for line in out.splitlines():
+        cols = line.split("\t")
+        if len(cols) >= 5 and cols[0].startswith(f"{SOURCE}:"):
+            rows.append((cols[0].split(":", 1)[1], [] if cols[4] == "-" else cols[4].split(",")))
+    return rows
+
+
+def cmd_settle(a):
+    """End the claims whose work has ended, one line each:
+
+    `ended`     the issue was completed or cancelled in Linear — drop the claim.
+    `merged`    no PR is open and at least one merged — drop the claim. Linear's GitHub
+                integration moves the issue.
+    `closed`    every PR closed and none merged — release the issue.
+
+    `ended` and `merged` also take the `doable` label off, so an issue a person reopens
+    later goes back through triage rather than being dispatched on its old findings.
+
+    A claim with an open PR, a PR that cannot be read, or no PR yet is left alone: that is
+    an agent at work, and `hoopit-board stale` is the place to read whether it still is.
+    A claim whose change fails is named with `skip` and the rest still settle. Without
+    --apply nothing changes."""
+    acted = 0
+    for key, prs in linear_claims():
+        try:
+            i = issue(key)
+        except LinearError as e:
+            print(f"skip\t{key}\t{e}")
+            continue
+        verdict = None
+        if i["state"]["type"] in ENDED:
+            verdict = "ended"
+        elif prs:
+            states = [gh_pull(*PR_URL.fullmatch(u).groups()) if PR_URL.fullmatch(u) else None
+                      for u in prs]
+            if all(s in ("MERGED", "CLOSED") for s in states):
+                verdict = "merged" if "MERGED" in states else "closed"
+        if not verdict:
+            continue
+        if a.apply:
+            try:
+                if verdict == "closed":
+                    release(key, "its pull request was closed without merging.")
+                else:
+                    if swap := swap_label(i, None):
+                        update(i, **swap)
+                    if why := drop(key):
+                        raise LinearError(why)
+            except LinearError as e:
+                print(f"skip\t{key}\t{verdict}: {e}")
+                continue
+        acted += 1
+        print(f"{verdict}\t{key}\t{i['url']}")
+    return 0 if acted else 1
+
+
+def cmd_provision(a):
+    """Create the workspace label group `agent` and its three labels, naming each it adds.
+    Workspace-level, so one group serves every team. A dry run without --apply."""
+    gid, children = group_labels()
+    if gid is None:
+        print(f"ADD\tgroup {GROUP}")
+        if a.apply:
+            gid = gql("""mutation Group($input:IssueLabelCreateInput!) { issueLabelCreate(
+                         input:$input) { issueLabel { id } } }""",
+                      input={"name": GROUP, "isGroup": True, "color": LABEL_COLORS[GROUP],
+                             "description": "The autonomous Linear flow's triage verdict."}
+                      )["issueLabelCreate"]["issueLabel"]["id"]
+    for name, description in VERDICTS.items():
+        if name in children:
+            print(f"OK\t{GROUP}/{name}")
+            continue
+        print(f"ADD\t{GROUP}/{name}")
+        if a.apply:
+            gql("""mutation Label($input:IssueLabelCreateInput!) { issueLabelCreate(
+                     input:$input) { success } }""",
+                input={"name": name, "parentId": gid, "color": LABEL_COLORS[name],
+                       "description": description})
+    return 0
+
+
+def main():
+    p = argparse.ArgumentParser(prog="linear-board", description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = p.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("inbox", description=cmd_inbox.__doc__)
+    s.add_argument("--limit", type=int, default=10); s.set_defaults(fn=cmd_inbox)
+    s = sub.add_parser("verdict", description=cmd_verdict.__doc__); s.add_argument("key")
+    g = s.add_mutually_exclusive_group(required=True)
+    g.add_argument("--doable", action="store_true"); g.add_argument("--not-doable", action="store_true")
+    s.add_argument("--repo"); s.add_argument("--effort", choices=EFFORTS)
+    s.set_defaults(fn=cmd_verdict)
+    s = sub.add_parser("candidates", description=cmd_candidates.__doc__)
+    s.set_defaults(fn=cmd_candidates)
+    s = sub.add_parser("claim", description=cmd_claim.__doc__); s.add_argument("key")
+    s.add_argument("--agent", required=True); s.add_argument("--model")
+    s.add_argument("--reasoning-effort"); s.set_defaults(fn=cmd_claim)
+    s = sub.add_parser("pr"); s.add_argument("key"); s.add_argument("url"); s.set_defaults(fn=cmd_pr)
+    s = sub.add_parser("release", description=cmd_release.__doc__); s.add_argument("key")
+    s.add_argument("--reason", required=True); s.set_defaults(fn=cmd_release)
+    s = sub.add_parser("settle", description=cmd_settle.__doc__,
+                       formatter_class=argparse.RawDescriptionHelpFormatter)
+    s.add_argument("--apply", action="store_true"); s.set_defaults(fn=cmd_settle)
+    s = sub.add_parser("provision", description=cmd_provision.__doc__)
+    s.add_argument("--apply", action="store_true"); s.set_defaults(fn=cmd_provision)
+    a = p.parse_args()
+    try:
+        sys.exit(a.fn(a) or 0)
+    except LinearError as e:
+        sys.exit(f"linear-board {a.cmd}: {e}")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,5 +1,5 @@
 # Keeps README.md's "Skills by plugin" block in sync with the source of truth, and
-# runs hoopit-board's, skill-eval's, field-report's and lane-gate's tests whenever a
+# runs hoopit-board's, linear-board's, skill-eval's, field-report's and lane-gate's tests whenever a
 # script or its tests change, before each commit. Enable once per clone with:
 # pre-commit install
 #
@@ -20,6 +20,12 @@ repos:
         language: system
         pass_filenames: false
         files: '^(plugins/github-tracker/(bin|tests)/|personal/dispatch-ladder/ladder\.json$)'
+      - id: test-linear-board
+        name: Test linear-board
+        entry: python3 -B personal/linear-dispatch/tests/test_linear_board.py
+        language: system
+        pass_filenames: false
+        files: '^(personal/linear-dispatch/(scripts|tests)/|plugins/github-tracker/bin/hoopit-board$)'
       - id: test-skill-eval
         name: Test skill-eval
         entry: python3 -B plugins/dev/tests/test_skill_eval.py
