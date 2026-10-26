@@ -1,20 +1,22 @@
 #!/usr/bin/env bash
-# Bring each of PLUGINS to its marketplace's latest version in every Hoopit product
-# checkout on this machine, installing it at project scope where a checkout has none.
-# Each of WHERE_INSTALLED is updated only where it already has an install record: at user
-# scope, and at project or local scope in a checkout found here. It is never installed.
+# Bring each of PLUGINS to its marketplace's latest version in every checkout on this
+# machine that has it installed, and install it at project scope in Hoopit product
+# checkouts. Each of WHERE_INSTALLED is updated only where it already has an install
+# record: at user scope, and at project or local scope in a checkout found here. It is
+# never installed.
 #
 # Usage: update-plugins.sh [checkout-dir ...]
 #
-# Checkouts are found from the directories named as arguments, every project path in
-# installed_plugins.json, and the siblings of each of those. A directory counts when its
-# origin remote is hoopit/<repo> for one of REPOS and it is a main worktree (linked
-# worktrees are skipped). Prints one line per checkout:
+# Only main worktrees count (linked worktrees are skipped). Every project path with a
+# PLUGINS record in installed_plugins.json is updated, whatever its remote. Siblings of
+# recorded project paths get a fresh install only when their origin is hoopit/<repo> for
+# one of REPOS. A directory named as an argument is installed or updated whatever its
+# remote. Prints one line per plugin and checkout (<repo> is the product repo, else the
+# directory's basename):
 #   RESULT <plugin> <repo> <dir> <updated|current|installed|stale|failed> <old> -> <new>
 # A user-scope record reports `user` as both <repo> and <dir>.
 # `stale` means the CLI reported success but this checkout's own record is not at <new>;
 # the records at fault are listed beneath it.
-# then a final `MISSING <repo>` for each product repo with no checkout found.
 set -uo pipefail
 
 PLUGINS=(hoopit-dev@hoopit-skills mattpocock-skills@claude-plugins-official)
@@ -25,33 +27,13 @@ export MISE_QUIET=1
 
 command -v jq >/dev/null || { echo "jq is required" >&2; exit 2; }
 
+# An inherited GIT_DIR, GIT_WORK_TREE etc. would point every git call at the caller's repo.
+mapfile -t git_env < <(git rev-parse --local-env-vars)
+unset "${git_env[@]}"
+
 for m in $(printf '%s\n' "${PLUGINS[@]#*@}" "${WHERE_INSTALLED[@]#*@}" | sort -u); do
   echo "Refreshing marketplace $m..."
   claude plugin marketplace update "$m" >/dev/null || { echo "marketplace update failed: $m" >&2; exit 1; }
-done
-
-candidates=("$@")
-if [[ -f "$INSTALLED" ]]; then
-  while IFS= read -r p; do
-    candidates+=("$p")
-    parent=$(dirname "$p")
-    for sib in "$parent"/*/; do candidates+=("${sib%/}"); done
-  done < <(jq -r '.plugins[][] | .projectPath // empty' "$INSTALLED" | sort -u)
-fi
-
-declare -A found=()
-for dir in "${candidates[@]}"; do
-  [[ -d "$dir/.git" || -f "$dir/.git" ]] || continue
-  dir=$(cd "$dir" && pwd -P)
-  # A linked worktree's git dir differs from the common dir.
-  [[ "$(git -C "$dir" rev-parse --path-format=absolute --git-dir 2>/dev/null)" == \
-     "$(git -C "$dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" ]] || continue
-  url=$(git -C "$dir" remote get-url origin 2>/dev/null) || continue
-  name=$(sed -E 's#\.git$##; s#.*[/:]hoopit/([^/]+)$#\1#i' <<<"$url")
-  [[ "$name" != "$url" ]] || continue
-  for r in "${REPOS[@]}"; do
-    [[ "$name" == "$r" ]] && found["$dir"]="$r"
-  done
 done
 
 # installed_plugins.json records native paths. On Windows that is `D:\x` or `d:\x`
@@ -73,6 +55,42 @@ has_record() {
      .plugins[\$p] // [] | any(.scope == \$s and (\$s == \"user\" or (.projectPath | norm) == (\$d | norm)))" \
     "$INSTALLED" >/dev/null 2>&1
 }
+
+candidates=("$@")
+if [[ -f "$INSTALLED" ]]; then
+  while IFS= read -r p; do
+    candidates+=("$p")
+    parent=$(dirname "$p")
+    for sib in "$parent"/*/; do candidates+=("${sib%/}"); done
+  done < <(jq -r '.plugins[][] | .projectPath // empty' "$INSTALLED" | sort -u)
+fi
+
+declare -A found=() forced=()
+for arg in "$@"; do
+  [[ -d "$arg" ]] && forced["$(cd "$arg" && pwd -P)"]=1
+done
+
+for dir in "${candidates[@]}"; do
+  [[ -d "$dir/.git" || -f "$dir/.git" ]] || continue
+  dir=$(cd "$dir" && pwd -P)
+  [[ -n "${found[$dir]:-}" ]] && continue
+  # A linked worktree's git dir differs from the common dir.
+  [[ "$(git -C "$dir" rev-parse --path-format=absolute --git-dir 2>/dev/null)" == \
+     "$(git -C "$dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" ]] || continue
+  url=$(git -C "$dir" remote get-url origin 2>/dev/null)
+  name=$(sed -E 's#\.git$##; s#.*[/:]hoopit/([^/]+)$#\1#i' <<<"$url")
+  product=
+  for r in "${REPOS[@]}"; do
+    [[ "$name" == "$r" ]] && product=$r
+  done
+  recorded=
+  for plugin in "${PLUGINS[@]}"; do
+    has_record "$plugin" project "$dir" && recorded=1
+  done
+  if [[ -n "$product" || -n "${forced[$dir]:-}" || -n "$recorded" ]]; then
+    found["$dir"]=${product:-$(basename "$dir")}
+  fi
+done
 
 # Run `claude plugin <verb>` for <plugin> at <scope> from <dir>, and print its RESULT line.
 apply() {
@@ -123,7 +141,3 @@ while IFS= read -r dir; do
     done
   done
 done < <(for d in "${!found[@]}"; do printf '%s\n' "$d"; done | sort)
-
-for r in "${REPOS[@]}"; do
-  printf '%s\n' "${found[@]}" | grep -qx "$r" || echo "MISSING $r"
-done
