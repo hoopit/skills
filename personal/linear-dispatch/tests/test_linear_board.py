@@ -44,8 +44,8 @@ def child(key, team="BE", parent="SUP-1", label="doable", state="Backlog", kind=
 
 
 def verdict_comment(repo="hoopit/api", effort="S", findings="Edit `a.py`.", verdict="doable",
-                    user=ME, at="2026-10-02T00:00:00Z"):
-    fields = {"verdict": verdict, "repo": repo, "effort": effort}
+                    user=ME, at="2026-10-02T00:00:00Z", together=True):
+    fields = {"verdict": verdict, "repo": repo, "effort": effort, "together": together}
     return {"body": f"**Agent triage: {verdict}**\n\n{findings}\n\n`agent-triage v1 {json.dumps(fields)}`",
             "createdAt": at, "user": {"id": user}}
 
@@ -78,6 +78,11 @@ class Fake:
                 i for i in self.issues.values()
                 if any(l["name"] == "doable" for l in i["labels"]["nodes"])
                 and ((i.get("parent") or {}).get("team") or {}).get("key") == v["team"]
+                and i["state"]["type"] in v["types"]]}}
+        if op == "Parts":
+            return {"issues": {"pageInfo": {"hasNextPage": False}, "nodes": [
+                i for i in self.issues.values()
+                if ((i.get("parent") or {}).get("team") or {}).get("key") == v["team"]
                 and i["state"]["type"] in v["types"]]}}
         if op == "Children":
             return {"issue": {"children": {"nodes": [
@@ -151,8 +156,9 @@ def run(m, fn, stdin="", **ns):
     return out.getvalue(), code
 
 
-def plan(*parts):
-    return json.dumps({"parts": [dict({"title": f"t {p['repo']}", "findings": "Edit `a.py`."}, **p)
+def plan(*parts, together=True):
+    return json.dumps({"together": together,
+                       "parts": [dict({"title": f"t {p['repo']}", "findings": "Edit `a.py`."}, **p)
                                  for p in parts]})
 
 
@@ -169,8 +175,9 @@ def test_inbox_is_supports_triage_queue_alone_newest_first():
     assert [r["key"] for r in json.loads(out)] == ["SUP-1", "SUP-2"], out
     out, _ = run(load(fake), "cmd_inbox", limit=1)
     assert [r["key"] for r in json.loads(out)] == ["SUP-1"]
-    _, code = run(load(fake), "cmd_verdict", stdin="x", key="BE-1", not_doable=True, repo=None)
-    assert "triages SUP alone" in str(code) and fake.ops("Comment") == [], code
+    _, code = run(load(fake), "cmd_verdict", stdin="x", key="BE-1", doable=False, not_doable=True,
+                  repo=None, effort=None)
+    assert "nor a part this flow split off" in str(code) and fake.ops("Comment") == [], code
     print("  SUP Triage only; other teams and other SUP states are untouched, a BE verdict refused")
 
 
@@ -178,7 +185,7 @@ def test_a_not_doable_verdict_swaps_the_label_and_round_trips():
     fake = Fake([issue("SUP-1", label="released")])
     m = load(fake)
     out, code = run(m, "cmd_verdict", stdin="Which wording? A or B.", key="SUP-1",
-                    not_doable=True, repo="hoopit/web-admin")
+                    doable=False, not_doable=True, repo="hoopit/web-admin", effort=None)
     assert code == 0 and out.startswith("NOT-DOABLE\tSUP-1"), (out, code)
     (u,) = fake.ops("Update")
     assert u["input"] == {"removedLabelIds": ["L-released"], "addedLabelIds": ["L-not-doable"]}, u
@@ -188,8 +195,12 @@ def test_a_not_doable_verdict_swaps_the_label_and_round_trips():
     fields, findings = m.triage_of("SUP-1")
     assert fields == {"verdict": "not-doable", "repo": "hoopit/web-admin", "effort": None}, fields
     assert "Which wording" in findings and "agent-triage" not in findings, findings
-    _, code = run(m, "cmd_verdict", stdin="  ", key="SUP-1", not_doable=True, repo=None)
+    _, code = run(m, "cmd_verdict", stdin="  ", key="SUP-1", doable=False, not_doable=True,
+                  repo=None, effort=None)
     assert "findings on stdin are empty" in str(code), code
+    _, code = run(m, "cmd_verdict", stdin="x", key="SUP-1", doable=True, not_doable=False,
+                  repo="hoopit/api", effort="S")
+    assert "is split, never labelled" in str(code), code
     print("  released -> not-doable in one update; the comment parses back; an empty reason refused")
 
 
@@ -212,7 +223,8 @@ def test_split_makes_one_sub_issue_per_platform_then_commits_on_the_parent():
                                 "user": {"id": ME}} for c in fake.ops("Comment")
                                if c["input"]["issueId"] == "id-BE-101"]
     fields, _ = m.triage_of("BE-101")
-    assert fields == {"verdict": "doable", "repo": "hoopit/api", "effort": "S"}, fields
+    assert fields == {"verdict": "doable", "repo": "hoopit/api", "effort": "S",
+                      "together": True}, fields
     assert out.splitlines()[-1] == "SPLIT\tSUP-1", out
     print("  BE doable and APP not-doable under SUP-1, which reads split in Todo last")
 
@@ -250,7 +262,11 @@ def test_split_refuses_a_bad_plan_before_writing():
             (plan({"repo": "hoopit/api", "verdict": "doable", "effort": "XL"}), "XL is not doable"),
             (plan({"repo": "hoopit/api", "verdict": "not-doable", "effort": "S"}), "prices nothing"),
             (plan({"repo": "hoopit/api", "verdict": "doable", "effort": "S"},
-                  {"repo": "hoopit/api", "verdict": "doable", "effort": "M"}), "appears twice")):
+                  {"repo": "hoopit/api", "verdict": "doable", "effort": "M"}), "appears twice"),
+            (json.dumps({"parts": [{"repo": "hoopit/api", "title": "t", "verdict": "doable",
+                                    "effort": "S", "findings": "f"},
+                                   {"repo": "hoopit/web-admin", "title": "t", "verdict": "doable",
+                                    "effort": "S", "findings": "f"}]}), "ship together")):
         _, code = run(m, "cmd_split", key="SUP-1", stdin=bad)
         assert why in str(code), (bad, code)
     assert fake.ops("Create") == [] and fake.ops("Update") == []
@@ -262,7 +278,7 @@ def test_split_refuses_a_bad_plan_before_writing():
     _, code = run(m, "cmd_split", key="SUP-1", stdin=plan({"repo": "hoopit/api",
                                                           "verdict": "doable", "effort": "S"}))
     assert "already reads agent/not-doable" in str(code), code
-    print("  seven bad plans, an issue outside the queue and a labelled one are refused, nothing written")
+    print("  eight bad plans, an issue outside the queue and a labelled one are refused, nothing written")
 
 
 def test_candidates_offer_whole_units_only():
@@ -288,6 +304,61 @@ def test_candidates_offer_whole_units_only():
     assert rows[1]["body"].endswith("## Triage findings\n\n**Agent triage: doable**\n\nEdit `a.py`.")
     assert rows[0]["priority"] == "P0" and code == 0
     print("  SUP-1 whole; SUP-2 held by its not-doable half; others' and bare-label ones never reach collide")
+
+
+def test_parts_that_ship_apart_start_on_their_own():
+    """`together: false` is triage saying waiting buys nothing: a doable part starts while
+    its sibling waits on a question."""
+    fake = Fake([child("BE-1", parent="SUP-1"),
+                 child("APP-1", team="APP", parent="SUP-1", label="not-doable")],
+                comments={"BE-1": [verdict_comment(together=False)],
+                          "APP-1": [verdict_comment(repo="hoopit/flutter-app", effort=None,
+                                                    verdict="not-doable", together=False)]})
+    out, code = run(load(fake), "cmd_candidates")
+    assert [(r["unit"], r["key"]) for r in json.loads(out)] == [("BE-1", "BE-1")], out
+    print("  BE-1 is its own unit and starts; APP-1 waits alone")
+
+
+def test_a_held_part_sent_back_is_judged_again_and_frees_its_unit():
+    """The way out of a held unit: a person answers the question and removes the part's
+    label; triage judges that part alone, and the unit starts once it reads doable."""
+    app = child("APP-1", team="APP", parent="SUP-1", label=None)
+    fake = Fake([child("BE-1", parent="SUP-1"), app, issue("SUP-2")],
+                comments={"BE-1": [verdict_comment()],
+                          "APP-1": [verdict_comment(repo="hoopit/flutter-app", effort=None,
+                                                    verdict="not-doable")]})
+    m = load(fake)
+    out, _ = run(m, "cmd_candidates")
+    assert json.loads(out) == [], out
+    out, _ = run(m, "cmd_inbox", limit=10)
+    rows = {r["key"]: r for r in json.loads(out)}
+    assert set(rows) == {"APP-1", "SUP-2"}, rows
+    assert (rows["APP-1"]["parent"], rows["APP-1"]["repo"]) == ("SUP-1", "hoopit/flutter-app")
+    out, code = run(m, "cmd_verdict", stdin="Answered: screen B.", key="APP-1", doable=True,
+                    not_doable=False, repo=None, effort="S")
+    assert code == 0 and out.startswith("DOABLE\tAPP-1\thoopit/flutter-app\tS"), (out, code)
+    fake.comments["APP-1"].append({"body": fake.ops("Comment")[-1]["input"]["body"],
+                                   "createdAt": "2026-10-09T00:00:00Z", "user": {"id": ME}})
+    assert m.triage_of("APP-1")[0]["together"] is True
+    out, _ = run(m, "cmd_candidates")
+    assert [r["key"] for r in json.loads(out)] == ["BE-1", "APP-1"], out
+    _, code = run(m, "cmd_verdict", stdin="x", key="APP-1", doable=True, not_doable=False,
+                  repo=None, effort=None)
+    assert "needs --effort" in str(code), code
+    print("  APP-1 reappears in the inbox unlabelled, reads doable again, and SUP-1's unit starts whole")
+
+
+def test_fetch_takes_only_linear_uploads_into_a_fresh_directory():
+    m = load(Fake([]))
+    m.linear_key = lambda: "k"
+    with tempfile.TemporaryDirectory() as d:
+        pathlib.Path(d, "x").write_text("x")
+        _, code = run(m, "cmd_fetch", urls=["https://uploads.linear.app/a/b"], into=d)
+        assert "is not empty" in str(code), code
+        out, code = run(m, "cmd_fetch", urls=["https://evil.example/a.png"],
+                        into=os.path.join(d, "fresh"))
+        assert code == 1 and out.startswith("skip\thttps://evil.example/a.png\tnot a Linear upload"), out
+    print("  a used directory is refused; a non-Linear URL is never sent the key")
 
 
 def test_eligible_is_a_flow_made_waiting_sub_issue_of_support():

@@ -23,12 +23,17 @@ so that team's workflow and git automation apply, each with its own verdict. The
 issue then reads `split` and moves to Support's Todo, and closes by itself once its
 sub-issues are done — Support's team setting, not this script's.
 
-The sub-issues of one Support issue are one **unit**: one report, worked at once by agents
-that talk to each other, so the halves agree on the contract between them. `candidates`
-offers a unit only whole — every sub-issue the flow made under that Support issue doable,
-still waiting, and unassigned or assigned to the key's own user, so no agent opens a PR on
-work somebody else holds. One part waiting on a decision holds the rest until a person
-settles it. A claim assigns it to that user and moves it to its team's In
+Where triage judges that a split's parts must ship `together`, the sub-issues of one
+Support issue are one **unit**: one report, worked at once by agents that talk to each
+other, so the halves agree on the contract between them, and offered by `candidates` only
+whole — one part waiting on a decision holds the rest. Parts that can ship apart are each
+their own unit. Either way an offered part is a sub-issue the flow made, still waiting,
+and unassigned or assigned to the key's own user, so no agent opens a PR on work somebody
+else holds.
+
+A person sends any issue back to triage by removing its `agent` label: a Support issue
+returns to `inbox` from Support's Triage, and a sub-issue — a held part whose question is
+now answered, say — returns from its team's Backlog, to be judged again on its own. A claim assigns it to that user and moves it to its team's In
 Progress; the PRs go out under that user's name. No other issue of another team is read,
 labelled or commented on.
 
@@ -36,8 +41,10 @@ Linear is reached through `linear-gql`, which finds the key itself (`LINEAR_API_
 first). The registry is reached through `hoopit-board claims`.
 
   inbox [--limit N]              the triage queue, newest first, as JSON
-  verdict <KEY> --not-doable [--repo R]
-                                 a Support issue waiting on a person; the question on stdin
+  verdict <KEY> --not-doable [--repo R] | <PART> (--doable --effort E | --not-doable)
+                                 a Support issue waiting on a person, or one part judged
+                                 again; the findings on stdin
+  fetch <url>... --into DIR      download Linear uploads (screenshots, HAR files) with the key
   split <KEY>                    one sub-issue per platform, from the JSON plan on stdin
   candidates                     doable sub-issues an agent may take, in `collide`'s input shape
   claim <KEY> --agent A [--model M] [--reasoning-effort E]
@@ -54,6 +61,7 @@ TEAM, QUEUE = "SUP", "triage"
 # The team whose workflow a repo's work runs through. A sub-issue is created there.
 TEAM_FOR_REPO = {"hoopit/api": "BE", "hoopit/web-admin": "ADM", "hoopit/flutter-app": "APP",
                  "hoopit/public-calendar": "CAL"}
+REPO_FOR_TEAM = {team: repo for repo, team in TEAM_FOR_REPO.items()}
 # Where a sub-issue waits until an agent takes it.
 WAITING = ("backlog", "unstarted")
 EFFORTS = ["XS", "S", "M", "L", "XL"]
@@ -264,11 +272,13 @@ def team_by_key(key):
     return nodes[0]["id"], pick_state(nodes[0]["states"]["nodes"], "Backlog", "backlog", key)
 
 
-def triage_comment(verdict, repo, effort, findings):
+def triage_comment(verdict, repo, effort, findings, together=None):
     head = f"**Agent triage: {verdict}**"
     if repo:
         head += f" — `{repo}`" + (f", Effort `{effort}`" if effort else "")
     fields = {"verdict": verdict, "repo": repo, "effort": effort}
+    if together is not None:
+        fields["together"] = together
     return f"{head}\n\n{findings}\n\n`agent-triage v1 {json.dumps(fields)}`"
 
 
@@ -280,35 +290,84 @@ def brief(i):
             "priority": PRIORITY.get(i.get("priority"), ""), "created": i["createdAt"]}
 
 
+def reopened_parts():
+    """The sub-issues a person sent back to triage: flow-made, still waiting, unlabelled."""
+    me, out, after = viewer(), [], None
+    while True:
+        page = gql(f"""query Parts($after:String, $team:String!, $types:[String!]) {{
+            issues(first:100, after:$after, filter:{{ parent:{{ team:{{ key:{{ eq:$team }} }} }},
+                   state:{{ type:{{ in:$types }} }} }}) {{
+              pageInfo {{ hasNextPage endCursor }} nodes {{ {ISSUE} }} }} }}""",
+                   after=after, team=TEAM, types=list(WAITING))["issues"]
+        out += [i for i in page["nodes"] if is_part(i, me) and agent_label(i) is None]
+        if not page["pageInfo"]["hasNextPage"]:
+            return out
+        after = page["pageInfo"]["endCursor"]
+
+
+def is_part(i, me):
+    """Whether an issue is a sub-issue this flow made under a Support issue."""
+    return (((i.get("parent") or {}).get("team") or {}).get("key") == TEAM
+            and i["team"]["key"] in TEAM_FOR_REPO.values()
+            and (i.get("creator") or {}).get("id") == me)
+
+
 def cmd_inbox(a):
-    """The queue's issues no verdict covers yet — no `agent` label — newest first, so a new
-    report is triaged on the tick it arrives and the backlog drains behind it."""
-    todo = [i for i in open_issues() if agent_label(i) is None]
+    """What no verdict covers yet, newest first, so a new report is triaged on the tick it
+    arrives and the backlog drains behind it: the queue's unlabelled Support issues, and
+    the sub-issues a person sent back by removing their label. A part names its `parent`
+    and `repo`: it is judged again alone, with `verdict`, never split."""
+    todo = [i for i in open_issues() if agent_label(i) is None] + reopened_parts()
     todo.sort(key=lambda i: i["createdAt"], reverse=True)
-    print(json.dumps([brief(i) for i in todo[:a.limit]], indent=2))
+    rows = []
+    for i in todo[:a.limit]:
+        row = brief(i)
+        if i.get("parent"):
+            row["parent"] = i["parent"]["identifier"]
+            row["repo"] = REPO_FOR_TEAM[i["team"]["key"]]
+        rows.append(row)
+    print(json.dumps(rows, indent=2))
     return 0 if todo else 1
 
 
 def cmd_verdict(a):
-    """Write a Support issue's not-doable verdict: the comment that carries the question,
-    then the label. The label is what every filter reads, so it is the commit point: a
-    comment that fails leaves the issue in `inbox` untouched, and a label that fails after
-    it leaves the issue there with a comment the next triage supersedes. Doable work is
-    never a verdict on the Support issue: it is `split`."""
-    verdict = "not-doable"
+    """Write a verdict: the comment that carries it, then the label. The label is what
+    every filter reads, so it is the commit point: a comment that fails leaves the issue in
+    `inbox` untouched, and a label that fails after it leaves the issue there with a
+    comment the next triage supersedes.
+
+    On a Support issue the verdict is only ever not-doable — one that waits on a person as
+    a whole. Doable work there is `split`. On a part — a sub-issue a person sent back — it
+    is either, with the part's own repo; a doable part keeps whether its unit ships
+    `together` from its last verdict."""
+    verdict = "doable" if a.doable else "not-doable"
     if a.repo and not REPO_NAME.fullmatch(a.repo):
         sys.exit(f"verdict: repo {a.repo!r} is not owner/name")
     findings = sys.stdin.read().strip()
     if not findings:
         sys.exit("verdict: the findings on stdin are empty — say why")
     i = issue(a.key)
-    if i["team"]["key"] != TEAM:
-        sys.exit(f'verdict: {a.key} is a {i["team"]["key"]} issue; the flow triages {TEAM} alone')
+    together = None
+    if i["team"]["key"] == TEAM:
+        if a.doable:
+            sys.exit(f"verdict: a doable {TEAM} issue is split, never labelled: use `split`")
+        repo, effort = a.repo, None
+    elif is_part(i, viewer()):
+        repo = REPO_FOR_TEAM[i["team"]["key"]]
+        if a.doable and a.effort not in EFFORTS[:-1]:
+            sys.exit(f"verdict: a doable part needs --effort of {', '.join(EFFORTS[:-1])}")
+        if not a.doable and a.effort:
+            sys.exit("verdict: a not-doable part prices nothing; drop --effort")
+        effort = a.effort
+        before, _ = triage_of(a.key)
+        together = bool((before or {}).get("together", True))
+    else:
+        sys.exit(f'verdict: {a.key} is neither a {TEAM} issue nor a part this flow split off')
     swap = swap_label(i, verdict)
-    comment(i, triage_comment(verdict, a.repo, None, findings))
+    comment(i, triage_comment(verdict, repo, effort, findings, together))
     if swap:
         update(i, **swap)
-    print(f"{verdict.upper()}\t{a.key}\t{a.repo or '-'}")
+    print(f"{verdict.upper()}\t{a.key}\t{repo or '-'}" + (f"\t{effort}" if effort else ""))
     return 0
 
 
@@ -321,6 +380,9 @@ def split_plan(raw):
     parts = plan.get("parts") if isinstance(plan, dict) else None
     if not isinstance(parts, list) or not parts:
         sys.exit('split: the plan is {"parts": [...]}, one part per platform')
+    if len(parts) > 1 and not isinstance(plan.get("together"), bool):
+        sys.exit('split: a plan of several parts says whether they ship together: '
+                 '"together": true or false')
     seen = set()
     for p in parts:
         if not isinstance(p, dict) or not all(isinstance(p.get(k), str) and p[k].strip()
@@ -340,14 +402,19 @@ def split_plan(raw):
                 sys.exit(f'split: the {p["repo"]} part is not doable and prices nothing')
         else:
             sys.exit(f'split: verdict {p["verdict"]!r} is doable or not-doable')
-    return parts
+    return parts, len(parts) > 1 and plan["together"]
 
 
 def cmd_split(a):
     """Split a Support issue into one sub-issue per platform, from the plan on stdin:
 
-      {"parts": [{"repo": "hoopit/api", "title": "...", "verdict": "doable",
+      {"together": true,
+       "parts": [{"repo": "hoopit/api", "title": "...", "verdict": "doable",
                   "effort": "S", "findings": "..."}, ...]}
+
+    `together` — required with several parts — says the parts must ship as one: they start
+    at once, as one unit, and a part that waits holds the rest. With it false each doable
+    part starts when it can.
 
     Each part becomes an issue in its repo's team, in Backlog, under the Support issue,
     with Support's priority. Its description is the findings; its triage comment carries
@@ -356,7 +423,7 @@ def cmd_split(a):
     the Support issue in `inbox`, and the next run finishes the job: a team that already
     holds a sub-issue this flow made is not given a second, and one left unlabelled is
     labelled."""
-    parts = split_plan(sys.stdin.read())
+    parts, together = split_plan(sys.stdin.read())
     me = viewer()
     sup = issue(a.key)
     if sup["team"]["key"] != TEAM or sup["state"]["type"] != QUEUE:
@@ -382,7 +449,7 @@ def cmd_split(a):
                 "description": f'Split from [{a.key}]({sup["url"]}) by agent triage: the Support '
                                f'report and its conversation are there.\n\n{p["findings"]}'})["issueCreate"]["issue"]
         comment(child, triage_comment(p["verdict"], p["repo"], p.get("effort"),
-                                      "The findings are in the description."))
+                                      "The findings are in the description.", together))
         update(child, **swap_label(child, p["verdict"]))
         lines.append(f'MADE\t{child["identifier"]}\t{p["verdict"]}\t{p["repo"]}\t{child["url"]}')
     keys = ", ".join(f'{l.split(chr(9))[1]} ({l.split(chr(9))[2]})' for l in lines)
@@ -420,36 +487,46 @@ def siblings(parent_key, me):
 
 def cmd_candidates(a):
     """The doable sub-issues an agent may take, whole units at a time, in `hoopit-board
-    collide`'s input shape plus `unit` — the Support issue they share. A unit's members are
-    adjacent, ranked by Linear priority then the unit's largest Effort, so a caller can take
-    them together. The body is the sub-issue's description followed by the triage findings,
+    collide`'s input shape plus `unit` — the Support issue a `together` unit shares, or the
+    part's own key. A unit's members are adjacent, ranked by Linear priority then the unit's
+    largest Effort, so a caller can take them together. The body is the sub-issue's description followed by the triage findings,
     which is what `collide` footprints and judges.
 
     A unit is held, and named on stderr, while any member is not eligible or its newest
     verdict comment is missing, says otherwise, or names no repo and Effort: the label
     without its reasoning is not enough to price a start, and half a unit is not the work."""
     me = viewer()
-    units = {}
+
+    def member(i, fields, findings, unit):
+        body = (i.get("description") or "").strip()
+        return {"source": SOURCE, "key": i["identifier"], "repo": fields["repo"],
+                "title": i["title"], "url": i["url"], "unit": unit,
+                "body": f"{body}\n\n## Triage findings\n\n{findings}".strip(),
+                "priority": PRIORITY.get(i.get("priority"), ""), "effort": fields["effort"]}
+
+    out, seen = [], set()
     for i in work_issues():
-        if eligible(i, me):
-            units.setdefault(i["parent"]["identifier"], None)
-    out = []
-    for parent in units:
-        members, held = [], None
-        for i in siblings(parent, me):
-            if not eligible(i, me):
-                held = f'{i["identifier"]} is {agent_label(i) or "unlabelled"}, {i["state"]["name"]}'
+        if not eligible(i, me) or i["identifier"] in seen:
+            continue
+        fields, findings = triage_of(i["identifier"])
+        if not usable(fields):
+            print(f'candidates: {i["identifier"]} held — no usable doable verdict comment',
+                  file=sys.stderr)
+            continue
+        if not fields.get("together"):
+            seen.add(i["identifier"])
+            out.append([member(i, fields, findings, i["identifier"])])
+            continue
+        parent, members, held = i["parent"]["identifier"], [], None
+        for s in siblings(parent, me):
+            seen.add(s["identifier"])
+            sf, sfind = triage_of(s["identifier"]) if eligible(s, me) else (None, "")
+            if not usable(sf):
+                held = (f'{s["identifier"]} is {agent_label(s) or "unlabelled"}, '
+                        f'{s["state"]["name"]} — once its question is answered, remove its '
+                        f'agent label to send it back to triage')
                 break
-            fields, findings = triage_of(i["identifier"])
-            if not usable(fields):
-                held = f'{i["identifier"]} has no usable doable verdict comment'
-                break
-            body = (i.get("description") or "").strip()
-            members.append({"source": SOURCE, "key": i["identifier"], "repo": fields["repo"],
-                            "title": i["title"], "url": i["url"], "unit": parent,
-                            "body": f"{body}\n\n## Triage findings\n\n{findings}".strip(),
-                            "priority": PRIORITY.get(i.get("priority"), ""),
-                            "effort": fields["effort"]})
+            members.append(member(s, sf, sfind, parent))
         if held:
             print(f"candidates: unit {parent} held — {held}", file=sys.stderr)
             continue
@@ -604,6 +681,54 @@ def cmd_settle(a):
     return 0 if acted else 1
 
 
+def linear_key():
+    """The API key, found as `linear-gql` finds it: the environment, then the kernel keyring
+    `linear-gql` caches it in, then 1Password — bounded, since a locked vault hangs `op`."""
+    if key := os.environ.get("LINEAR_API_KEY"):
+        return key
+    r = subprocess.run(["bash", "-c", "keyctl pipe $(keyctl search @u user linear_api_key)"],
+                       capture_output=True, text=True)
+    if r.returncode == 0 and r.stdout.strip():
+        return r.stdout.strip()
+    ref = os.environ.get("LINEAR_OP_REF", "op://Hoopit/Linear API token/credential")
+    r = subprocess.run(["timeout", "20", "op", "read", ref], capture_output=True, text=True)
+    if r.returncode == 0 and r.stdout.strip():
+        return r.stdout.strip()
+    raise LinearError("no Linear API key: set LINEAR_API_KEY or unlock 1Password")
+
+
+def cmd_fetch(a):
+    """Download Linear uploads — the screenshots and HAR files a report carries — into
+    `--into`, which must be empty or absent: what lands there is untrusted data. Only
+    `uploads.linear.app` is fetched, since the key goes with each request. One line per
+    file: its path, or the reason it was not fetched."""
+    import urllib.request
+    if os.path.isdir(a.into) and os.listdir(a.into):
+        sys.exit(f"fetch: {a.into} is not empty; give a fresh directory")
+    os.makedirs(a.into, exist_ok=True)
+    key, failed = linear_key(), 0
+    for n, url in enumerate(a.urls, 1):
+        if not re.fullmatch(r"https://uploads\.linear\.app/[\w/.-]+", url):
+            print(f"skip\t{url}\tnot a Linear upload")
+            failed += 1
+            continue
+        req = urllib.request.Request(url, headers={"Authorization": key})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                kind = (r.headers.get_content_type() or "").split("/")[-1]
+                ext = {"jpeg": ".jpg", "png": ".png", "gif": ".gif", "webp": ".webp",
+                       "json": ".json", "pdf": ".pdf"}.get(kind, ".bin")
+                path = os.path.join(a.into, f"{n:02d}{ext}")
+                with open(path, "wb") as fh:
+                    fh.write(r.read())
+        except OSError as e:
+            print(f"skip\t{url}\t{e}")
+            failed += 1
+            continue
+        print(f"{path}\t{url}")
+    return 1 if failed else 0
+
+
 def cmd_provision(a):
     """Create the workspace label group `agent` and its labels, naming each it adds.
     Workspace-level, so one group serves every team. A dry run without --apply."""
@@ -636,8 +761,13 @@ def main():
     s = sub.add_parser("inbox", description=cmd_inbox.__doc__)
     s.add_argument("--limit", type=int, default=10); s.set_defaults(fn=cmd_inbox)
     s = sub.add_parser("verdict", description=cmd_verdict.__doc__); s.add_argument("key")
-    s.add_argument("--not-doable", action="store_true", required=True)
-    s.add_argument("--repo"); s.set_defaults(fn=cmd_verdict)
+    g = s.add_mutually_exclusive_group(required=True)
+    g.add_argument("--doable", action="store_true"); g.add_argument("--not-doable", action="store_true")
+    s.add_argument("--repo"); s.add_argument("--effort", choices=EFFORTS)
+    s.set_defaults(fn=cmd_verdict)
+    s = sub.add_parser("fetch", description=cmd_fetch.__doc__)
+    s.add_argument("urls", nargs="+"); s.add_argument("--into", required=True)
+    s.set_defaults(fn=cmd_fetch)
     s = sub.add_parser("split", description=cmd_split.__doc__,
                        formatter_class=argparse.RawDescriptionHelpFormatter)
     s.add_argument("key"); s.set_defaults(fn=cmd_split)
