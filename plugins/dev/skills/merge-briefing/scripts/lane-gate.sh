@@ -30,11 +30,12 @@ for limit in "$MAX_LINES" "$MAX_FILES"; do
   [[ $limit =~ ^(0|[1-9][0-9]*)$ ]] \
     || { echo "gate=human reason=lane limit \`$limit\` is not a whole number"; exit 0; }
 done
+REVISION='"\(.head.sha)..\(.base.sha)"'
 TEST_FILE='(^|/)(tests?|__snapshots__)/|(^|/)test_[^/]*\.[^/]*$|_test\.[^/]*$|\.snap$'
 reasons=()
 
-pr=$(gh api "repos/$REPO/pulls/$PR" --jq '[.changed_files, "\(.head.sha)..\(.base.sha)", .user.type,
-  (([.requested_reviewers[].login] + [.requested_teams[].slug]) | join(" "))] | @tsv') \
+pr=$(gh api "repos/$REPO/pulls/$PR" --jq "[.changed_files, $REVISION, .user.type,
+  (([.requested_reviewers[].login] + [.requested_teams[].slug]) | join(\" \"))] | @tsv") \
   || { echo "gate=human reason=could not read the PR"; exit 0; }
 IFS=$'\t' read -r changed revision author_type asked <<<"$pr"
 
@@ -55,8 +56,9 @@ for (( page = 1; page <= (changed + 99) / 100; page++ )); do
 done
 (( seen == changed )) \
   || { echo "gate=human reason=could read only $seen of the $changed changed files"; exit 0; }
-[[ $(gh api "repos/$REPO/pulls/$PR" --jq '"\(.head.sha)..\(.base.sha)"') == "$revision" ]] \
-  || { echo "gate=human reason=the PR moved while its files were read"; exit 0; }
+now=$(gh api "repos/$REPO/pulls/$PR" --jq "$REVISION") \
+  || { echo "gate=human reason=could not re-read the PR"; exit 0; }
+[[ $now == "$revision" ]] || { echo "gate=human reason=the PR moved while its files were read"; exit 0; }
 (( lines > MAX_LINES )) && reasons+=("$lines changed lines outside tests, over $MAX_LINES")
 (( files > MAX_FILES )) && reasons+=("$files changed files outside tests, over $MAX_FILES")
 [[ $author_type == Bot ]] && reasons+=("a bot opened it")

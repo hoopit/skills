@@ -46,6 +46,8 @@ elif endpoint == f"repos/{repo}/pulls/{pr['number']}":
     reads = os.environ["LANE_TEST_PR"] + ".reads"
     n = int(open(reads).read()) if os.path.exists(reads) else 0
     open(reads, "w").write(str(n + 1))
+    if n and pr["moves"] == "fails":
+        sys.stderr.write("gh: Bad Gateway (HTTP 502)\n"); sys.exit(1)
     out = {"changed_files": len(pr["files"]), "user": {"type": pr["author_type"]},
            "head": {"sha": "b" if n and pr["moves"] else "a"}, "base": {"sha": "c"},
            "requested_reviewers": [], "requested_teams": []}
@@ -67,7 +69,7 @@ def file(name, lines, previous=None):
 def gate(files, guarded="", closing=1, author_type="User", cap=None, moves=False, **env):
     """The gate's one line for a PR with these files, under these LANE_* overrides. GitHub lists
     only the first `cap` files, when one is given; `moves` pushes a new head after the first read
-    of the PR."""
+    of the PR, or, as "fails", makes every later read of it fail."""
     d = pathlib.Path(tempfile.mkdtemp(prefix="lane-gate-"))
     try:
         (d / "pr.json").write_text(json.dumps({"number": PR, "files": files, "closing": closing,
@@ -163,9 +165,11 @@ def test_a_listing_short_of_the_file_count_passes_nothing():
     assert out == "gate=human reason=could read only 120 of the 121 changed files", out
 
 
-def test_a_push_while_the_files_are_read_passes_nothing():
-    out = gate([file(f"tests/t{i}.py", 1) for i in range(101)], moves=True)
+def test_a_pr_that_moved_while_its_files_were_read_passes_nothing():
+    out = gate([file("tests/t.py", 1)], moves=True)
     assert out == "gate=human reason=the PR moved while its files were read", out
+    out = gate([file("tests/t.py", 1)], moves="fails")
+    assert out == "gate=human reason=could not re-read the PR", out
 
 
 def test_every_reason_is_named():
