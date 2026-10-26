@@ -10,13 +10,6 @@
 # definitions decide what every later PR is checked by. A read that fails is `human` with
 # the failure as its reason — a gate that cannot see the PR passes nothing.
 #
-# The size limits count no test file: a fixture or a snapshot is not code a human has to
-# read. A test file is anything under a `tests/`, `test/` or `__snapshots__/` directory, or
-# named `*_test.*`, `test_*.*` or `*.snap`, and it is still read against the guarded paths.
-# A rename leaves the count only when both its names are test files.
-# LANE_MAX_LINES and LANE_MAX_FILES replace the default limits; the merge briefing sets them
-# from a repo's Lane limits line.
-#
 # REST for everything but the closing issues, which only GraphQL exposes. The files are read
 # page by page, as many pages as the PR's own file count. A listing short of that count is a
 # read that failed — GitHub serves at most 3,000 of a PR's files — and so is one the PR's head
@@ -25,13 +18,7 @@ set -u
 export MISE_QUIET=1
 export REPO=$1
 PR=$2; GUARDED=${3:-}
-MAX_LINES=${LANE_MAX_LINES:-400}; MAX_FILES=${LANE_MAX_FILES:-15}
-for limit in "$MAX_LINES" "$MAX_FILES"; do
-  [[ $limit =~ ^(0|[1-9][0-9]*)$ ]] \
-    || { echo "gate=human reason=lane limit \`$limit\` is not a whole number"; exit 0; }
-done
 REVISION='"\(.head.sha)..\(.base.sha)"'
-TEST_FILE='(^|/)(tests?|__snapshots__)/|(^|/)test_[^/]*\.[^/]*$|_test\.[^/]*$|\.snap$'
 reasons=()
 
 pr=$(gh api "repos/$REPO/pulls/$PR" --jq "[.changed_files, $REVISION, .user.type,
@@ -40,18 +27,16 @@ pr=$(gh api "repos/$REPO/pulls/$PR" --jq "[.changed_files, $REVISION, .user.type
 IFS=$'\t' read -r changed revision author_type asked <<<"$pr"
 
 # A rename is judged under both names: moving a file out of a guarded path touches it.
-paths="" lines=0 files=0 seen=0
+paths="" seen=0
 for (( page = 1; page <= (changed + 99) / 100; page++ )); do
   rows=$(gh api "repos/$REPO/pulls/$PR/files?per_page=100&page=$page" \
-    --jq '.[] | [.filename, .changes, (.previous_filename // "")] | @tsv') \
+    --jq '.[] | [.filename, (.previous_filename // "")] | @tsv') \
     || { echo "gate=human reason=could not read the changed files"; exit 0; }
-  while IFS=$'\t' read -r name changes previous; do
+  while IFS=$'\t' read -r name previous; do
     [[ -n $name ]] || continue
     (( seen += 1 ))
     paths+=$name$'\n'
     [[ -n $previous ]] && paths+=$previous$'\n'
-    [[ $name =~ $TEST_FILE && ( -z $previous || $previous =~ $TEST_FILE ) ]] && continue
-    (( lines += changes, files += 1 ))
   done <<<"$rows"
 done
 (( seen == changed )) \
@@ -59,8 +44,6 @@ done
 now=$(gh api "repos/$REPO/pulls/$PR" --jq "$REVISION") \
   || { echo "gate=human reason=could not re-read the PR"; exit 0; }
 [[ $now == "$revision" ]] || { echo "gate=human reason=the PR moved while its files were read"; exit 0; }
-(( lines > MAX_LINES )) && reasons+=("$lines changed lines outside tests, over $MAX_LINES")
-(( files > MAX_FILES )) && reasons+=("$files changed files outside tests, over $MAX_FILES")
 [[ $author_type == Bot ]] && reasons+=("a bot opened it")
 [[ -n $asked ]] && reasons+=("a review is still requested of $asked")
 

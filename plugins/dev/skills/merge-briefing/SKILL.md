@@ -118,23 +118,18 @@ Whether this head could merge with no human read. A record, on every briefing, a
 user who handed `monitor-pr` the merge of their own PRs, the switch: `auto` merges without
 asking. Everywhere else the merge question goes out the same whichever it says.
 
-The gate settles the mechanical half. Read three lines from the repo's *Workflow skills
+The gate settles the mechanical half. Read two lines from the repo's *Workflow skills
 config* (`AGENTS.md`):
 
 - **Guarded paths** — the regexes naming what always takes a human there: migrations,
   payment code, permission classes. A line whose value is `none`, prose after it or not, is
   an empty list: hand the gate `''`, never the word.
-- **Lane limits** *(optional)* — `<lines> lines, <files> files`, the most a PR may change
-  outside its test files and still be `auto`. Without the line the gate's defaults hold.
 - **Auto lane risk ceiling** *(optional)* — `low` or `moderate`, the highest **Merge
   risk** that can still be `auto`. Without the line, or with any other value, it is `low`.
 
 ```bash
-LANE_MAX_LINES=<lines> LANE_MAX_FILES=<files> \
-  bash "${CLAUDE_PLUGIN_ROOT}/skills/merge-briefing/scripts/lane-gate.sh" <OWNER_REPO> <PR> '<guarded paths, comma-separated>'
+bash "${CLAUDE_PLUGIN_ROOT}/skills/merge-briefing/scripts/lane-gate.sh" <OWNER_REPO> <PR> '<guarded paths, comma-separated>'
 ```
-
-Leave out the two variables when the repo sets no **Lane limits**.
 
 **auto** needs all four: `gate=pass`, **Warranted: yes**, a **Merge risk** no higher than
 the ceiling, and a recommendation to merge. Otherwise **human**. A config with no
