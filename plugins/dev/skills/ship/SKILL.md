@@ -1,15 +1,16 @@
 ---
 name: ship
-description: Take one understood piece of work in one repo from a branch to a monitored PR. Use when asked to implement, fix, ship or handle an issue.
+description: Take one change from a branch to a monitored PR. Use for any change headed for a PR, or when asked to ship or handle an issue.
 argument-hint: "<the work, or the item tracking it> [--unattended]"
 ---
 
 # Ship
 
-The shared spine of every shipping workflow: given a **known repo** and an
-**understood piece of work**, take it from a branch to an open PR with a watch on it.
-Bug, feature, chore; Jira, GitHub issue, Sentry, or nothing tracked at all — the shape
-is the same, and each step defers its specifics to the repo's own conventions.
+The one path every agent-opened PR takes: given a **known repo** and an **understood
+piece of work**, take it from a branch to an open PR with a watch on it. Bug or feature,
+docs or config, down to a one-line typo; Jira, GitHub issue, Sentry, or nothing tracked
+at all — the shape is the same, and each step defers its specifics to the repo's own
+conventions.
 
 Origin-specific work — reading the report, resolving *which* repo, creating or linking
 the tracker item — belongs to the caller, which sets the inputs below. Invoked directly,
