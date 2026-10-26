@@ -3005,7 +3005,8 @@ def dispatch_rows(repo, since_days, limit):
     board cannot see further back than that.
 
     The rung comes off the claim comment rather than the board's Effort, because the rung
-    *is* (model, effort) — and a PR whose issue carries no claim marker is unattributable,
+    *is* (model, effort) — or, where the closed issue carries none, off the same claim line
+    in the PR's own body. A PR with neither is unattributable,
     which is most of what predates 2026-09-18. Those rows are reported, never guessed at.
 
     Returns `(rows, whether the cap ended the walk inside the window)`.
@@ -3031,6 +3032,13 @@ def dispatch_rows(repo, since_days, limit):
                     hit = CLAIM_MODEL.search(c["body"])
                     if hit:
                         model, effort = hit.group(1), hit.group(2)
+        # Work from a tracker that is not GitHub — a Linear issue — has no issue here to
+        # carry the claim, so its agent writes the claim line into the PR body instead. The
+        # rung is read from that line alone: the rest of a body is prose full of backticks.
+        if not model and (claim := CLAIM_RE.search(pr.get("body") or "")):
+            end = pr["body"].find("\n", claim.end())
+            if hit := CLAIM_MODEL.search(pr["body"], claim.end(), end if end >= 0 else len(pr["body"])):
+                model, effort = hit.group(1), hit.group(2)
         commits = rest(f'repos/{repo}/pulls/{pr["number"]}/commits', 200)
         findings = [t for c in commits for t in FIX_COMMIT.findall(c["commit"]["message"])]
         rows.append({

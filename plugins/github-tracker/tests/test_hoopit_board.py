@@ -1171,6 +1171,35 @@ def test_judged_notes_are_not_asked_about_twice():
         assert asked == ["PR 1"], asked
 
 
+def test_a_pr_closing_no_issue_is_attributed_from_its_own_claim_line():
+    """A Linear issue's PR closes nothing on GitHub; its agent writes the claim line into
+    the PR body, and the rung is read from there. A claim on the closed issue still wins."""
+    m = load()
+    prs = [{"number": 5, "merged_at": "2099-01-01T00:00:00Z", "updated_at": "2099-01-01T00:00:00Z",
+            "html_url": "u5", "title": "t", "body": "Fixes SUP-41.\n\nStarted as herdr agent "
+            "`lin-sup-41` on `sonnet` at `medium` effort."},
+           {"number": 6, "merged_at": "2099-01-01T00:00:00Z", "updated_at": "2099-01-01T00:00:00Z",
+            "html_url": "u6", "title": "t", "body": "closes #7\n\nStarted as herdr agent `x` on `haiku`."},
+           {"number": 8, "merged_at": "2099-01-01T00:00:00Z", "updated_at": "2099-01-01T00:00:00Z",
+            "html_url": "u8", "title": "t", "body": "Runs on `postgres` at `low` effort, no claim."},
+           {"number": 9, "merged_at": "2099-01-01T00:00:00Z", "updated_at": "2099-01-01T00:00:00Z",
+            "html_url": "u9", "title": "t", "body": "Started in a Claude Code session.\n\n"
+            "## Changes\nThe job now runs on `postgres` at `low` effort."}]
+    comments = {7: [{"body": "Started as herdr agent `gh7` on `opus` at `high` effort."}]}
+
+    def rest(path, limit, **params):
+        if path.endswith("/pulls"):
+            return prs
+        if "/issues/" in path:
+            return comments.get(int(path.split("/")[-2]), [])
+        return []
+
+    m.rest = rest
+    rows, _ = m.dispatch_rows("hoopit/api", 30, 100)
+    assert [r["rung"] for r in rows] == ["sonnet/medium", "opus/high", None, None], rows
+    print("  the claim line names sonnet/medium; the issue's claim outranks it; prose below a claim is no rung")
+
+
 def test_dispatches_no_judge_asks_nothing():
     m = load()
     def refuse(s, q):
