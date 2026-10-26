@@ -6,12 +6,10 @@ editing the gate:
 
 No network: a `gh` shim on PATH answers the three reads the gate makes — the PR, its files a
 page at a time, and its closing issues — from a PR described in the test, and runs `--jq`
-through `jq` as `gh` does.
+through `jq` as `gh` does. A `--paginate` read fails: the gate pages by hand.
 
-What it guards is which lines a limit counts. A test file — under `tests/` or `test/`, named
-`*_test.*`, `test_*.*` or `*.snap`, or under `__snapshots__/` — counts toward neither limit
-but is still read against the guarded paths; `LANE_MAX_LINES` and `LANE_MAX_FILES` replace
-400 lines and 15 files.
+What it guards is which lines a limit counts — the gate's header defines a test file — and
+that a gate which cannot count passes nothing.
 """
 import json, os, pathlib, shutil, subprocess, sys, tempfile
 
@@ -23,29 +21,29 @@ import json, os, re, subprocess, sys
 pr = json.load(open(os.environ["LANE_TEST_PR"]))
 args = sys.argv[1:]
 assert args[0] == "api", args
-jq, endpoint, paginate, i = None, None, False, 1
+jq, endpoint, i = None, None, 1
 while i < len(args):
     a = args[i]
     if a in ("--jq", "-q"):
         jq = args[i + 1]; i += 2
     elif a in ("-F", "-f", "-H", "-X"):
         i += 2
+    elif a == "--paginate":
+        sys.exit("gh shim: page by hand with per_page and page")
     elif a.startswith("-"):
-        paginate = paginate or a == "--paginate"; i += 1
+        i += 1
     else:
         endpoint = endpoint or a; i += 1
 repo = os.environ["LANE_TEST_REPO"]
 if endpoint == "graphql":
     nodes = [{"repository": {"nameWithOwner": repo}}] * pr["closing"]
     out = {"data": {"repository": {"pullRequest": {"closingIssuesReferences": {"nodes": nodes}}}}}
-elif m := re.fullmatch(rf"repos/{repo}/pulls/{pr['number']}/files\?per_page=(\d+)(?:&page=(\d+))?", endpoint):
-    size, page = int(m[1]), int(m[2] or 1)
-    served = pr["files"][:pr.get("cap", len(pr["files"]))]
-    out = served if paginate else served[(page - 1) * size:page * size]
+elif m := re.fullmatch(rf"repos/{re.escape(repo)}/pulls/{pr['number']}/files\?per_page=(\d+)&page=(\d+)",
+                       endpoint or ""):
+    size, page = int(m[1]), int(m[2])
+    out = pr["files"][:pr.get("cap", len(pr["files"]))][(page - 1) * size:page * size]
 elif endpoint == f"repos/{repo}/pulls/{pr['number']}":
-    files = pr["files"]
-    out = {"additions": sum(f["additions"] for f in files), "deletions": sum(f["deletions"] for f in files),
-           "changed_files": len(files), "user": {"type": pr["author_type"]},
+    out = {"changed_files": len(pr["files"]), "user": {"type": pr["author_type"]},
            "requested_reviewers": [], "requested_teams": []}
 else:
     sys.stderr.write(f"gh: Not Found (HTTP 404) {endpoint}\n"); sys.exit(1)
@@ -56,7 +54,7 @@ sys.exit(subprocess.run(["jq", "-r", jq], input=json.dumps(out), text=True).retu
 
 
 def file(name, lines, previous=None):
-    f = {"filename": name, "additions": lines, "deletions": 0, "changes": lines, "status": "modified"}
+    f = {"filename": name, "changes": lines, "status": "modified"}
     if previous:
         f.update(previous_filename=previous, status="renamed")
     return f
@@ -81,15 +79,16 @@ def gate(files, guarded="", closing=1, author_type="User", cap=None, **env):
         shutil.rmtree(d, True)
 
 
-def fixtures(lines, n=5):
-    """Test-fixture files of every shape the gate leaves out of its counts."""
+def fixtures(lines):
+    """`lines` lines of test fixtures, spread over every shape the gate leaves out of its counts."""
     names = ["tests/fixtures/clubs.json", "pipelines/test/data.csv", "models/club_test.sql",
-             "pipelines/test_clubs.py", "cdk/__snapshots__/stack.ts.snap", "cdk/stack.snap"][:n]
-    return [file(name, lines // len(names)) for name in names]
+             "pipelines/test_clubs.py", "cdk/__snapshots__/stack.ts.snap", "cdk/stack.snap"]
+    each, rest = divmod(lines, len(names))
+    return [file(name, each + (i < rest)) for i, name in enumerate(names)]
 
 
 def test_test_fixtures_leave_the_size_count():
-    out = gate([file("models/clubs.sql", 350)] + fixtures(500, 6))
+    out = gate([file("models/clubs.sql", 350)] + fixtures(500))
     assert out == "gate=pass", out
 
 
