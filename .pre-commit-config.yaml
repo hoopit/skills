@@ -1,6 +1,7 @@
 # Keeps README.md's "Skills by plugin" block in sync with the source of truth, and
-# runs hoopit-board's, skill-eval's and field-report's tests whenever a script or its tests change,
-# before each commit. Enable once per clone with:  pre-commit install
+# runs hoopit-board's, skill-eval's, field-report's and lane-gate's tests whenever a
+# script or its tests change, before each commit. Enable once per clone with:
+# pre-commit install
 #
 # Every hook is OFFLINE: the README block is regenerated from marketplace.json and the
 # local SKILL.md files, and the tests stub every network call and every model.
@@ -31,3 +32,9 @@ repos:
         language: system
         pass_filenames: false
         files: '^plugins/dev/(skills/skill-eval/scripts/field-report|tests/test_field_report\.py)$'
+      - id: test-lane-gate
+        name: Test lane-gate
+        entry: python3 -B plugins/dev/tests/test_lane_gate.py
+        language: system
+        pass_filenames: false
+        files: '^plugins/dev/(skills/merge-briefing/scripts/lane-gate\.sh|tests/test_lane_gate\.py)$'
