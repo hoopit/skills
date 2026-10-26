@@ -101,6 +101,14 @@ def test_a_repos_limits_replace_the_defaults():
     assert out == "gate=pass", out
 
 
+def test_a_limit_that_is_not_a_whole_number_passes_nothing():
+    for bad in ("400 lines", "1e3", "abc", "040"):
+        out = gate([file("models/clubs.sql", 1)], LANE_MAX_LINES=bad)
+        assert out == f"gate=human reason=lane limit `{bad}` is not a whole number", out
+    out = gate([file("models/clubs.sql", 1)], LANE_MAX_FILES="40,")
+    assert out == "gate=human reason=lane limit `40,` is not a whole number", out
+
+
 def test_only_files_outside_tests_count_toward_the_file_limit():
     many = [file(f"models/m{i}.sql", 1) for i in range(16)]
     out = gate(many + [file(f"tests/t{i}.py", 1) for i in range(30)])

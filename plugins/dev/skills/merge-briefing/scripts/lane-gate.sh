@@ -23,6 +23,10 @@ export MISE_QUIET=1
 export REPO=$1
 PR=$2; GUARDED=${3:-}
 MAX_LINES=${LANE_MAX_LINES:-400}; MAX_FILES=${LANE_MAX_FILES:-15}
+for limit in "$MAX_LINES" "$MAX_FILES"; do
+  [[ $limit =~ ^(0|[1-9][0-9]*)$ ]] \
+    || { echo "gate=human reason=lane limit \`$limit\` is not a whole number"; exit 0; }
+done
 TEST_FILE='(^|/)(tests?|__snapshots__)/|(^|/)test_[^/]*\.[^/]*$|_test\.[^/]*$|\.snap$'
 reasons=()
 
