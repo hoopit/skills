@@ -13,6 +13,7 @@
 # The size limits count no test file: a fixture or a snapshot is not code a human has to
 # read. A test file is anything under a `tests/`, `test/` or `__snapshots__/` directory, or
 # named `*_test.*`, `test_*.*` or `*.snap`, and it is still read against the guarded paths.
+# A rename leaves the count only when both its names are test files.
 # LANE_MAX_LINES and LANE_MAX_FILES replace the default limits; the merge briefing sets them
 # from a repo's Lane limits line.
 #
@@ -47,7 +48,7 @@ for (( page = 1; page <= (changed + 99) / 100; page++ )); do
     (( seen += 1 ))
     paths+=$name$'\n'
     [[ -n $previous ]] && paths+=$previous$'\n'
-    [[ $name =~ $TEST_FILE ]] && continue
+    [[ $name =~ $TEST_FILE && ( -z $previous || $previous =~ $TEST_FILE ) ]] && continue
     (( lines += changes, files += 1 ))
   done <<<"$rows"
 done

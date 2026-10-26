@@ -140,6 +140,14 @@ def test_a_rename_out_of_a_guarded_path_is_read_under_both_names():
     assert out == "gate=human reason=`sql/tables.py` is a guarded path (`^sql/`)", out
 
 
+def test_a_rename_into_tests_counts_unless_it_was_a_test_already():
+    moved = [file(f"tests/m{i}.py", 1, previous=f"models/m{i}.py") for i in range(16)]
+    out = gate(moved)
+    assert out == "gate=human reason=16 changed files outside tests, over 15", out
+    out = gate([file(f"tests/m{i}.py", 1, previous=f"test/m{i}.py") for i in range(16)])
+    assert out == "gate=pass", out
+
+
 def test_files_past_the_first_page_are_counted():
     out = gate([file(f"tests/t{i}.py", 1) for i in range(150)] + [file("models/clubs.sql", 401)])
     assert out == "gate=human reason=401 changed lines outside tests, over 400", out
