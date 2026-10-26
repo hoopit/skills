@@ -1,0 +1,16 @@
+diff --git a/docs/agents/issue-tracker.md b/docs/agents/issue-tracker.md
+--- a/docs/agents/issue-tracker.md
++++ b/docs/agents/issue-tracker.md
+@@ -24,6 +24,12 @@
+ `ITSM-<n>` keys still turn up in commits, PRs, Sentry and conversations. Read them with
+ the `atlassian-cli` skill (`acli`); file, comment and transition in Linear instead.
+ 
++### Follow-ups found in review
++
++A follow-up that a review turns up is filed in the personal tracker, never fixed in the pull
++request it was found in. Its body names that pull request, so whoever picks it up can read
++the review thread it came from.
++
+ ### Which personal tracker is the driver's to declare
+ 
+ A developer declares theirs in their own global `~/.claude/CLAUDE.md`, under a heading

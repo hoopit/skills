@@ -1,0 +1,22 @@
+{
+  "pr": {
+    "title": "BAC-4412: One org-admin check for the bank account list",
+    "body": "## Summary\n\n`OrganizationBankAccountListView` decided whether the requester is an org (root) admin in two places: inline in `get_queryset`, and in `_can_view_balance` for the balance column and the export. Both now call one `_is_org_admin` helper, so the two can't drift. No behaviour change.\n\nJira: [BAC-4412](https://hoopit.atlassian.net/browse/BAC-4412)\n\n## Test plan\n\n- `payments/tests/web/test_organization_bank_account_list_view.py` passes unchanged.\n",
+    "draft": true,
+    "labels": []
+  },
+  "checks": [
+    {"name": "lint", "conclusion": "success"},
+    {"name": "migrations-check", "conclusion": "success"},
+    {"name": "merge-briefing-check", "conclusion": "success"}
+  ],
+  "statuses": [
+    {"context": "ci/circleci: test", "state": "success", "description": "Your tests passed on CircleCI!"},
+    {"context": "codex-review", "state": "success", "description": "No issues found"}
+  ],
+  "issue_comments": [
+    {"id": 4100001, "user": {"login": "coderabbitai[bot]"}, "created_at": "2026-10-02T01:00:00Z",
+     "body": "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\n## Walkthrough\n\nThe list view's two org-admin checks are folded into `_is_org_admin`.\n\n<!-- final_review_risk_coverage {\"coveredCommitId\":\"{HEAD}\"} -->\n<!-- end of auto-generated comment: summarize by coderabbit.ai -->"}
+  ],
+  "required_checks": ["ci/circleci: test", "merge-briefing"]
+}

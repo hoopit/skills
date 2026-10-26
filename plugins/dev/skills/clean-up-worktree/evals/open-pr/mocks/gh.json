@@ -1,0 +1,66 @@
+[
+ {
+  "match": "^pr list --head GH\\-18312/feat/venue\\-postcode\\-search --state open .*--jq",
+  "stdout": "18315\tOPEN\t-\ta29f6ba89c6a22fcc38b4d1df5f2330a005e2c9d\thttps://github.com/hoopit/api/pull/18315\tGH-18312: Search venues by postcode\n"
+ },
+ {
+  "match": "^pr list --head GH\\-18312/feat/venue\\-postcode\\-search --state all .*--jq",
+  "stdout": "18315\tOPEN\t-\ta29f6ba89c6a22fcc38b4d1df5f2330a005e2c9d\thttps://github.com/hoopit/api/pull/18315\tGH-18312: Search venues by postcode\n"
+ },
+ {
+  "match": "^pr list (?=.*(--head|-H) GH\\-18312/feat/venue\\-postcode\\-search\\b)(?=.*--state open\\b)",
+  "stdout": "[{\"number\": 18315, \"state\": \"OPEN\", \"mergedAt\": null, \"headRefOid\": \"a29f6ba89c6a22fcc38b4d1df5f2330a005e2c9d\", \"headRefName\": \"GH-18312/feat/venue-postcode-search\", \"url\": \"https://github.com/hoopit/api/pull/18315\", \"title\": \"GH-18312: Search venues by postcode\", \"baseRefName\": \"master\", \"isDraft\": false}]\n"
+ },
+ {
+  "match": "^pr list (?=.*(--head|-H) GH\\-18312/feat/venue\\-postcode\\-search\\b)(?=.*--state merged\\b)",
+  "stdout": "[]\n"
+ },
+ {
+  "match": "^pr list (?=.*(--head|-H) GH\\-18312/feat/venue\\-postcode\\-search\\b)(?=.*--state closed\\b)",
+  "stdout": "[]\n"
+ },
+ {
+  "match": "^pr list (?=.*(--head|-H) GH\\-18312/feat/venue\\-postcode\\-search\\b)(?=.*--state all\\b)",
+  "stdout": "[{\"number\": 18315, \"state\": \"OPEN\", \"mergedAt\": null, \"headRefOid\": \"a29f6ba89c6a22fcc38b4d1df5f2330a005e2c9d\", \"headRefName\": \"GH-18312/feat/venue-postcode-search\", \"url\": \"https://github.com/hoopit/api/pull/18315\", \"title\": \"GH-18312: Search venues by postcode\", \"baseRefName\": \"master\", \"isDraft\": false}]\n"
+ },
+ {
+  "match": "^pr list (.* )?(--head|-H) GH\\-18312/feat/venue\\-postcode\\-search\\b",
+  "stdout": "[{\"number\": 18315, \"state\": \"OPEN\", \"mergedAt\": null, \"headRefOid\": \"a29f6ba89c6a22fcc38b4d1df5f2330a005e2c9d\", \"headRefName\": \"GH-18312/feat/venue-postcode-search\", \"url\": \"https://github.com/hoopit/api/pull/18315\", \"title\": \"GH-18312: Search venues by postcode\", \"baseRefName\": \"master\", \"isDraft\": false}]\n"
+ },
+ {
+  "match": "^pr view (18315|GH\\-18312/feat/venue\\-postcode\\-search|https://github\\.com/hoopit/api/pull/18315)\\b",
+  "stdout": "{\"number\": 18315, \"state\": \"OPEN\", \"mergedAt\": null, \"headRefOid\": \"a29f6ba89c6a22fcc38b4d1df5f2330a005e2c9d\", \"headRefName\": \"GH-18312/feat/venue-postcode-search\", \"url\": \"https://github.com/hoopit/api/pull/18315\", \"title\": \"GH-18312: Search venues by postcode\", \"baseRefName\": \"master\", \"isDraft\": false}\n"
+ },
+ {
+  "match": "^pr list --head GH\\-18270/fix/attendance\\-export\\-timezone --state open .*--jq",
+  "stdout": ""
+ },
+ {
+  "match": "^pr list --head GH\\-18270/fix/attendance\\-export\\-timezone --state all .*--jq",
+  "stdout": "18288\tMERGED\t2026-10-01T14:02:11Z\td3695912dac06a915b805e803e59ae598e874ba5\thttps://github.com/hoopit/api/pull/18288\tGH-18270: Export attendance in the club's timezone\n"
+ },
+ {
+  "match": "^pr list (?=.*(--head|-H) GH\\-18270/fix/attendance\\-export\\-timezone\\b)(?=.*--state open\\b)",
+  "stdout": "[]\n"
+ },
+ {
+  "match": "^pr list (?=.*(--head|-H) GH\\-18270/fix/attendance\\-export\\-timezone\\b)(?=.*--state merged\\b)",
+  "stdout": "[{\"number\": 18288, \"state\": \"MERGED\", \"mergedAt\": \"2026-10-01T14:02:11Z\", \"headRefOid\": \"d3695912dac06a915b805e803e59ae598e874ba5\", \"headRefName\": \"GH-18270/fix/attendance-export-timezone\", \"url\": \"https://github.com/hoopit/api/pull/18288\", \"title\": \"GH-18270: Export attendance in the club's timezone\", \"baseRefName\": \"master\", \"isDraft\": false}]\n"
+ },
+ {
+  "match": "^pr list (?=.*(--head|-H) GH\\-18270/fix/attendance\\-export\\-timezone\\b)(?=.*--state closed\\b)",
+  "stdout": "[]\n"
+ },
+ {
+  "match": "^pr list (?=.*(--head|-H) GH\\-18270/fix/attendance\\-export\\-timezone\\b)(?=.*--state all\\b)",
+  "stdout": "[{\"number\": 18288, \"state\": \"MERGED\", \"mergedAt\": \"2026-10-01T14:02:11Z\", \"headRefOid\": \"d3695912dac06a915b805e803e59ae598e874ba5\", \"headRefName\": \"GH-18270/fix/attendance-export-timezone\", \"url\": \"https://github.com/hoopit/api/pull/18288\", \"title\": \"GH-18270: Export attendance in the club's timezone\", \"baseRefName\": \"master\", \"isDraft\": false}]\n"
+ },
+ {
+  "match": "^pr list (.* )?(--head|-H) GH\\-18270/fix/attendance\\-export\\-timezone\\b",
+  "stdout": "[]\n"
+ },
+ {
+  "match": "^pr view (18288|GH\\-18270/fix/attendance\\-export\\-timezone|https://github\\.com/hoopit/api/pull/18288)\\b",
+  "stdout": "{\"number\": 18288, \"state\": \"MERGED\", \"mergedAt\": \"2026-10-01T14:02:11Z\", \"headRefOid\": \"d3695912dac06a915b805e803e59ae598e874ba5\", \"headRefName\": \"GH-18270/fix/attendance-export-timezone\", \"url\": \"https://github.com/hoopit/api/pull/18288\", \"title\": \"GH-18270: Export attendance in the club's timezone\", \"baseRefName\": \"master\", \"isDraft\": false}\n"
+ }
+]

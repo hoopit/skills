@@ -4,8 +4,9 @@
 #
 # Usage: bash <plugin>/skills/clean-up-worktree/scripts/inspect.sh [branch]
 #
-# Contract: this script reports, it does not decide. Exit 1 means the target itself
-# could not be inspected (no such branch, not a repo); otherwise 0. Any fact it could
+# Contract: this script reports, it does not decide. Its last line is a verdict:
+# `OK: …` once the facts are printed (a branch that no longer exists included), or
+# `FAILED: …` with exit 1 when the target could not be inspected at all. Any fact it could
 # not establish is printed explicitly; SKILL.md section 3 owns what each such line means
 # for the caller.
 
@@ -13,7 +14,7 @@ set -uo pipefail
 
 WANT_BRANCH=${1:-}
 
-CWD_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "not a git repository" >&2; exit 1; }
+CWD_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "FAILED: not a git repository: $PWD"; exit 1; }
 # substr, not $2: worktree paths may contain spaces
 MAIN_ROOT=$(git worktree list --porcelain | awk '/^worktree /{print substr($0, 10); exit}')
 DEFAULT_BRANCH=$(git -C "$MAIN_ROOT" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')
@@ -25,7 +26,7 @@ if [[ -n $WANT_BRANCH ]]; then
   TARGET_WT=$(git worktree list --porcelain | awk -v b="refs/heads/$BRANCH" '
     /^worktree /{p=substr($0, 10)} $0=="branch "b{print p; exit}')
   git -C "$MAIN_ROOT" rev-parse --quiet --verify "refs/heads/$BRANCH" >/dev/null \
-    || { echo "BRANCH_EXISTS	no	$BRANCH"; exit 1; }
+    || { echo "BRANCH_EXISTS	no	$BRANCH"; echo "OK: no local branch $BRANCH, nothing to inspect"; exit 0; }
 else
   TARGET_WT=$CWD_ROOT
   BRANCH=$(git -C "$TARGET_WT" symbolic-ref --quiet --short HEAD 2>/dev/null || echo "")
@@ -137,4 +138,5 @@ if [[ -n $TARGET_WT && -d $TARGET_WT ]]; then
 fi
 
 # a clean target leaves the last [[ ]] test as the script's status — don't report failure
+echo "OK: inspected ${BRANCH:-the detached worktree} (facts only: sections 2 and 3 decide)"
 exit 0

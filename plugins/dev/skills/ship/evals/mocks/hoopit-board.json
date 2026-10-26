@@ -1,0 +1,22 @@
+[
+ {
+  "match": "^start hoopit/api 18161\\b",
+  "stdout": "STARTED\thoopit/api#18161\nBOUND\thoopit/api#18161\tsession eval\n"
+ },
+ {
+  "match": "^bind hoopit/api 18(161|412)\\b",
+  "stdout": "BOUND\thoopit/api#18161\tsession eval\n"
+ },
+ {
+  "match": "^(show|status|view) hoopit/api 18161\\b",
+  "stdout": "hoopit/api#18161\tIn progress\tP2\tS\tUnattended\n"
+ },
+ {
+  "match": "^release hoopit/api 18161\\b",
+  "stdout": "RELEASED\thoopit/api#18161\tBacklog\n"
+ },
+ {
+  "match": "^(--help|-h|help)$",
+  "stdout": "usage: hoopit-board {config,open,start,claim,bind,release,ready,triage,check,next,agents,decisions} ...\n"
+ }
+]

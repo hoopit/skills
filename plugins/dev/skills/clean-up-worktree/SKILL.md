@@ -35,7 +35,8 @@ bash "$INSPECT" <branch>  # a named branch
 ```
 
 Read-only, single target. Every fact the gates below need is in its output — read the output
-rather than re-deriving any of it. No fetch is needed first: merge state comes from GitHub
+rather than re-deriving any of it. Its last line is a verdict on the inspection, not on the
+gates: `OK: …` once the facts are printed, `FAILED: …` when the target could not be read. No fetch is needed first: merge state comes from GitHub
 live via `gh`, not from local refs.
 
 ## 2. Gate on the merge — this is the whole point
@@ -83,9 +84,9 @@ One short confirmation naming the branch, the PR with the state actually observe
 (`#2619 MERGED`, or `#2619 CLOSED (unmerged)` when the user is overriding that gate), and
 the worktree path to be removed. Nothing runs until the user says yes.
 
-A caller running `--unattended` holds that yes already when the PR is `MERGED` and
-section 3 stopped on nothing: report the same three facts as done instead. Any stop in
-section 3 stays a question.
+A caller running `--unattended`, or one landing a merge (`monitor-pr` Step 4a), holds that
+yes already when the PR is `MERGED` and section 3 stopped on nothing: report the same three
+facts as done instead. Any stop in section 3 stays a question.
 
 Then re-run `inspect.sh` immediately before deleting: if PR state, `TIP_MATCHES_PR`,
 unpushed count or dirty count moved since the confirmation, abort and re-confirm. Approval
@@ -94,9 +95,10 @@ covers the state the user was shown, not whatever the target looks like later.
 ## 5. Execute — from the main worktree
 
 A worktree cannot remove itself, but git will remove it when the command runs against the
-main worktree, even if it is your current directory. Resolve `MAIN_ROOT` **first**, then
-use `git -C "$MAIN_ROOT"` for every command — after the removal this session's cwd no
-longer exists.
+main worktree. Resolve `MAIN_ROOT` **first**, `cd` into it before removing anything, and use
+`git -C "$MAIN_ROOT"` for every command. The shell must not stand in the directory it
+deletes: the harness reads the shell's cwd after each call, so a call that removes its own
+cwd fails even though the removal worked.
 
 Fill `BRANCH` and `WORKTREE` from the `TARGET_BRANCH` / `TARGET_WORKTREE` lines
 `inspect.sh` printed for the confirmed target. **Never re-derive them from the session**
@@ -110,6 +112,7 @@ the branch.
 MAIN_ROOT=$(git worktree list --porcelain | awk '/^worktree /{print substr($0, 10); exit}')
 BRANCH="<TARGET_BRANCH from inspect.sh>"
 WORKTREE="<TARGET_WORKTREE from inspect.sh, or - if none>"
+cd "$MAIN_ROOT" || exit 1
 
 if [[ $WORKTREE != "-" ]]; then
   # || exit: if removal fails, do NOT fall through to branch -D — that would leave a
@@ -129,13 +132,18 @@ worktree the user approved as dirty.
 
 ## 6. Verify and report
 
-Verify both halves separately from `$MAIN_ROOT` — `inspect.sh <branch>` exits 1 with
-`BRANCH_EXISTS no` once the branch is gone, which proves nothing about the directory:
+Verify both halves from `$MAIN_ROOT` — `inspect.sh <branch>` prints `BRANCH_EXISTS no`
+once the branch is gone, which proves nothing about the directory. The check ends on its
+verdict:
 
 ```bash
-git -C "$MAIN_ROOT" rev-parse --verify "refs/heads/$BRANCH"   # must fail: branch gone
-test ! -e "$WORKTREE" && echo "worktree directory gone"
-git -C "$MAIN_ROOT" worktree list                             # must no longer list it
+LEFT=()
+git -C "$MAIN_ROOT" rev-parse --quiet --verify "refs/heads/$BRANCH" >/dev/null && LEFT+=("branch $BRANCH")
+if [[ $WORKTREE != "-" ]]; then
+  [[ -e $WORKTREE ]] && LEFT+=("directory $WORKTREE")
+  git -C "$MAIN_ROOT" worktree list --porcelain | grep -qxF "worktree $WORKTREE" && LEFT+=("worktree record $WORKTREE")
+fi
+if (( ${#LEFT[@]} )); then echo "FAILED: still there: $(IFS=,; echo "${LEFT[*]}")"; else echo "OK: branch and worktree gone"; fi
 ```
 
 Then report:

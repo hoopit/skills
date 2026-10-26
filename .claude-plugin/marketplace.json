@@ -27,6 +27,11 @@
       "name": "hoopit-product",
       "source": "./plugins/product",
       "description": "Product work: stress-test plans and ideas against the domain model, sharpen terminology, and produce a PRD."
+    },
+    {
+      "name": "github-tracker",
+      "source": "./plugins/github-tracker",
+      "description": "An agent work tracker on a GitHub project board: file triaged issues, triage and curate the backlog, assess an issue before fixing it."
     }
   ]
 }

@@ -85,36 +85,59 @@ PR"`. A failure here is never fatal — note it and arm the watch anyway.
 bash <SKILL_DIR>/scripts/pr-labels.sh <OWNER_REPO> <PR> +monitored
 ```
 
+Where `hoopit-board` is on `PATH` (the `github-tracker` plugin), tie this session to the
+issues the PR closes, so each one's Agent field on the board follows the watch. It changes
+nothing else, and a failure is never fatal:
+
+```bash
+hoopit-board bind <OWNER_REPO> <PR> --pr
+```
+
 ```
 Monitor(
   command: "bash <SKILL_DIR>/scripts/watch-pr.sh <OWNER_REPO> <PR> 60",
   description: "monitor-pr #<PR>",
-  persistent: true,
+  timeout_ms: 1800000,
 )
 ```
 
-The script polls every 60 s and prints only:
+A monitor lives 30 minutes at most. Its expiry notice is not a stop: re-arm at once with
+the same call, the command prefixed `WATCH_RESUME=1`, and say nothing more than that it
+re-armed. The resumed watch keeps the threads, checks, `GREEN` and `STALLED` it already fired on, so
+nothing fires twice. Every other arm starts fresh. A turn that ends without the watch
+re-armed leaves the PR unwatched, and the board reads the issue as Idle.
+
+A **gate** is a reviewer a head must hear from before it goes `GREEN`: `codex-review`,
+read as a check, and `CodeRabbit`, which posts no check and is read from its summary
+comment instead. A CodeRabbit that has said it will not review the head — rate-limited,
+paused, or skipped — counts as reported. For a repo whose reviewer checks have other
+names, prefix `GATE_CHECKS=<a>,<b>`, and tune how long a head waits on a silent gate with
+`GATE_TIMEOUT=<seconds>` (default 900), and how long a verdict may sit unanswered with
+`STALL_AFTER=<seconds>` (default 900).
+
+The script polls every 60 s and prints only the lines below. Each `head=` is the PR head's
+full 40-character SHA: compare it with the PR's `headRefOid`, or with `git rev-parse HEAD`
+run in the PR's worktree.
 
 - `ROUND head=… unresolved=N new_threads=K failing=<names> conflicting=0|1
   [pending_gates=<names>]` — there is work the previous round did not see: a new or
   newly-replied-to unresolved thread, a red check, or a conflict. The round fires on it
-  immediately; `pending_gates` names the reviewers yet to report on this head, and what
+  immediately; `pending_gates` names the gates yet to report on this head, and what
   they post while the round runs is what its last look collects.
 - `GREEN head=… [pending_gates=<names>]` — this head has nothing left:
   no unresolved thread, no failing check, none still running, no conflict. Fired once per
-  head; the merge decision goes to the user (Step 5). `pending_gates` here means a
-  reviewer never reported at all and `GATE_TIMEOUT` (default 900s) elapsed waiting.
+  head; the merge decision goes to the user (Step 5). `pending_gates` here names a gate
+  that had not reported when `GATE_TIMEOUT` elapsed: it posted nothing, or sat at pending.
+- `STALLED head=… verdicts=<check>:<n>` — a **verdict** is all that holds the head, and has
+  for `STALL_AFTER`: nothing else failing or running, no thread, no conflict. `<n>` counts
+  the times the watch saw that check turn red on this head. Step 4 answers it.
 - `PR_CLOSED state=MERGED|CLOSED` — the script exits.
 - `WATCH_ERROR fetch_failures=N last=…` — GitHub could not be reached five polls in a
   row (expired auth, network, deleted PR); the script exits non-zero. The watch is dead:
   go to Step 5.
 
-The script runs on until the session `TaskStop`s it when the watch ends.
-
-The gate is `codex-review` alone. CodeRabbit holds a head the way any check does — while
-its status is pending, or a thread of its is unresolved — and its silence holds nothing: a
-rate-limited CodeRabbit never reports. For a repo whose reviewer statuses have other
-names, prefix `GATE_CHECKS=<a>,<b>`. Tune the timeout with `GATE_TIMEOUT=<seconds>`.
+The script runs on until the session `TaskStop`s it when the watch ends, or the Monitor's
+30-minute expiry ends it — which is no ending: re-arm it as above.
 
 Tell the user in one line that the watch is armed and what opens a round.
 
@@ -171,9 +194,21 @@ severity of what the reviewers still find.
   is: stop. A real doubt is the user's to settle.
 
 A report reading `CLOSED verdict held: …`, or a checkpoint that stops, `TaskStop`s the
-monitor and takes its path in Step 5. Otherwise idle until the next `ROUND` or `GREEN` —
-after a plain `CLOSED` and after `APPEALED` too: the head answers as a `GREEN` or as the
-next `ROUND`.
+monitor and takes its path in Step 5. A `CLOSED` from a `ROUND: CHALLENGE` gets no new
+`GREEN` — the head already had its one — so it goes back to [GREEN.md](GREEN.md)'s *no
+passing briefing* question. Otherwise idle until the next `ROUND` or `GREEN` —
+after a plain `CLOSED` and after `APPEALED` too: the head answers as a `GREEN`, the next
+`ROUND`, or a `STALLED`.
+
+**`STALLED`** says a verdict is sitting unanswered. One that lands mid-round waits for the
+round, like a `ROUND`, and is then read against live state:
+
+- **`<n>` is 1** — no re-review has run on this head, so its one appeal is still owed.
+  Kick it as the briefing's step 5 does — the same live read of `codex-review`, the same
+  dispatch unless it reads `pending` — and print one line saying the session re-requested
+  the review. This completes the appeal; the head gets no second.
+- **`<n>` is 2 or more** — the appeal ran and the verdict held: take the `CLOSED verdict
+  held` path above.
 
 Whenever the watch ends — a close holding a verdict, a checkpoint, a hard fork, an error stop,
 or `PR_CLOSED` — drop the label again, so it only ever marks PRs under an active watch, and
@@ -181,9 +216,14 @@ or `PR_CLOSED` — drop the label again, so it only ever marks PRs under an acti
 
 **A PR is a draft exactly while an agent owns its review rounds.** So an ending that hands
 the PR to the user with the rounds over — a close holding a verdict, a checkpoint, or any *Stop,
-I'll take it* answer — marks it ready, or it stays unmergeable with its issue parked in `AI
-review` and no event left to move it. A hard fork and an error stop leave it a draft on
-purpose: that work is unfinished, and re-arming the watch picks it up where it stands.
+I'll take it* answer — marks it ready, or it stays unmergeable, its issue still the agent's
+turn on the board, with no event left to move it. A hard fork and an error stop leave it a
+draft on purpose: that work is unfinished, and re-arming the watch picks it up where it stands.
+A PR these endings ready without a passing briefing for its head — a verdict close, a
+checkpoint, a *Stop, I'll take it* on a head no `GREEN` briefed or answered to the *no passing
+briefing* question — owes one where its base requires the `merge-briefing` check
+([GREEN.md](GREEN.md)'s probe answers that), and the ending says so
+(`/merge-briefing <PR>`).
 
 ```bash
 bash <SKILL_DIR>/scripts/pr-labels.sh <OWNER_REPO> <PR> -monitored -agent-working
@@ -193,8 +233,8 @@ gh pr ready <PR> --repo <OWNER_REPO>   # verdict-held close, checkpoint, or "Sto
 ## Step 4a — Land the merge
 
 On `PR_CLOSED state=MERGED`, or a merge no monitor was left to report — the Green path's
-own, or one the user wakes an unattended session for — read [LANDING.md](LANDING.md) and follow it: the tally, what is left open,
-then the clean-up, last.
+own — read [LANDING.md](LANDING.md) and follow it: the tally, what is left open,
+the clean-up, then the tab, last.
 
 ## Step 5 — Ask in rounds
 
@@ -214,8 +254,10 @@ they alone can settle.
 
 Until the PR is marked ready, ask only what the PR itself needs. A question that does not
 reach its code — a follow-up to file, a finding outside its scope — is settled without
-asking, filed where `create-gh-issue` says it should be, or held for the `GREEN` merge
-question.
+asking: filed through the driver's tracker where it says it should be —
+`github-tracker:create-gh-issue` when installed, otherwise the personal-agent-tracker
+rule in the repo's `docs/agents/issue-tracker.md` (ask which tracker if neither is
+clear, and file nothing until answered) — or held for the `GREEN` merge question.
 
 Five paths reach the user. The first two leave the watch running.
 
@@ -229,7 +271,8 @@ which is how the PR shows the decision to a reviewer who was never asked.
 next round carries all the answers.
 
 **Green** — a `GREEN` line. Read [GREEN.md](GREEN.md) and follow it: the merge-readiness
-challenge, the merge briefing written into the PR description, then the merge question.
+challenge, the merge briefing written into the PR description, then the merge question — or
+the merge itself, where the user handed it over.
 A `GREEN` after a closing round also lists that round's declines — each thread, and `not
 worth a round` with its evidence where that was the reason — so the user can take any of
 them back; a decline taken back rides into the next round as `ANSWERED`.
@@ -245,7 +288,7 @@ decline the user takes back rides into its next round as `ANSWERED`.
 **A stop** — the watch ended on something going wrong. Ask immediately, on its own, once
 the label is dropped. A stop covers: a back-merge head (Step 1), a PR branch the round
 could not put in a worktree, `WATCH_ERROR`, `PR_CLOSED state=CLOSED`, the same check failing two rounds running, the `Monitor` task
-exiting or being killed, and any round that errors out beyond working around (auth
+exiting or being killed short of its expiry (Step 2 re-arms that), and any round that errors out beyond working around (auth
 expired, worktree gone, push rejected, the worker dying twice). The question names the real reason.
 
 The chat round carries the substance; `AskUserQuestion` carries the attention. Fire it
@@ -258,6 +301,7 @@ options, because they answer different things:
 | Soft fork | **Answer in chat** (recommended) · **Take all your recommendations** · **Stop monitoring, I'll take it from here** |
 | Hard fork | **Answer in chat** (recommended) · **Take all your recommendations** · **Stop monitoring, I'll take it from here** — the first two re-arm the watch |
 | Green | **Merge it** · **Not yet — keep watching** · **Stop monitoring, I'll take it from here** |
+| Green, no passing briefing ([GREEN.md](GREEN.md)) | **Brief this head again** · **Not yet — keep watching** · **Stop monitoring, I'll take it from here** |
 | Green, run owed | **Run it** · **I'll run it — output to follow in chat** · **Not yet — keep watching** ([GREEN.md](GREEN.md)) |
 | Closed or checkpointed | **Keep watching** · **Stop, I'll take it** · **Answer in chat** (when questions are outstanding) |
 | Stop | **Re-arm the watch** (a transient stop — go back to Step 2, label included) · **Stop, I'll take it** · **Keep going anyway** (re-arm past a check failing for reasons outside this PR) |

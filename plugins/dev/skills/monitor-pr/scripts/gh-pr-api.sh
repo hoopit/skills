@@ -33,15 +33,27 @@ pr_meta() {
 
 # pr_checks <owner/repo> <head_sha> — prints "<bucket>\t<name>\t<link>" per check.
 # Reads check runs and commit statuses both: external CI reports as a status, not a
-# run, and on a Hoopit PR the CodeRabbit and codex-review reviewers are statuses.
-# Buckets carry the same names `gh pr checks --json bucket` used: pass, fail, pending,
-# skipping, cancel.
+# run, and on a Hoopit PR the codex-review reviewer is a status.
+# Buckets carry the names `gh pr checks --json bucket` uses: pass, fail, pending, skipping.
+# Every other conclusion — cancelled, timed_out, action_required, startup_failure — is fail:
+# GitHub refuses the merge on any of them, so none may let a head read as GREEN.
 #
 # One name can come back several times — a re-run, or two workflows defining the same job
 # name — so the newest run wins. Downstream reads a check by name, so a name has to answer
 # with one state, and it has to be the current one: a stale failed re-run left in would pin
 # the PR red forever. A run with no timestamp is one GitHub has only just created, so it
 # sorts newest — better to read a check as pending than as an older run's failure.
+#
+# Two kinds of status are left out, because GREEN is what settles them, so neither is ever a
+# round's work, and every reader of these checks — the watch, pr-state, a worker's
+# failing-checks pass — has to agree on that:
+#   merge-briefing   GREEN writes the briefing that passes it. A push onto a ready PR fails it
+#                    until the next GREEN. The job that posts it stays in: that job failing is
+#                    an outage to report, not a verdict.
+#   <team>-approval  the shared team-review gate's status. It waits for a team member's
+#                    approval, which comes only after GREEN hands the PR off, and on some repos
+#                    it is not judged on a draft at all. Held for, it would hold GREEN forever.
+#                    GREEN reads it for the merge question instead.
 pr_checks() {
   local runs statuses
   runs=$(gh api --paginate --slurp "repos/$1/commits/$2/check-runs?per_page=100") || return 1
@@ -51,13 +63,35 @@ pr_checks() {
       if .status != "completed" then "pending"
       elif .conclusion == "success" then "pass"
       elif .conclusion == "neutral" or .conclusion == "skipped" then "skipping"
-      elif .conclusion == "cancelled" then "cancel"
       else "fail" end), .name, (.html_url // "")] | @tsv' <<<"$runs"
-  jq -r '[.[].statuses[]] | group_by(.context) | map(max_by(.updated_at // "9999")) | .[]
+  jq -r '[.[].statuses[] | select(.context != "merge-briefing" and (.context | endswith("-approval") | not))] | group_by(.context) | map(max_by(.updated_at // "9999")) | .[]
     | [(
       if .state == "pending" then "pending"
       elif .state == "success" then "pass"
       else "fail" end), .context, (.target_url // "")] | @tsv' <<<"$statuses"
+}
+
+# pr_coderabbit <owner/repo> <pr> <head_sha> — prints CodeRabbit's standing on the head:
+#   reported      its summary comment records a review covering the head
+#   silent:<why>  it has said it will not review this head — rate-limited, paused,
+#                 skipped, or the author has no review seat — so waiting on it is pointless
+#   pending       neither yet
+# CodeRabbit posts no check or status, and a review with no findings posts no PR review
+# either. Its one reliable signal is the summary comment it edits in place: a
+# `final_review_risk_coverage` marker whose coveredCommitId is the last commit it
+# reviewed, and one HTML marker per reason it has stopped reviewing.
+pr_coderabbit() {
+  local body
+  body=$(gh api "repos/$1/issues/$2/comments?per_page=100" --jq '
+    [.[] | select(.user.login == "coderabbitai[bot]")
+         | select(.body | contains("summarize by coderabbit.ai"))] | last | .body // ""') || return 1
+  if grep -q "\"coveredCommitId\":\"$3\"" <<<"$body"; then echo reported
+  elif grep -q 'rate limited by coderabbit.ai' <<<"$body"; then echo silent:rate-limited
+  elif grep -q 'review paused by coderabbit.ai' <<<"$body"; then echo silent:paused
+  elif grep -q 'skip review by coderabbit.ai' <<<"$body"; then echo silent:skipped
+  elif grep -q 'coderabbit-seat-request-start' <<<"$body"; then echo silent:no-seat
+  else echo pending
+  fi
 }
 
 # pr_open_threads <owner/repo> <pr> — the one GraphQL call. Prints one
@@ -65,8 +99,8 @@ pr_checks() {
 # what makes a reply to an already-seen thread a change.
 #
 # GraphQL because a review thread's resolved flag appears in no REST response. The PR's
-# review decision is deliberately not read: no Hoopit repo requires an approval, so it
-# never says anything a merge could wait on.
+# review decision is deliberately not read: the approval a merge waits on is owed after the
+# hand-off, never to a round, and GREEN reads it from the `<team>-approval` status.
 PR_REVIEW_QUERY='query($owner:String!,$name:String!,$pr:Int!,$endCursor:String){
   repository(owner:$owner,name:$name){ pullRequest(number:$pr){
     reviewThreads(first:100,after:$endCursor){

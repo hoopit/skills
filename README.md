@@ -42,6 +42,7 @@ claude plugin update hoopit-dev@hoopit-skills
 | `hoopit-dev` | Day-to-day dev workflows and CLIs: Jira/Sentry issues, PR review, Atlassian, CircleCI |
 | `hoopit-misc` | Odds and ends: status line |
 | `hoopit-product` | Product work: stress-test plans and ideas against the domain model, sharpen terminology, and produce a PRD |
+| `github-tracker` | An agent work tracker on your own GitHub project board: file triaged issues, triage and curate the backlog, assess an issue before fixing it |
 
 ### Skills by plugin
 
@@ -77,8 +78,9 @@ Day-to-day dev workflows and CLIs: Jira/Sentry issues, PR review, Atlassian, Cir
 | `review-gate` | Auto | Run independent code reviewers. |
 | `review-github-comments` | Auto | Handle all review comments on a GitHub PR. |
 | `review-jira-attachments` | Auto | Download and analyze the files attached to a Jira issue. |
-| `ship` | Auto | Take one understood piece of work in one repo from a branch to a monitored PR. |
-| `update-plugins` | Manual | Update hoopit-dev in every local Hoopit repo. |
+| `ship` | Auto | Take one change from a branch to a monitored PR. |
+| `skill-eval` | Auto | Measure a skill change against its eval suite. |
+| `update-plugins` | Manual | Update the Hoopit plugins in every local Hoopit repo. |
 
 #### `hoopit-misc`
 
@@ -96,6 +98,19 @@ Product work: stress-test plans and ideas against the domain model, sharpen term
 | Skill | Invoke | Description |
 |-------|--------|-------------|
 | `grill-my-idea` | Auto | Grilling session that challenges your plan against the existing domain model and sharpens terminology. |
+
+#### `github-tracker`
+
+An agent work tracker on a GitHub project board: file triaged issues, triage and curate the backlog, assess an issue before fixing it.
+
+| Skill | Invoke | Description |
+|-------|--------|-------------|
+| `assess-issue` | Auto | Decides whether one issue is worth fixing — prices the fix, measures the harm against live data, then closes it with the findings or ships it. |
+| `create-gh-issue` | Auto | File a triaged GitHub issue. |
+| `curate-backlog` | Manual | Clean up the agent tracker board — duplicates, merges, stale and invalid issues, missing triage. |
+| `gh-followup` | Manual | Work the board's Manual and Waiting buckets — re-test each blocker, convert what the board can hold itself, walk what only you can do, and summarise what the rest waits for. |
+| `gh-triage` | Manual | Triage the backlog with the user — fill missing fields, collapse the false decisions, grill the real ones, until every item is Unattended. |
+| `setup-gh-tracker` | Manual | Set up your GitHub tracker board and config. |
 <!-- END generated skills -->
 
 The onboarding skills clone their project repo as a **sibling** of wherever you run
@@ -109,7 +124,28 @@ install them from their own marketplace so they update straight from upstream:
 claude plugin install mattpocock-skills@claude-plugins-official --scope project
 ```
 
-Every skill that leans on one falls back gracefully when it isn't installed.
+Most skills that lean on one fall back gracefully when it isn't installed; `review-gate`
+blocks without `mattpocock-skills:code-review`.
+
+## Setting up `github-tracker`
+
+`github-tracker` runs your **personal agent tracker** (see `docs/agents/issue-tracker.md` in
+each product repo) on a GitHub project board of your own. One board spans every repo you
+work in, so install the plugin at **user** scope, then run its setup in Claude Code:
+
+```bash
+claude plugin install github-tracker@hoopit-skills --scope user
+```
+
+```
+/setup-gh-tracker
+```
+
+It authorises `gh` for projects, reuses your board or creates one (from the org's template
+board, where there is one), adds the statuses and org fields the skills read, walks you
+through the workflows no API can switch on, writes `~/.config/github-tracker/config.json`,
+and declares the tracker in your `~/.claude/CLAUDE.md`. Re-run it any time; it only fixes
+what is missing.
 
 ## How it works
 

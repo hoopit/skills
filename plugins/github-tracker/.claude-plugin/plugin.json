@@ -1,0 +1,4 @@
+{
+  "name": "github-tracker",
+  "description": "An agent work tracker on a GitHub project board: file triaged issues, triage and curate the backlog, assess an issue before fixing it."
+}

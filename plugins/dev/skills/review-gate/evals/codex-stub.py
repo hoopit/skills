@@ -1,0 +1,46 @@
+# Stands in for the Codex CLI in a review-gate eval run. setup.sh installs it as `codex` in the
+# run's shim dir, ahead of the real CLI on the agent's PATH, with its answers in `codex.json` beside
+# it. Every call is recorded to the run's EVAL_CALLS like the tracker shims' calls.
+#
+# Modes: `ran` answers with the review and challenge in codex.json, `fail` exits 1 the way an
+# expired Codex login does, `blocked` exits 0 with a verdict written blind, the way a Windows
+# sandbox that rejects every command leaves it. The real CLI would spend minutes and a Codex quota
+# per run, and would find the planted defect on its own, which hides whether the gate's Claude
+# reviewers catch it.
+import json, os, select, sys
+
+conf = json.load(open(os.path.realpath(__file__) + ".json"))
+argv = sys.argv[1:]
+# Read stdin only when it is already there or closes, as the tracker shims do: a call nobody
+# pipes into must not hang on a pipe the agent's shell holds open.
+stdin = None
+if not sys.stdin.isatty() and select.select([sys.stdin], [], [], 1)[0]:
+    stdin = sys.stdin.read()
+with open(conf["calls"], "a") as fh:
+    fh.write(json.dumps({"tool": "codex", "argv": argv, "stdin": (stdin or "")[:2000] or None,
+                         "cwd": os.getcwd()}) + "\n")
+
+if argv[:1] in (["--version"], ["-V"]):
+    print("codex-cli 0.159.3")
+    sys.exit(0)
+if argv[:1] != ["exec"]:
+    sys.exit(f"codex: unsupported in this eval: {' '.join(argv)}")
+if conf["mode"] == "fail":
+    print("ERROR: unexpected status 401 Unauthorized: Your access token could not be refreshed "
+          "because your refresh token has expired. Please log out and sign in again.", file=sys.stderr)
+    sys.exit(1)
+
+out = argv[argv.index("-o") + 1] if "-o" in argv else None
+text = conf["challenge"] if "--output-schema" in argv else conf["review"]
+if conf["mode"] == "blocked":
+    for _ in range(3):
+        print("ERROR codex_core::tools::router: error=exec_command failed: CreateProcess { message: "
+              "\"Rejected(\\\"`pwsh.exe -Command 'git diff origin/master...HEAD'` rejected: blocked by policy\\\")\" }",
+              file=sys.stderr)
+    text = text if "--output-schema" in argv else (
+        "No actionable findings. The filesystem policy blocked every shell command, including the "
+        "git diff, so this verdict has very low confidence.\n")
+if out:
+    with open(out, "w") as fh:
+        fh.write(text)
+print(text)

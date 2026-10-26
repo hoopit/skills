@@ -1,0 +1,74 @@
+[
+ {
+  "match": "^issue comment (\\S*/)?18161\\b",
+  "stdout": "https://github.com/hoopit/api/issues/18161#issuecomment-5990000001\n"
+ },
+ {
+  "match": "^api (-X POST |--method POST )?(/)?repos/hoopit/api/issues/18161/comments .*(-f|-F|--field|--raw-field|--input)\\b",
+  "stdout": "{\"id\": 5990000001, \"html_url\": \"https://github.com/hoopit/api/issues/18161#issuecomment-5990000001\"}\n"
+ },
+ {
+  "match": "^issue view (\\S*/)?18161\\b.*--json",
+  "stdout": "{\"number\": 18161, \"title\": \"posts: answer 404, not 500, when deleting a post image that no longer exists\", \"state\": \"OPEN\", \"body\": \"`DELETE /app/posts/attachments/<id>/` answers 500 when the `PostImage` does not exist, instead of 404.\\n\\nSentry: https://hoopit-io.sentry.io/issues/150364938/ (API-75) \\u2014 `PostImage.DoesNotExist`, app 2.149.0, attachment 127024.\\n\\n`PostImageDetailView.get_object` (`posts/views/post_image_detail_view.py:32`) uses a bare `PostImage.objects.get(...)`, bypassing the `get_object_or_404` in `BaseView._get_object_by` (`club_united_api/views/base_view.py:500`). The permission check calls it, so a repeated delete of an already-deleted image surfaces as an unhandled 500.\\n\\nThe client side of the repeat (the app's deferred image delete can re-send a DELETE) is tracked separately in flutter-app.\\n\\n**Acceptance:** a DELETE of a missing post image returns 404, pinned by a regression test; API-75 resolved once the fix reaches `production`.\", \"url\": \"https://github.com/hoopit/api/issues/18161\", \"labels\": [{\"name\": \"bug\"}], \"assignees\": [{\"login\": \"ezet\"}]}\n"
+ },
+ {
+  "match": "^issue view (\\S*/)?18161\\b",
+  "stdout": "title:\tposts: answer 404, not 500, when deleting a post image that no longer exists\nstate:\tOPEN\nauthor:\tezet\nlabels:\tbug\nassignees:\tezet\nnumber:\t18161\n--\n`DELETE /app/posts/attachments/<id>/` answers 500 when the `PostImage` does not exist, instead of 404.\n\nSentry: https://hoopit-io.sentry.io/issues/150364938/ (API-75) \u2014 `PostImage.DoesNotExist`, app 2.149.0, attachment 127024.\n\n`PostImageDetailView.get_object` (`posts/views/post_image_detail_view.py:32`) uses a bare `PostImage.objects.get(...)`, bypassing the `get_object_or_404` in `BaseView._get_object_by` (`club_united_api/views/base_view.py:500`). The permission check calls it, so a repeated delete of an already-deleted image surfaces as an unhandled 500.\n\nThe client side of the repeat (the app's deferred image delete can re-send a DELETE) is tracked separately in flutter-app.\n\n**Acceptance:** a DELETE of a missing post image returns 404, pinned by a regression test; API-75 resolved once the fix reaches `production`.\n"
+ },
+ {
+  "match": "^api (/)?repos/hoopit/api/issues/18161/comments",
+  "stdout": "[]\n"
+ },
+ {
+  "match": "^api (/)?repos/hoopit/api/issues/18161\\b",
+  "stdout": "{\"number\": 18161, \"title\": \"posts: answer 404, not 500, when deleting a post image that no longer exists\", \"state\": \"open\", \"body\": \"`DELETE /app/posts/attachments/<id>/` answers 500 when the `PostImage` does not exist, instead of 404.\\n\\nSentry: https://hoopit-io.sentry.io/issues/150364938/ (API-75) \\u2014 `PostImage.DoesNotExist`, app 2.149.0, attachment 127024.\\n\\n`PostImageDetailView.get_object` (`posts/views/post_image_detail_view.py:32`) uses a bare `PostImage.objects.get(...)`, bypassing the `get_object_or_404` in `BaseView._get_object_by` (`club_united_api/views/base_view.py:500`). The permission check calls it, so a repeated delete of an already-deleted image surfaces as an unhandled 500.\\n\\nThe client side of the repeat (the app's deferred image delete can re-send a DELETE) is tracked separately in flutter-app.\\n\\n**Acceptance:** a DELETE of a missing post image returns 404, pinned by a regression test; API-75 resolved once the fix reaches `production`.\", \"html_url\": \"https://github.com/hoopit/api/issues/18161\", \"labels\": [{\"name\": \"bug\"}], \"assignees\": [{\"login\": \"ezet\"}], \"type\": {\"name\": \"Bug\"}}\n"
+ },
+ {
+  "match": "^api (/)?repos/hoopit/api/pulls/18412",
+  "stdout": "{\"number\": 18412, \"html_url\": \"https://github.com/hoopit/api/pull/18412\", \"state\": \"open\", \"draft\": true}\n"
+ },
+ {
+  "match": "^api (/)?repos/hoopit/api/(labels|issues/18412/labels)",
+  "stdout": "[]\n"
+ },
+ {
+  "match": "^api (/)?repos/hoopit/api/pulls\\?",
+  "stdout": "[]\n"
+ },
+ {
+  "match": "^api (/)?repos/hoopit/api\\b",
+  "stdout": "{\"full_name\": \"hoopit/api\", \"default_branch\": \"master\"}\n"
+ },
+ {
+  "match": "^pr create",
+  "stdout": "https://github.com/hoopit/api/pull/18412\n"
+ },
+ {
+  "match": "^pr edit",
+  "stdout": "https://github.com/hoopit/api/pull/18412\n"
+ },
+ {
+  "match": "^pr (ready|comment)",
+  "stdout": "https://github.com/hoopit/api/pull/18412\n"
+ },
+ {
+  "match": "^pr list",
+  "stdout": "[]\n"
+ },
+ {
+  "match": "^pr view",
+  "stdout": "{\"number\": 18412, \"url\": \"https://github.com/hoopit/api/pull/18412\", \"state\": \"OPEN\", \"isDraft\": true, \"headRefName\": \"GH-18161/fix/post-image-delete-404\", \"baseRefName\": \"master\", \"title\": \"GH-18161: Answer 404 when deleting a post image that no longer exists\"}\n"
+ },
+ {
+  "match": "^label (list|create)",
+  "stdout": ""
+ },
+ {
+  "match": "^repo view",
+  "stdout": "hoopit/api\n"
+ },
+ {
+  "match": "^auth status",
+  "stdout": "github.com\n  \u2713 Logged in to github.com account ezet (keyring)\n"
+ }
+]

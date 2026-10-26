@@ -1,0 +1,14 @@
+#!/usr/bin/env python3
+"""Arms monitor-pr's watch in an eval run: records the call as tool `monitor-pr` in
+EVAL_CALLS and says the watch is armed. No rounds run."""
+import json, os, sys
+
+argv = sys.argv[1:]
+with open(os.environ["SHIP_EVAL_CALLS"], "a") as fh:
+    fh.write(json.dumps({"tool": "monitor-pr", "argv": argv, "stdin": None, "cwd": os.getcwd()}) + "\n")
+target = next((a for a in argv if not a.startswith("-")), None)
+if not target:
+    sys.exit("monitor-pr-arm: name the PR, as a URL or a number")
+where = "a hoopit-dev:monitor-pr-worker" if any(a.startswith("--subagent") for a in argv) else "this session"
+print(f"Watch armed on {target}; rounds run in {where}. A new review thread, a red check or a "
+      "conflict opens a round.")

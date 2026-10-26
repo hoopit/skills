@@ -5,7 +5,7 @@
     "XS": {"model": "sonnet", "effort": "medium"},
     "S": {"model": "opus", "effort": "medium"},
     "M": {"model": "opus", "effort": "high"},
-    "L": {"model": "fable", "effort": "high"},
+    "L": {"model": "opus", "effort": "xhigh"},
     "XL": {"model": "fable", "effort": "xhigh"}
   }
 }

@@ -1,0 +1,798 @@
+#!/usr/bin/env python3
+"""Run a skill's eval suite in throwaway clones of its repo, and compare two versions.
+
+A suite lives next to the skill it measures:
+
+    <skill>/evals/check.sh           grades one run's end state (required)
+    <skill>/evals/setup.sh           shapes every fixture before the agent starts (optional)
+    <skill>/evals/<case>/prompt.md   frontmatter + the prompt the agent gets
+    <skill>/evals/<case>/setup.sh    shapes this case's fixture (optional)
+    <skill>/evals/<case>/check.sh    extra checks for this case (optional)
+    <skill>/evals/<case>/mocks/      what the tracker shims answer in this case (optional)
+
+Each run gets its own fixture: a `git clone --shared` of the skill's repo at its default
+branch, with the skill under test committed over it and `evals/` taken out, so the agent
+cannot read the answers. `claude -p` runs in the fixture, then the checks grade what it
+left behind. A check script prints one line per check — `PASS <name>`, `FAIL <name>
+<reason>` or `SKIP <name> <reason>` — and the runner adds two of its own:
+`agent_finished`, and `source_repo_untouched`, which fails when a branch or worktree the
+run's log names appears in the real repo.
+
+A skill a plugin ships runs in other repos than its own. `--fixture <checkout>` clones
+that checkout instead, at its default branch with nothing committed over it, and loads
+the plugin under test with `--plugin-dir`, every `evals/` taken out and the installed
+copy disabled.
+
+The agent runs under a dedicated config dir with its own OAuth token (`setup`), never
+your own `~/.claude`: your CLAUDE.md, memory, plugins and hooks would otherwise move the
+score. `gh`, `hoopit-board`, `acli`, `linear-gql` and `herdr` are shimmed and the fixture's
+push URL is dead, because a ship-style prompt would otherwise write to the real tracker,
+remote and tabs. The built-in tools that reach past the run — `PushNotification`,
+`SendMessage`, `RemoteTrigger`, `CronCreate` and their kin — are denied.
+Each shim records its calls for the checks to grade, and fails unless the case's `mocks/`
+answers it.
+"""
+import argparse, concurrent.futures, datetime, fnmatch, json, os, pathlib, re, shutil
+import signal, statistics, subprocess, sys, tarfile, tempfile, time, traceback
+
+XDG_CACHE = pathlib.Path(os.environ.get("XDG_CACHE_HOME") or pathlib.Path.home() / ".cache")
+XDG_CONFIG = pathlib.Path(os.environ.get("XDG_CONFIG_HOME") or pathlib.Path.home() / ".config")
+# Fixtures sit on the same filesystem as the uv / pnpm caches: on a tmpfs /tmp their
+# hardlinks fail across devices and every install silently turns into a full copy.
+HOME = pathlib.Path(os.environ.get("SKILL_EVAL_HOME") or XDG_CACHE / "skill-evals")
+CONFIG_DIR = HOME / "claude-config"
+TOKEN_FILE = XDG_CONFIG / "skill-eval" / "oauth-token"
+CLAUDE = os.environ.get("SKILL_EVAL_CLAUDE", "claude")
+# herdr too: with HERDR_* scrubbed it still finds the real server on its default socket.
+SHIMMED = ("gh", "hoopit-board", "acli", "linear-gql", "herdr")
+# Built-in tools that act outside the run: a notification on your phone, a message to
+# another session, work scheduled to outlive the run. Denied, they leave the agent's
+# tool list: an attempt shows in the log as a `ToolSearch` that matches nothing.
+DENIED_TOOLS = ("PushNotification", "SendUserFile", "SendMessage", "RemoteTrigger",
+                "CronCreate", "CronDelete", "ScheduleWakeup")
+# Credentials the agent must not inherit: a ship-style prompt reaches for the tracker.
+SCRUBBED = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "LINEAR_API_KEY",
+            "JIRA_API_TOKEN", "ATLASSIAN_API_TOKEN", "SENTRY_AUTH_TOKEN")
+# What git exports to a hook or alias. Inherited, they point every git call the runner,
+# the agent and the checks make at the caller's repo: `GIT_INDEX_FILE=.git/index` alone
+# sends a fixture's `git worktree add` to the wrong index.
+GIT_REDIRECTS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
+                 "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_PREFIX",
+                 "GIT_NAMESPACE", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT",
+                 "GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_AUTHOR_DATE",
+                 "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "GIT_COMMITTER_DATE", "GIT_EDITOR")
+DEFAULTS = {"runs": 3, "max_turns": 30, "timeout_seconds": 900, "model": "opus", "effort": "medium"}
+EFFORTS = ("low", "medium", "high", "xhigh", "max")
+CHECK_LINE = re.compile(r"^(PASS|FAIL|SKIP)\s+(\S+)(?:\s+(.*))?$")
+MASKED_PIPE = re.compile(r"\|\s*(tail|head)\b")
+AUTHOR = {"GIT_AUTHOR_NAME": "skill-eval", "GIT_AUTHOR_EMAIL": "skill-eval@localhost",
+          "GIT_COMMITTER_NAME": "skill-eval", "GIT_COMMITTER_EMAIL": "skill-eval@localhost"}
+
+
+def git(*args, cwd=None, env=None, check=True):
+    p = subprocess.run(["git", *args], cwd=cwd, env=env, capture_output=True, text=True)
+    if check and p.returncode:
+        sys.exit(f"git {' '.join(args)} failed:\n{p.stderr.strip()}")
+    return p.stdout.strip()
+
+
+# ---- the suite --------------------------------------------------------------------
+
+def parse_prompt(path):
+    """`prompt.md` → (frontmatter, body). Frontmatter is flat `key: value` lines."""
+    text = path.read_text()
+    meta = {}
+    if text.startswith("---\n"):
+        head, _, text = text[4:].partition("\n---\n")
+        for line in head.splitlines():
+            key, sep, value = line.partition(":")
+            if not sep or not key.strip() or line.lstrip().startswith("#"):
+                continue
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+                value = value[1:-1]
+            meta[key.strip()] = value
+    for key in ("runs", "max_turns", "timeout_seconds"):
+        if key in meta:
+            meta[key] = int(meta[key])
+    if "tags" in meta:
+        meta["tags"] = [t.strip() for t in meta["tags"].strip("[]").split(",") if t.strip()]
+    if "cwd" in meta:
+        cwd = pathlib.PurePosixPath(meta["cwd"])
+        if cwd.is_absolute() or ".." in cwd.parts:
+            sys.exit(f"{path}: cwd: {meta['cwd']} must be a path inside the run dir")
+    return meta, text.strip()
+
+
+def load_cases(evals, patterns, tags):
+    if not (evals / "check.sh").is_file():
+        sys.exit(f"{evals}/check.sh is missing: a suite needs a checker")
+    cases = []
+    for prompt in sorted(evals.glob("*/prompt.md")):
+        name = prompt.parent.name
+        meta, body = parse_prompt(prompt)
+        if patterns and not any(fnmatch.fnmatch(name, p) for p in patterns):
+            continue
+        if tags and not set(tags) & set(meta.get("tags", [])):
+            continue
+        cases.append({"name": name, "dir": prompt.parent, "meta": meta, "prompt": body})
+    if not cases:
+        sys.exit(f"no cases matched under {evals}")
+    return cases
+
+
+# ---- the repo and the skill under test ---------------------------------------------
+
+def default_branch(repo):
+    """(branch, ref) the repo's default branch is read from: `origin/HEAD` where set."""
+    head = git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD", cwd=repo, check=False)
+    branch = head.partition("/")[2] if head else git("branch", "--show-current", cwd=repo) or "main"
+    return branch, head or branch
+
+
+def resolve_skill(skill_dir, fixture=None):
+    """The skill, the repo it lives in (`repo`), and the repo its fixtures clone (`src`).
+
+    Without `fixture` both are the skill's repo, and the skill is committed over the
+    fixture. With it the fixture is that checkout as its default branch has it, and the
+    plugin that contains the skill is loaded with `--plugin-dir` instead.
+    """
+    skill_dir = pathlib.Path(skill_dir).resolve()
+    if not (skill_dir / "SKILL.md").is_file():
+        sys.exit(f"{skill_dir} has no SKILL.md")
+    repo = pathlib.Path(git("rev-parse", "--show-toplevel", cwd=skill_dir)).resolve()
+    skill = {"dir": skill_dir, "name": skill_dir.name, "repo": repo,
+             "rel": skill_dir.relative_to(repo).as_posix(), "repo_ref": default_branch(repo)[1],
+             "src": repo, "plugin": None}
+    if fixture:
+        skill["src"] = pathlib.Path(git("rev-parse", "--show-toplevel", cwd=fixture)).resolve()
+        root = next((d for d in skill_dir.parents if (d / ".claude-plugin" / "plugin.json").is_file()), None)
+        if not root or not root.is_relative_to(repo):
+            sys.exit(f"--fixture needs a plugin skill: no .claude-plugin/plugin.json above {skill_dir}")
+        name = json.loads((root / ".claude-plugin" / "plugin.json").read_text())["name"]
+        skill["plugin"] = {"dir": root, "rel": root.relative_to(repo).as_posix(), "name": name}
+    skill["branch"], skill["base_ref"] = default_branch(skill["src"])
+    skill["repo_name"] = repo_name(skill["src"])
+    return skill
+
+
+def repo_name(checkout):
+    """The repo's own name, which a git worktree's dir name is not: `api`, never `GH-1-fix`.
+
+    The fixture dir takes it, since an agent reads the repo name off its cwd, and so does
+    the results path, so that runs from different repos never share a directory.
+    """
+    common = git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=checkout)
+    common = pathlib.Path(common)
+    return (common.parent if common.name == ".git" else common.with_suffix("")).name
+
+
+def stage_version(repo, rel, ref, stage):
+    """Lay `rel` out at `stage/<rel>`, every `evals/` in it removed: from `ref`, or the working tree."""
+    target = stage / rel
+    if ref:
+        tar = subprocess.run(["git", "archive", "--format=tar", ref, "--", rel],
+                             cwd=repo, capture_output=True)
+        if tar.returncode:
+            sys.exit(f"{rel} is not at {ref}: {tar.stderr.decode().strip()}")
+        with tempfile.TemporaryFile() as fh:
+            fh.write(tar.stdout)
+            fh.seek(0)
+            with tarfile.open(fileobj=fh) as t:
+                t.extractall(stage, filter="tar")
+    else:
+        shutil.copytree(repo / rel, target, symlinks=True,
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    for evals in [d for d in target.rglob("evals") if d.is_dir()]:
+        shutil.rmtree(evals, ignore_errors=True)
+    return target
+
+
+def stage_plugin(skill, ref, rundir):
+    """The plugin under test for `--plugin-dir`, and settings that keep its installed copy out.
+
+    A product repo's project settings enable the installed copy, and project settings
+    outrank the run config's own `settings.json`: only `--settings` can turn it off.
+    `--plugin-dir` alone shadows a plugin of the same name today, and the settings keep
+    that true when it stops doing so.
+    """
+    plugin = skill["plugin"]
+    target = stage_version(skill["repo"], plugin["rel"], ref, rundir / "plugin")
+    markets = set()
+    catalog = skill["repo"] / ".claude-plugin" / "marketplace.json"
+    if catalog.is_file():
+        markets.add(json.loads(catalog.read_text())["name"])
+    installed = CONFIG_DIR / "plugins" / "installed_plugins.json"
+    if installed.is_file():
+        markets |= {k.partition("@")[2] for k in json.loads(installed.read_text()).get("plugins", {})
+                    if k.partition("@")[0] == plugin["name"]}
+    settings = rundir / "settings.json"
+    settings.write_text(json.dumps({"enabledPlugins": {f"{plugin['name']}@{m}": False for m in sorted(markets)}}))
+    return ["--plugin-dir", str(target), "--settings", str(settings)]
+
+
+def make_upstream(skill, ref, base, rundir, label):
+    """A bare stand-in for origin: `base`, with the skill under test committed over it
+    unless it comes as a plugin.
+
+    The fixture's local branch and its origin both point at that commit, so a worktree
+    branched from either carries the version being measured. Built with plumbing in a
+    scratch index — no checkout of the source repo.
+    """
+    up = rundir / "upstream.git"
+    git("clone", "-q", "--bare", "--shared", str(skill["src"]), str(up))
+    # The source's remote branches too: a skill told to mirror `git branch -r` needs the
+    # names the real origin carries, not only the branches checked out locally.
+    remote = git("for-each-ref", "--format=%(refname:lstrip=3) %(objectname)",
+                 "refs/remotes/origin", cwd=skill["src"], check=False)
+    updates = "".join(f"update refs/heads/{name} {sha}\n" for name, sha in
+                      (l.split(" ", 1) for l in remote.splitlines()) if name != "HEAD")
+    if updates:
+        subprocess.run(["git", "--git-dir", str(up), "update-ref", "--stdin"], input=updates,
+                       text=True, check=True, capture_output=True)
+    base_sha = git("rev-parse", "--verify", f"{base}^{{commit}}", cwd=skill["src"])
+    commit = base_sha
+    if not skill["plugin"]:
+        stage = rundir / "stage"
+        stage.mkdir()
+        stage_version(skill["repo"], skill["rel"], ref, stage)
+        env = {**os.environ, **AUTHOR, "GIT_INDEX_FILE": str(rundir / "stage.index")}
+        gw = ["--git-dir", str(up), "--work-tree", str(stage)]
+        # The index is scratch, so `rm` takes -f: without it, it refuses whenever the stage,
+        # the base and the clone's HEAD (the source's branch) disagree, as they do once that
+        # branch commits an edit of the skill. From the stage, so no path resolves against
+        # the source checkout's own files.
+        git(*gw, "read-tree", base_sha, env=env, cwd=stage)
+        git(*gw, "rm", "-r", "-q", "-f", "--cached", "--ignore-unmatch", "--", skill["rel"], env=env, cwd=stage)
+        git(*gw, "add", "-f", "--", skill["rel"], env=env, cwd=stage)
+        tree = git(*gw, "write-tree", env=env, cwd=stage)
+        commit = git(*gw, "commit-tree", tree, "-p", base_sha, "-m",
+                     f"skill-eval: {skill['name']} under test ({label})", env=env, cwd=stage)
+        shutil.rmtree(stage)
+    git("--git-dir", str(up), "update-ref", f"refs/heads/{skill['branch']}", commit)
+    git("--git-dir", str(up), "symbolic-ref", "HEAD", f"refs/heads/{skill['branch']}")
+    return up, commit, base_sha
+
+
+SHIM = '''#!%(python)s
+import json, os, re, select, sys
+TOOL, CALLS, MOCKS = %(tool)r, %(calls)r, %(mocks)r
+argv = sys.argv[1:]
+stdin = None
+# Read stdin only when it is already there or closes: a call nobody pipes into must
+# not hang on a pipe the agent's shell holds open.
+if not sys.stdin.isatty() and select.select([sys.stdin], [], [], 1)[0]:
+    stdin = sys.stdin.read()
+with open(CALLS, "a") as fh:
+    fh.write(json.dumps({"tool": TOOL, "argv": argv, "stdin": stdin, "cwd": os.getcwd()}) + "\\n")
+if MOCKS is None:
+    sys.exit(f"{TOOL} is disabled in a skill-eval run")
+line = " ".join(argv)
+for mock in MOCKS:
+    if re.search(mock["match"], line):
+        sys.stdout.write(mock.get("stdout", ""))
+        sys.stderr.write(mock.get("stderr", ""))
+        sys.exit(int(mock.get("exit", 0)))
+sys.exit(f"{TOOL}: no mock for: {line}")
+'''
+
+
+def make_shims(rundir, case):
+    """`gh`, `hoopit-board`, `acli`, `linear-gql` and `herdr` for one run: each records its calls.
+
+    Without a `mocks/` dir in the case every call fails. With one, a call answers from the
+    first entry of `mocks/<tool>.json` whose `match` regex finds the space-joined argv,
+    and a call nothing matches fails with `no mock for: <argv>`.
+    """
+    shims = rundir / "shims"
+    shims.mkdir()
+    mocks_dir = case["dir"] / "mocks"
+    calls = rundir / "calls.jsonl"
+    calls.touch()
+    for name in SHIMMED:
+        mocks = None
+        if mocks_dir.is_dir():
+            mock_file = mocks_dir / f"{name}.json"
+            mocks = json.loads(mock_file.read_text()) if mock_file.is_file() else []
+        path = shims / name
+        path.write_text(SHIM % {"python": sys.executable, "tool": name,
+                                "calls": str(calls), "mocks": mocks})
+        path.chmod(0o755)
+    return shims, calls
+
+
+# ---- one run ----------------------------------------------------------------------
+
+def source_state(src):
+    trees = git("worktree", "list", "--porcelain", cwd=src, check=False)
+    heads = git("for-each-ref", "--format=%(refname:short)", "refs/heads", cwd=src, check=False)
+    return ({l[9:] for l in trees.splitlines() if l.startswith("worktree ")}, set(heads.splitlines()))
+
+
+def run_script(script, cwd, env, timeout=600):
+    try:
+        p = subprocess.run(["bash", str(script)], cwd=cwd, env=env, capture_output=True,
+                           text=True, timeout=timeout)
+        return p.returncode, p.stdout, p.stderr
+    except subprocess.TimeoutExpired:
+        return 124, "", f"{script.name} timed out after {timeout}s"
+
+
+def run_config(rundir, trusted):
+    """This run's own config dir: `setup`'s files, a copy of its plugins, `trusted` trusted.
+
+    Claude honours a project's `permissions.additionalDirectories` only in a trusted
+    workspace, trust does not reach down from a parent dir, and every run's fixture is a
+    new path. A config per run trusts it without racing other runs over one
+    `.claude.json`, and leaves no state behind for the next run to read.
+    """
+    if not (CONFIG_DIR / "plugins").is_dir():
+        sys.exit(f"no eval config at {CONFIG_DIR}: run `skill-eval setup --repo <checkout>` first")
+    config = rundir / "claude-config"
+    config.mkdir()
+    for item in CONFIG_DIR.iterdir():
+        if item.name == "plugins":
+            copy_plugins(item, config / "plugins")
+        elif item.is_file():
+            shutil.copy2(item, config / item.name)
+    state = config / ".claude.json"
+    data = json.loads(state.read_text()) if state.is_file() else {}
+    for d in trusted:
+        data.setdefault("projects", {})[str(d)] = {"hasTrustDialogAccepted": True}
+    state.write_text(json.dumps(data))
+    return config
+
+
+def copy_plugins(shared, own):
+    """`setup`'s plugin store, copied for one run and pointed at the copy.
+
+    Claude writes the store as it runs: a project-scope entry for each fixture, and an
+    auto-update that installs a new version and repoints `installPath` through the
+    config path it runs under. Written through to the shared store, those writes change
+    the version the next run measures, and leave paths that resolve only while this run
+    exists. A copy keeps them in the run. Every path under some `claude-config/plugins/`
+    is re-rooted in the copy, and auto-update is off, so the run loads what `setup`
+    installed.
+    """
+    subprocess.run(["cp", "-a", "--reflink=auto", str(shared), str(own)], check=True)
+    def local(path):
+        rel = path.partition("/claude-config/plugins/")[2] if isinstance(path, str) else ""
+        return str(own / rel) if rel else path
+    installed = own / "installed_plugins.json"
+    if installed.is_file():
+        data = json.loads(installed.read_text())
+        for entries in (data.get("plugins") or {}).values():
+            for entry in entries:
+                entry["installPath"] = local(entry.get("installPath"))
+        installed.write_text(json.dumps(data, indent=2))
+    known = own / "known_marketplaces.json"
+    if known.is_file():
+        data = json.loads(known.read_text())
+        for market in data.values():
+            market["installLocation"] = local(market.get("installLocation"))
+            market["autoUpdate"] = False
+        known.write_text(json.dumps(data, indent=2))
+
+
+def agent_env(opts, rundir, shims, trusted):
+    env = {k: v for k, v in os.environ.items()
+           if k not in SCRUBBED and not k.startswith(("CLAUDE", "HERDR"))}
+    env["PATH"] = f"{shims}{os.pathsep}{env.get('PATH', '')}"
+    env["GH_CONFIG_DIR"] = str(rundir / "gh-empty")
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    # Claude and its plugins hold still for the run: the version measured is the one installed.
+    env["DISABLE_AUTOUPDATER"] = "1"
+    if not opts.as_me:
+        env["CLAUDE_CONFIG_DIR"] = str(run_config(rundir, trusted))
+        env["CLAUDE_CODE_OAUTH_TOKEN"] = token()
+        env.pop("ANTHROPIC_API_KEY", None)
+    return env
+
+
+def model_effort(case, opts):
+    meta = case["meta"]
+    return (opts.model or meta.get("model") or DEFAULTS["model"],
+            opts.effort or meta.get("effort") or DEFAULTS["effort"])
+
+
+def run_agent(case, opts, cwd, log, env, args):
+    meta = case["meta"]
+    model, effort = model_effort(case, opts)
+    cmd = [CLAUDE, "-p", case["prompt"], "--output-format", "stream-json", "--verbose",
+           "--model", model, "--effort", effort,
+           "--max-turns", str(meta.get("max_turns", DEFAULTS["max_turns"])),
+           "--disallowedTools", ",".join(DENIED_TOOLS),
+           "--permission-mode", "bypassPermissions", "--no-session-persistence", *args]
+    for d in opts.plugin_dir or ():
+        cmd += ["--plugin-dir", d]
+    timeout = meta.get("timeout_seconds", DEFAULTS["timeout_seconds"])
+    with open(log, "w") as out, open(log.with_suffix(".stderr"), "w") as err:
+        proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=out, stderr=err,
+                                stdin=subprocess.DEVNULL, start_new_session=True)
+        try:
+            proc.wait(timeout=timeout)
+            return None
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait()
+            return f"timed out after {timeout}s"
+
+
+def read_log(log, skill):
+    events = []
+    for line in log.read_text(errors="replace").splitlines():
+        try:
+            events.append(json.loads(line))
+        except ValueError:
+            pass
+    result = next((e for e in reversed(events) if e.get("type") == "result"), None)
+    model = next((e.get("model") for e in events if e.get("type") == "system" and e.get("model")), None)
+    uses = [c for e in events if e.get("type") == "assistant"
+            for c in (e.get("message") or {}).get("content") or []
+            if isinstance(c, dict) and c.get("type") == "tool_use"]
+    bash = [str((u.get("input") or {}).get("command", "")) for u in uses if u.get("name") == "Bash"]
+    skill_md = f"{skill['name']}/SKILL.md"
+    return result, {
+        "model": model,
+        "turns": result.get("num_turns") if result else None,
+        "cost_usd": result.get("total_cost_usd") if result else None,
+        "tool_calls": len(uses),
+        "skill_tool": any(u.get("name") == "Skill" and
+                          str((u.get("input") or {}).get("skill", "")).split(":")[-1] == skill["name"]
+                          for u in uses),
+        "skill_read": any(skill_md in str((u.get("input") or {}).get("file_path", "")) for u in uses)
+                      or any(skill_md in c for c in bash),
+        "masked_exit": sum(1 for c in bash if MASKED_PIPE.search(c) and "pipefail" not in c),
+    }
+
+
+def one_run(job):
+    case, i, ctx = job["case"], job["i"], job["ctx"]
+    skill, opts = ctx["skill"], ctx["opts"]
+    rundir = ctx["rundir"] / f"{case['name']}-{i}"
+    rundir.mkdir()
+    (rundir / "gh-empty").mkdir()
+    fixture = rundir / skill["repo_name"]
+    git("clone", "-q", "--shared", str(ctx["upstream"]), str(fixture))
+    git("remote", "set-url", "--push", "origin", "/nonexistent/skill-eval-push-disabled", cwd=fixture)
+    shims, calls = make_shims(rundir, case)
+    # A session that began in another repo starts there: a `setup.sh` lays it out.
+    start = rundir / case["meta"]["cwd"] if case["meta"].get("cwd") else fixture
+    env = agent_env(opts, rundir, shims, {fixture, start})
+    expects = {f"EVAL_EXPECT_{k[7:].upper()}": v for k, v in case["meta"].items() if k.startswith("expect_")}
+    script_env = {**env, **expects, "EVAL_FIXTURE": str(fixture), "EVAL_RUN_DIR": str(rundir),
+                  "EVAL_SOURCE": str(skill["src"]), "EVAL_UPSTREAM": str(ctx["upstream"]),
+                  "EVAL_CWD": str(start), "EVAL_CASE": case["name"], "EVAL_CASE_DIR": str(case["dir"]),
+                  "EVAL_SUITE_DIR": str(ctx["evals"]), "EVAL_BRANCH": skill["branch"],
+                  "EVAL_BASE": ctx["commit"], "EVAL_CALLS": str(calls),
+                  "EVAL_SLOW": "1" if opts.slow else "0"}
+    checks, notes = {}, []
+    for setup in (ctx["evals"] / "setup.sh", case["dir"] / "setup.sh"):
+        if setup.is_file():
+            code, _, err = run_script(setup, fixture, script_env)
+            if code:
+                checks["setup"] = ("FAIL", f"{setup.relative_to(ctx['evals'])} exited {code}: {err.strip()[-300:]}")
+    if "setup" not in checks and not start.is_dir():
+        checks["setup"] = ("FAIL", f"cwd: {case['meta']['cwd']} is not a directory once setup is done")
+    log = rundir / "agent.jsonl"
+    before = source_state(skill["src"])
+    started = time.monotonic()
+    timed_out = None if "setup" in checks else run_agent(case, opts, start, log, env, ctx["agent_args"])
+    seconds = round(time.monotonic() - started, 1)
+    after = source_state(skill["src"])
+    if not log.exists():
+        log.write_text("")
+    result, metrics = read_log(log, skill)
+    metrics["seconds"] = seconds
+    if "setup" not in checks:
+        if timed_out:
+            checks["agent_finished"] = ("FAIL", timed_out)
+        elif not result:
+            err = log.with_suffix(".stderr").read_text(errors="replace").strip()
+            checks["agent_finished"] = ("FAIL", f"no result event: {err[-300:]}")
+        elif result.get("is_error") or result.get("subtype") != "success":
+            checks["agent_finished"] = ("FAIL", str(result.get("subtype")))
+        else:
+            checks["agent_finished"] = ("PASS", "")
+        for check in (ctx["evals"] / "check.sh", case["dir"] / "check.sh"):
+            if not check.is_file():
+                continue
+            code, out, err = run_script(check, fixture, {**script_env, "EVAL_LOG": str(log)})
+            lines = [m for m in map(CHECK_LINE.match, out.splitlines()) if m]
+            for m in lines:
+                checks[m.group(2)] = (m.group(1), (m.group(3) or "").strip())
+            if code and not lines:
+                checks[f"{check.parent.name}/check.sh"] = ("FAIL", f"exited {code}: {err.strip()[-300:]}")
+    text = log.read_text(errors="replace")
+    leaked = [p for p in after[0] - before[0] if p in text] + \
+             [b for b in after[1] - before[1] if b in text]
+    checks["source_repo_untouched"] = ("FAIL", f"appeared in {skill['src']}: {', '.join(leaked)}") \
+        if leaked else ("PASS", "")
+    if ((after[0] - before[0]) or (after[1] - before[1])) and not leaked:
+        notes.append("the source repo changed during the run, by something this run's log never names")
+    # The log outlives the fixture: it is the evidence behind every verdict in the record.
+    (ctx["out"] / "runs").mkdir(exist_ok=True)
+    kept = ctx["out"] / "runs" / f"{case['name']}-{i}.jsonl"
+    shutil.copy2(log, kept)
+    if log.with_suffix(".stderr").exists():
+        shutil.copy2(log.with_suffix(".stderr"), kept.with_suffix(".stderr"))
+    shutil.copy2(calls, kept.with_suffix(".calls.jsonl"))
+    model, effort = model_effort(case, opts)
+    record = {"case": case["name"], "run": i, "model": model, "effort": effort,
+              "fixture": str(fixture), "log": str(kept),
+              "calls": str(kept.with_suffix(".calls.jsonl")),
+              "checks": [{"name": n, "status": s, "reason": r} for n, (s, r) in checks.items()],
+              "passed": all(s != "FAIL" for s, _ in checks.values()), "metrics": metrics,
+              "notes": notes}
+    (ctx["out"] / "runs" / f"{case['name']}-{i}.json").write_text(json.dumps(record, indent=2))
+    if not opts.keep:
+        shutil.rmtree(rundir, ignore_errors=True)
+    mark = "✔" if record["passed"] else "✘"
+    failed = [n for n, (s, _) in checks.items() if s == "FAIL"]
+    print(f"  {mark} {case['name']} #{i}  {seconds}s  {metrics['turns']} turns"
+          + (f"  failed: {', '.join(failed)}" if failed else ""), flush=True)
+    return record
+
+
+# ---- aggregate and compare ----------------------------------------------------------
+
+def summarise(records, header):
+    cases = {}
+    for r in sorted(records, key=lambda r: (r["case"], r["run"])):
+        c = cases.setdefault(r["case"], {"runs": 0, "passed": 0, "checks": {}, "metrics": []})
+        c["runs"] += 1
+        c["passed"] += r["passed"]
+        c["metrics"].append(r["metrics"])
+        for ch in r["checks"]:
+            s = c["checks"].setdefault(ch["name"], {"pass": 0, "scored": 0, "reasons": []})
+            if ch["status"] != "SKIP":
+                s["scored"] += 1
+                s["pass"] += ch["status"] == "PASS"
+            if ch["status"] == "FAIL" and ch["reason"]:
+                s["reasons"].append(ch["reason"])
+    for name, c in cases.items():
+        mine = [r for r in records if r["case"] == name]
+        # What was asked for, and what ran: an alias like `opus` does not pin the model.
+        c["requested_model"] = ", ".join(sorted({r.get("model") or "?" for r in mine}))
+        c["model"] = ", ".join(sorted({r["metrics"]["model"] for r in mine if r["metrics"].get("model")}))
+        c["effort"] = ", ".join(sorted({r.get("effort") or "?" for r in mine}))
+        ms = c.pop("metrics")
+        c["metrics"] = {k: median([m.get(k) for m in ms]) for k in ("seconds", "turns", "cost_usd", "tool_calls")}
+        c["metrics"]["skill_tool_runs"] = sum(bool(m.get("skill_tool")) for m in ms)
+        c["metrics"]["skill_read_runs"] = sum(bool(m.get("skill_read")) for m in ms)
+        c["metrics"]["masked_exit_runs"] = sum(bool(m.get("masked_exit")) for m in ms)
+    return {**header, "cases": cases}
+
+
+def median(values):
+    values = [v for v in values if isinstance(v, (int, float))]
+    return round(statistics.median(values), 3) if values else None
+
+
+def print_summary(s):
+    print(f"\n{s['skill']} in {s['repo']} — {s['label']} ({s['version']}), "
+          f"model {s['model']}, effort {s['effort']}, {s['started']}")
+    for name, c in s["cases"].items():
+        m = c["metrics"]
+        print(f"\n{name}: {c['passed']}/{c['runs']} runs passed  "
+              f"(median {m['seconds']}s, {m['turns']} turns, ${m['cost_usd']})")
+        for check, v in c["checks"].items():
+            line = f"  {v['pass']}/{v['scored']}  {check}" if v["scored"] else f"  skip  {check}"
+            if v["reasons"]:
+                line += f"  — {v['reasons'][0][:120]}"
+            print(line)
+
+
+def compare(a, b):
+    """Print what moved between two result sets, and return how many checks got worse.
+
+    Two sets whose model or effort differ for a case measure the setting as much as the
+    skill, so they are refused rather than compared.
+    """
+    setting = lambda c: f"{c.get('model') or c.get('requested_model')} at {c.get('effort')} effort"
+    differ = [f"  {name}: A {setting(ca)}, B {setting(cb)}"
+              for name in sorted(set(a["cases"]) & set(b["cases"]))
+              for ca, cb in [(a["cases"][name], b["cases"][name])]
+              if (ca.get("requested_model"), ca.get("effort")) != (cb.get("requested_model"), cb.get("effort"))
+              or ca.get("model") and cb.get("model") and ca["model"] != cb["model"]]
+    if differ:
+        sys.exit("refusing to compare: the model or effort differs (a set without either predates "
+                 "their recording; rerun it)\n" + "\n".join(differ))
+    print(f"\n{a['skill']}: A = {a['label']} ({a['version']}, {a.get('repo', '?')})"
+          f"   B = {b['label']} ({b['version']}, {b.get('repo', '?')})")
+    print("A check that moved by two runs or more is marked ▲ (better) or ▼ (worse);"
+          " smaller moves are inside the noise of a few runs.\n")
+    worse = 0
+    for name in sorted(set(a["cases"]) | set(b["cases"])):
+        ca, cb = a["cases"].get(name), b["cases"].get(name)
+        if not ca or not cb:
+            print(f"{name}: only in {'A' if ca else 'B'}")
+            continue
+        print(f"{name}: runs passed {ca['passed']}/{ca['runs']} → {cb['passed']}/{cb['runs']}")
+        for check in sorted(set(ca["checks"]) | set(cb["checks"])):
+            va, vb = ca["checks"].get(check), cb["checks"].get(check)
+            if not va or not vb or not va["scored"] or not vb["scored"]:
+                continue
+            moved = (vb["pass"] / vb["scored"] - va["pass"] / va["scored"]) * min(va["scored"], vb["scored"])
+            mark = "▲" if moved >= 2 else "▼" if moved <= -2 else " "
+            worse += mark == "▼"
+            print(f"  {mark} {va['pass']}/{va['scored']} → {vb['pass']}/{vb['scored']}  {check}")
+        for k in ("seconds", "turns", "cost_usd"):
+            print(f"    median {k}: {ca['metrics'][k]} → {cb['metrics'][k]}")
+    return worse
+
+
+# ---- commands ---------------------------------------------------------------------
+
+def token():
+    if os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
+        return os.environ["CLAUDE_CODE_OAUTH_TOKEN"]
+    if TOKEN_FILE.is_file():
+        return TOKEN_FILE.read_text().strip()
+    sys.exit(f"no eval token: run `claude setup-token` and save the token to {TOKEN_FILE} "
+             "(chmod 600), or export CLAUDE_CODE_OAUTH_TOKEN")
+
+
+def cmd_setup(opts):
+    """Install the plugins the repo enables into the eval config, once."""
+    tok = token()
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    src = pathlib.Path(git("rev-parse", "--show-toplevel", cwd=opts.repo))
+    settings = {}
+    for name in ("settings.json", "settings.local.json"):
+        path = src / ".claude" / name
+        if path.is_file():
+            data = json.loads(path.read_text())
+            for key in ("extraKnownMarketplaces", "enabledPlugins"):
+                settings.setdefault(key, {}).update(data.get(key) or {})
+    env = {**{k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")},
+           "CLAUDE_CONFIG_DIR": str(CONFIG_DIR), "CLAUDE_CODE_OAUTH_TOKEN": tok}
+    ok = True
+    enabled = [plugin for plugin, on in (settings.get("enabledPlugins") or {}).items() if on]
+    markets = dict(settings.get("extraKnownMarketplaces") or {})
+    # A marketplace the repo relies on without declaring it, such as one registered by
+    # hand, comes from your own config: a fresh config knows only a built-in stand-in of
+    # the same name, which can lack the plugin.
+    own = pathlib.Path(os.environ.get("CLAUDE_CONFIG_DIR") or pathlib.Path.home() / ".claude")
+    known = own / "plugins" / "known_marketplaces.json"
+    known = json.loads(known.read_text()) if known.is_file() else {}
+    for market in sorted({p.partition("@")[2] for p in enabled} - {""} - set(markets)):
+        if market in known:
+            markets[market] = known[market]
+    for name, spec in markets.items():
+        source = spec.get("source") or {}
+        where = source.get("repo") or source.get("url") or source.get("path")
+        p = subprocess.run([CLAUDE, "plugin", "marketplace", "add", where], env=env,
+                           capture_output=True, text=True)
+        subprocess.run([CLAUDE, "plugin", "marketplace", "update", name], env=env, capture_output=True)
+        print(f"marketplace {name} ({where}): {'ok' if not p.returncode else p.stderr.strip() or p.stdout.strip()}")
+    for plugin in enabled:
+        p = subprocess.run([CLAUDE, "plugin", "install", plugin], env=env, capture_output=True, text=True)
+        ok &= not p.returncode
+        print(f"plugin {plugin}: {'ok' if not p.returncode else p.stderr.strip() or p.stdout.strip()}")
+    print(f"eval config: {CONFIG_DIR}")
+    return 0 if ok else 1
+
+
+def run_suite(opts, ref, label):
+    skill = resolve_skill(opts.skill, opts.fixture)
+    evals = skill["dir"] / "evals"
+    cases = load_cases(evals, opts.case, opts.tag)
+    if not opts.as_me:
+        token()
+    started = datetime.datetime.now().strftime("%Y%m%dT%H%M%S")
+    HOME.mkdir(parents=True, exist_ok=True)
+    rundir = pathlib.Path(tempfile.mkdtemp(prefix=f"{skill['name']}-{label}-", dir=HOME))
+    out = pathlib.Path(opts.out) if opts.out else \
+        HOME / "results" / skill["repo_name"] / skill["name"] / f"{started}-{label}"
+    try:
+        upstream, commit, base_sha = make_upstream(skill, ref, opts.base or skill["base_ref"], rundir, label)
+    except BaseException:
+        if not opts.keep:
+            shutil.rmtree(rundir, ignore_errors=True)
+        raise
+    out.mkdir(parents=True, exist_ok=True)
+    version = ref or "working tree"
+    ctx = {"skill": skill, "opts": opts, "evals": evals, "rundir": rundir, "upstream": upstream,
+           "commit": commit, "out": out,
+           "agent_args": stage_plugin(skill, ref, rundir) if skill["plugin"] else []}
+    jobs = [{"case": c, "i": i, "ctx": ctx}
+            for c in cases for i in range(1, (opts.runs or c["meta"].get("runs") or DEFAULTS["runs"]) + 1)]
+    print(f"{skill['name']} ({version}) on {skill['repo_name']}@{base_sha[:10]}: "
+          f"{len(cases)} cases, {len(jobs)} runs, concurrency {opts.concurrency}", flush=True)
+    with concurrent.futures.ThreadPoolExecutor(opts.concurrency) as pool:
+        records = list(pool.map(one_run, jobs))
+    if not opts.keep:
+        shutil.rmtree(rundir, ignore_errors=True)
+    summary = summarise(records, {"skill": skill["name"], "repo": skill["repo_name"], "label": label,
+                                  "version": version, "base": base_sha, "started": started,
+                                  "results": str(out)})
+    for key in ("model", "effort"):
+        summary[key] = ", ".join(sorted({c[key] for c in summary["cases"].values() if c[key]})) or "?"
+    (out / "summary.json").write_text(json.dumps(summary, indent=2))
+    print_summary(summary)
+    print(f"\nresults: {out}")
+    return summary
+
+
+def cmd_run(opts):
+    s = run_suite(opts, opts.ref, opts.label or (opts.ref or "worktree").replace("/", "-"))
+    return 0 if all(c["passed"] == c["runs"] for c in s["cases"].values()) else 1
+
+
+def half(opts, ref, label, kept=None):
+    """One half of `ab`: a half that dies says so, so that nobody reads one set as a comparison."""
+    try:
+        return run_suite(opts, ref, label)
+    except (SystemExit, Exception) as e:
+        why = traceback.format_exc().strip() if isinstance(e, Exception) else \
+            e.code if isinstance(e.code, str) else f"exit {e.code}"
+        sys.exit(f"{why}\n\nab: the {label} half failed, so nothing was compared"
+                 + (f"; the baseline's results are in {kept}" if kept else ""))
+
+
+def cmd_ab(opts):
+    base_ref = opts.against or resolve_skill(opts.skill)["repo_ref"]
+    a = half(opts, base_ref, "baseline")
+    b = half(opts, None, "candidate", a["results"])
+    worse = compare(a, b)
+    return 1 if worse else 0
+
+
+def cmd_compare(opts):
+    load = lambda p: json.loads((pathlib.Path(p) / "summary.json").read_text())
+    return 1 if compare(load(opts.a), load(opts.b)) else 0
+
+
+def main():
+    for key in [k for k in os.environ if k in GIT_REDIRECTS or k.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"))]:
+        del os.environ[key]
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    s = sub.add_parser("setup", help="install the repo's plugins into the eval config")
+    s.add_argument("--repo", default=".", help="a checkout of the repo whose plugins to install")
+    s.set_defaults(fn=cmd_setup)
+
+    def run_args(s):
+        s.add_argument("skill", help="the skill's directory, in a checkout of its repo")
+        s.add_argument("--case", action="append", help="case-name glob (repeatable)")
+        s.add_argument("--tag", action="append", help="only cases with this tag (repeatable)")
+        s.add_argument("--runs", type=int, help="runs per case (default: the case's, else 3)")
+        s.add_argument("--model", help="override every case's model (default: the case's, else opus)")
+        s.add_argument("--effort", choices=EFFORTS,
+                       help="override every case's effort (default: the case's, else medium)")
+        s.add_argument("--concurrency", type=int, default=2)
+        s.add_argument("--fixture", help="a checkout to run a plugin skill in, at its default "
+                            "branch; the plugin is loaded from --ref or the working tree")
+        s.add_argument("--base", help="commit the fixture starts from (default: origin/HEAD)")
+        s.add_argument("--slow", action="store_true", help="also run the checks marked slow")
+        s.add_argument("--keep", action="store_true", help="keep fixtures for inspection")
+        s.add_argument("--plugin-dir", action="append", help="pass --plugin-dir to the agent")
+        s.add_argument("--as-me", action="store_true",
+                       help="run under your own ~/.claude, for debugging a suite: scores then "
+                            "depend on your CLAUDE.md, memory and plugins")
+
+    s = sub.add_parser("run", help="run the suite against one version of the skill")
+    run_args(s)
+    s.add_argument("--ref", help="take the skill from this git ref (default: the working tree)")
+    s.add_argument("--label", help="name for this result set")
+    s.add_argument("--out", help="results directory")
+    s.set_defaults(fn=cmd_run)
+
+    s = sub.add_parser("ab", help="run the skill at a ref and in the working tree, then compare")
+    run_args(s)
+    s.add_argument("--against", help="baseline ref (default: origin/HEAD)")
+    s.set_defaults(fn=cmd_ab, out=None, ref=None, label=None)
+
+    s = sub.add_parser("compare", help="compare two result directories")
+    s.add_argument("a")
+    s.add_argument("b")
+    s.set_defaults(fn=cmd_compare)
+
+    opts = p.parse_args()
+    sys.exit(opts.fn(opts))
+
+
+if __name__ == "__main__":
+    main()

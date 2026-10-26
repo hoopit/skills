@@ -17,17 +17,21 @@ reviewer can jump to its source of truth:
 
 - **GitHub issue** — `closes #<id>` in the body, one line per issue it resolves.
   A closing keyword is the only thing GitHub puts in the PR's
-  `closingIssuesReferences`, and that list is the sole input to the board automation
-  (`board-status.yml`), which never reads the body. So the keyword buys more than the
-  close at merge: it is what moves the item to `AI review` when the PR opens and to
-  `Human review` when it is marked ready. `refs #<id>`, `part of #<id>` or a bare link
-  leave the item frozen wherever it stands with no event left to move it, and the
-  workflow records that as a notice on a green run — nothing anywhere turns red.
+  `closingIssuesReferences`, and that list is the sole input to the board's built-in
+  *Pull request linked to issue* workflow, which never reads the body. So the keyword
+  buys more than the close at merge: it is what moves the item to `In review` when the
+  PR opens, and what links the PR whose draft state `hoopit-board` reads to tell an
+  agent's turn from a human's. `refs #<id>`, `part of #<id>` or a bare link leave the item
+  frozen wherever it stands with no event left to move it — nothing anywhere turns red.
 
   **Merging will not finish the issue?** That is two phases in one item, not a reason
-  to weaken the link. `closes` the phase this PR delivers and file the remainder as its
-  own issue, gated on the deploy where that is what it waits for. Never reach for `refs`
-  to mean "not done yet."
+  to weaken the link. `closes` the phase this PR delivers, and file the remainder as its
+  own issue in the same repo **before** `gh pr create`: through
+  `github-tracker:create-gh-issue` when installed (an `Ops` issue carrying `Gate:
+  deployed` where it waits on the deploy), otherwise `gh issue create` with a body that
+  says what is left, what it waits for, and `follows #<id>`. Then name it by number in
+  the body — `Step 2 is #<n>.` A body that says the rest "is filed" and names no number
+  has filed nothing. Never reach for `refs` to mean "not done yet."
 - **Jira** — `https://<org>.atlassian.net/browse/<JIRA_KEY>` (the raw key also
   makes GitHub-for-Jira attach the PR — exactly what you want here).
 - **Sentry** — the issue URL, e.g. `https://<org>.sentry.io/issues/<id>/`.
@@ -116,17 +120,56 @@ and link that copy.
 
 ## Creating the PR
 
+### Draft or ready: the author's team decides first
+
+Before `gh pr create`, find out whether the author — the account `gh` is logged in as — is
+on the team that reviews this repo's PRs. That team is the `team:` the repo passes to the
+shared `hoopit/workflows` team-review gate, which every Hoopit product repo calls from a
+workflow of its own. The gate runs the base branch's copy, so read that one, not the
+checkout's:
+
+```bash
+git fetch -q origin "$DEFAULT_BRANCH"
+F=$(git grep -l 'hoopit/workflows/.github/workflows/team-review.yml' "origin/$DEFAULT_BRANCH" -- .github/workflows | head -1)
+TEAM=$([ -n "$F" ] && git grep -h -E '^[[:space:]]*team:' "origin/$DEFAULT_BRANCH" -- "${F#*:}" \
+  | sed 's/^[[:space:]]*team:[[:space:]]*\([A-Za-z0-9_-]*\).*/\1/' | head -1)
+ME=$(gh api user --jq .login)
+if [ -z "$TEAM" ]; then echo NO_TEAM
+elif [ "$(gh api "orgs/hoopit/teams/$TEAM/memberships/$ME" --jq .state 2>/dev/null)" = active ]; then echo "IN_TEAM $TEAM"
+else echo "OUT_OF_TEAM $TEAM"; fi
+```
+
+A lookup that fails prints `OUT_OF_TEAM`, which is the safe answer.
+
+- **`OUT_OF_TEAM` — born a draft, with `monitor-pr` on it. Always**, whatever the caller
+  says about who works the rounds, and even when the PR is meant for humans at once. The
+  gate asks the team to review an out-of-team author's open, non-draft PR the moment
+  `merge-briefing` passes, and reads no other check: a PR opened ready goes to the team
+  with `codex-review` or CI still red. `monitor-pr` holds the draft until every check is
+  green, then runs `gh pr ready`, so the request goes out once, on a green head. Start
+  `monitor-pr` on the new PR with `--subagent` right after it opens — unless the caller's
+  next step starts it (`ship`'s Step 8) — and report the watch with the URL.
+- **`IN_TEAM` or `NO_TEAM`** — the gate never asks anyone for an in-team author's PR.
+  Decide by who works the review rounds, below.
+
+### Who works the review rounds
+
 **A PR an agent will work the review rounds of is born a draft** — the `ship` →
 `monitor-pr` path. Draft says the rounds are still the agent's, and `gh pr ready` is the
 hand-off — the only one a workflow can trigger on, since a resolved review thread raises
 no event. A PR handed straight to humans on creation, with no watch to follow, omits
-`--draft`: nothing would ever mark it ready, and it would sit unmergeable with its issue
-in `AI review`.
+`--draft`: nothing would ever mark it ready, and it would sit unmergeable, its issue
+still the agent's turn on the board. Where its base requires the `merge-briefing`
+check (the probe in `monitor-pr`'s `GREEN.md` answers that), that PR still owes a
+merge briefing before it can merge: say so when handing it over (`/merge-briefing <PR>`).
 
-*Born*, never opened-then-converted: the board automation fires on `opened`, so a PR ready
-for even an instant sets a board status that must then be corrected.
+*Born*, never opened-then-converted: a PR ready for even an instant is a human's turn on the
+board, and one opened ready never emits `ready_for_review` — the hand-off event.
 
-Open the PR with the GitHub CLI, from inside the worktree:
+### Open it
+
+Open the PR with the GitHub CLI, from inside the worktree. Drop the `--draft` line when
+the decision above opens the PR ready:
 
 ```bash
 cd "$WORKTREE_DIR"   # if working in a worktree
@@ -160,9 +203,9 @@ gh pr view --json closingIssuesReferences --jq '.closingIssuesReferences[].numbe
 
 Empty, on a PR that delivers a GitHub issue, means no closing keyword reached the list:
 the body says `refs`, or names the issue in prose, or carries the wrong number. Fix the
-body now. Nothing downstream reports it — the board automation reads an empty list as
-nothing to move and goes green, so the first sign is a human noticing the board is
-wrong days later. (`closingIssuesReferences` is GraphQL-only; REST exposes no such
+body now. Nothing downstream reports it — the board's built-in workflow sees no linked
+issue and moves nothing, so the first sign is a human noticing the board is wrong days
+later. (`closingIssuesReferences` is GraphQL-only; REST exposes no such
 field.)
 
 A calling workflow adds its own body sections (e.g. an `## ITSM` / `## Sentry`

@@ -10,29 +10,43 @@
 # definitions decide what every later PR is checked by. A read that fails is `human` with
 # the failure as its reason — a gate that cannot see the PR passes nothing.
 #
-# REST for everything but the closing issues, which only GraphQL exposes. The files read
-# pages, bounded by the PR's own file count; a PR over MAX_FILES has already failed the
-# gate, and the paths are still read so the reason names the guarded ones too.
+# REST for everything but the closing issues, which only GraphQL exposes. The files are read
+# page by page, as many pages as the PR's own file count. A listing short of that count is a
+# read that failed — GitHub serves at most 3,000 of a PR's files — and so is one the PR's head
+# or base moved under, since a push between pages can swap a file without changing the count.
 set -u
 export MISE_QUIET=1
 export REPO=$1
 PR=$2; GUARDED=${3:-}
-MAX_LINES=${LANE_MAX_LINES:-400}; MAX_FILES=${LANE_MAX_FILES:-15}
+REVISION='"\(.head.sha)..\(.base.sha)"'
 reasons=()
 
-pr=$(gh api "repos/$REPO/pulls/$PR" --jq '[(.additions + .deletions), .changed_files, .user.type,
-  (([.requested_reviewers[].login] + [.requested_teams[].slug]) | join(" "))] | @tsv') \
+pr=$(gh api "repos/$REPO/pulls/$PR" --jq "[.changed_files, $REVISION, .user.type,
+  (([.requested_reviewers[].login] + [.requested_teams[].slug]) | join(\" \"))] | @tsv") \
   || { echo "gate=human reason=could not read the PR"; exit 0; }
-IFS=$'\t' read -r lines files author_type asked <<<"$pr"
-(( lines > MAX_LINES )) && reasons+=("$lines changed lines, over $MAX_LINES")
-(( files > MAX_FILES )) && reasons+=("$files changed files, over $MAX_FILES")
+IFS=$'\t' read -r changed revision author_type asked <<<"$pr"
+
+# A rename is judged under both names: moving a file out of a guarded path touches it.
+paths="" seen=0
+for (( page = 1; page <= (changed + 99) / 100; page++ )); do
+  rows=$(gh api "repos/$REPO/pulls/$PR/files?per_page=100&page=$page" \
+    --jq '.[] | [.filename, (.previous_filename // "")] | @tsv') \
+    || { echo "gate=human reason=could not read the changed files"; exit 0; }
+  while IFS=$'\t' read -r name previous; do
+    [[ -n $name ]] || continue
+    (( seen += 1 ))
+    paths+=$name$'\n'
+    [[ -n $previous ]] && paths+=$previous$'\n'
+  done <<<"$rows"
+done
+(( seen == changed )) \
+  || { echo "gate=human reason=could read only $seen of the $changed changed files"; exit 0; }
+now=$(gh api "repos/$REPO/pulls/$PR" --jq "$REVISION") \
+  || { echo "gate=human reason=could not re-read the PR"; exit 0; }
+[[ $now == "$revision" ]] || { echo "gate=human reason=the PR moved while its files were read"; exit 0; }
 [[ $author_type == Bot ]] && reasons+=("a bot opened it")
 [[ -n $asked ]] && reasons+=("a review is still requested of $asked")
 
-# A rename is judged under both names: moving a file out of a guarded path touches it.
-paths=$(gh api "repos/$REPO/pulls/$PR/files?per_page=100" --paginate \
-  --jq '.[] | .filename, (.previous_filename // empty)') \
-  || { echo "gate=human reason=could not read the changed files"; exit 0; }
 IFS=, read -ra patterns <<<"^\\.github/${GUARDED:+,$GUARDED}"
 for p in "${patterns[@]}"; do
   p=${p#"${p%%[![:space:]]*}"}; p=${p%"${p##*[![:space:]]}"}

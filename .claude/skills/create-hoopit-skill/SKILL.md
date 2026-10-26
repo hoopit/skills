@@ -96,6 +96,16 @@ raw bytes, so those take the path from whoever called them. A path that still re
 `${CLAUDE_PLUGIN_ROOT}` when you go to run it is the tell that you are not in a substituted
 context — stop rather than run it.
 
+## A command several skills share goes in the plugin's `bin/`
+
+A plugin's `bin/` directory is on the Bash tool's `PATH` while the plugin is enabled, so a
+script there runs as a bare command from any skill in any plugin, with no
+`${CLAUDE_PLUGIN_ROOT}` path to write. Use it for a CLI the skills treat as a tool
+(`github-tracker`'s `hoopit-board`); keep a script only one skill runs under that skill's
+`scripts/`. Tests sit outside `bin/`, in the plugin's `tests/`, so they never land on
+`PATH`. A process started outside Claude Code — a systemd unit, a cron job — sees no
+plugin `bin/`, and has to be given the path.
+
 ## Checklist
 
 - [ ] Skill body contains no project-specific terms (Rule 1)

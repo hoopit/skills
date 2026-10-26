@@ -1,0 +1,75 @@
+[
+ {
+  "match": "^repo view",
+  "stdout": "hoopit/api\n"
+ },
+ {
+  "match": "^issue (edit|close|reopen)",
+  "stdout": "https://github.com/hoopit/api/issues/19600\n"
+ },
+ {
+  "match": "^issue comment (\\S*/)?19460\\b",
+  "stdout": "https://github.com/hoopit/api/issues/19460#issuecomment-5990000001\n"
+ },
+ {
+  "match": "^issue comment",
+  "stdout": "https://github.com/hoopit/api/issues/19600#issuecomment-5990000002\n"
+ },
+ {
+  "match": "^issue view (\\S*/)?19460\\b",
+  "stdout": "title:\tadmin: an action that renders a confirmation page logs \"Executed action\" before anything ran\nstate:\tOPEN\nnumber:\t19460\n--\n`HoopitAdmin.response_action` (`club_united_api/django/admin.py:712`) writes one `Executed action on N objects: <action>` LogEntry per selected row whenever the action returns, including an action that only renders a confirmation or form page first. `merge_users` (`users/admin/user_admin.py`) renders its `MergeUserForm` before merging, so every time an admin opens the merge form, cancels it, or submits an invalid form, `django_admin_log` records an executed merge, and a confirmed merge is logged twice.\n\n## Why it matters\n\n`django_admin_log` is what we read to count how often staff do something (merges, exports, force logouts). Every count of an action with an intermediate page overstates it: for `merge_users` the log rows are an upper bound, not a count.\n\n## Acceptance\n\nAn action that renders an intermediate page writes no `Executed action` entry for that render; a confirmed run writes exactly one per row it changed. A test in `club_united_api/test/test_admin.py` opens the merge form, cancels, and asserts no entry.\n"
+ },
+ {
+  "match": "^api (?=.*(-X POST|--method POST| -[fF] | --field | --raw-field )).*repos/hoopit/api/issues/19460/comments",
+  "stdout": "{\"id\": 5990000001, \"html_url\": \"https://github.com/hoopit/api/issues/19460#issuecomment-5990000001\"}\n"
+ },
+ {
+  "match": "^api .*repos/hoopit/api/issues/19460/comments",
+  "stdout": "[]\n"
+ },
+ {
+  "match": "^api .*repos/hoopit/api/issues/19460(/timeline|/sub_issues)",
+  "stdout": "[]\n"
+ },
+ {
+  "match": "^api .*repos/hoopit/api/issues/19460\\b",
+  "stdout": "{\"number\": 19460, \"id\": 3511946001, \"state\": \"open\", \"parent_issue_url\": null, \"title\": \"admin: an action that renders a confirmation page logs \\\"Executed action\\\" before anything ran\", \"body\": \"`HoopitAdmin.response_action` (`club_united_api/django/admin.py:712`) writes one `Executed action on N objects: <action>` LogEntry per selected row whenever the action returns, including an action that only renders a confirmation or form page first. `merge_users` (`users/admin/user_admin.py`) renders its `MergeUserForm` before merging, so every time an admin opens the merge form, cancels it, or submits an invalid form, `django_admin_log` records an executed merge, and a confirmed merge is logged twice.\\n\\n## Why it matters\\n\\n`django_admin_log` is what we read to count how often staff do something (merges, exports, force logouts). Every count of an action with an intermediate page overstates it: for `merge_users` the log rows are an upper bound, not a count.\\n\\n## Acceptance\\n\\nAn action that renders an intermediate page writes no `Executed action` entry for that render; a confirmed run writes exactly one per row it changed. A test in `club_united_api/test/test_admin.py` opens the merge form, cancels, and asserts no entry.\"}\n"
+ },
+ {
+  "match": "^api .*repos/hoopit/api/(pulls|issues)/19512\\b",
+  "stdout": "{\"number\": 19512, \"state\": \"open\", \"merged\": false, \"draft\": false, \"merge_commit_sha\": null, \"title\": \"GH-19509: Book the fee of a partial refund on the refunded share only\", \"head\": {\"ref\": \"GH-19509/fix/partial-refund-fee-paid\"}, \"base\": {\"ref\": \"master\"}, \"html_url\": \"https://github.com/hoopit/api/pull/19512\"}\n"
+ },
+ {
+  "match": "^pr view (\\S*/)?19512\\b",
+  "stdout": "title:\tGH-19509: Book the fee of a partial refund on the refunded share only\nstate:\tOPEN\nnumber:\t19512\n"
+ },
+ {
+  "match": "^api .*repos/hoopit/api/issues/196\\d\\d/sub_issues",
+  "stdout": "[]\n"
+ },
+ {
+  "match": "^api .*repos/hoopit/api/issues/\\d+/sub_issues",
+  "stdout": "{\"id\": 3511960000, \"number\": 19600}\n"
+ },
+ {
+  "match": "^api .*repos/hoopit/api/issues/196\\d\\d/comments",
+  "stdout": "{\"id\": 5990000002}\n"
+ },
+ {
+  "match": "^api .*repos/hoopit/api/issues/196\\d\\d\\b",
+  "stdout": "{\"state\": \"open\", \"parent_issue_url\": null, \"id\": 3511960000, \"assignees\": [{\"login\": \"ezet\"}]}\n"
+ },
+ {
+  "match": "^api .*search/issues",
+  "stdout": "{\"total_count\": 0, \"incomplete_results\": false, \"items\": []}\n"
+ },
+ {
+  "match": "^(issue list|search issues)",
+  "stdout": ""
+ },
+ {
+  "match": "^api .*repos/hoopit/\\S+/(issues|pulls)/\\d+",
+  "stderr": "gh: Not Found (HTTP 404)\n",
+  "exit": 1
+ }
+]

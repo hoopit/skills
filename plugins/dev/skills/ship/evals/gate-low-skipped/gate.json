@@ -1,0 +1,8 @@
+[
+ {
+  "findings": [
+   "Skipped: [Low] Standards \u2014 `test_delete__missing_attachment__not_found` asserts the 404 but not that no `PostImage` row came back; optional, left to the author",
+   "Skipped: [Low] Standards \u2014 the module's unused `LOGGER`: outside this change"
+  ]
+ }
+]

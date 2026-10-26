@@ -1,0 +1,627 @@
+#!/usr/bin/env python3
+"""How each skill does in real use, read from Claude Code session transcripts.
+
+    field-report [--since 2026-09-01] [--until 2026-09-30] [--by week|repo] [--skill NAME]...
+
+It reads `<root>/*/*.jsonl` and their `*/subagents/agent-*.jsonl` (root defaults to
+`~/.claude/projects`) and prints one row per skill. A subagent's transcript belongs to its
+parent's session.
+
+The skill listing names every skill in nearly every transcript, so text never counts as a
+use. Only three routes do:
+
+    tool    a `Skill` tool call naming the skill
+    slash   a `<command-name>` prompt that loads a skill body
+    read    a Read, or a Bash command, naming the skill's `skills/<name>/SKILL.md`, which is
+            how a parent skill's "Follow …" reaches it
+
+Each use opens a span that runs to the next use of any skill or to the end of the turn.
+Per span it measures turns (assistant requests), wall time, and tokens (input, cache and
+output, plus the subagents the span dispatched); failures (a tool result that is an error
+or prints `error:`/`fatal:`); redos (a failed call run again in the same span); and how the
+turn ended: interrupted, or a human prompt that reads as a correction.
+
+Left out: a session's use of a skill whose files that session edits, anything under a
+review-gate probe (`/tmp/review-gate.*`), and sessions run from skill-eval's fixtures.
+
+Per-skill signals add rows of their own beside the generic ones (`SIGNALS` below).
+"""
+import argparse, collections, concurrent.futures, datetime, functools, json, os, pathlib
+import re, shlex, statistics, sys
+
+ROOT = pathlib.Path.home() / ".claude" / "projects"
+EVAL_HOME = pathlib.Path(os.environ.get("SKILL_EVAL_HOME") or
+                         pathlib.Path(os.environ.get("XDG_CACHE_HOME") or pathlib.Path.home() / ".cache")
+                         / "skill-evals")
+PROBE = "/tmp/review-gate."
+# A skill that was renamed keeps one row across the rename.
+ALIASES = {"new-worktree": "create-worktree"}
+
+SKILL_MD = re.compile(r"(?:^|[\s/\"'=])skills/([\w.-]+)/SKILL\.md")
+SKILL_DIR = re.compile(r"skills/([\w.-]+)/")
+BASE_DIR = re.compile(r"^Base directory for this skill:\s*(\S+)")
+COMMAND = re.compile(r"<command-name>/?([\w:.-]+)</command-name>")
+EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
+# A shell command that writes into a skill: `sed -i … <file>`, `> <file>`, `tee <file>`, `git mv`.
+SHELL_WRITE = re.compile(r"(?:\b(?:sed|perl)\s+-i[^|;&\n]*?|\btee\s+(?:-a\s+)?|[^\d&]>>?\s*|\bgit\s+mv\s+[^|;&\n]*?)"
+                         r"[\"']?[^\s|;&\"']*skills/([\w.-]+)/")
+ERROR_LINE = re.compile(r"(?m)^\s*(?:error|fatal):")
+INTERRUPT = "[Request interrupted by user"
+CORRECTION = re.compile(
+    r"^\s*(?:no\b|nope\b|nah\b|don'?t\b|do not\b|stop\b|wait\b|hold on\b|wrong\b|undo\b|revert\b"
+    r"|actually\b|instead\b|not what\b|that'?s (?:not|wrong)\b|this is (?:not|wrong)\b"
+    r"|why (?:did|didn'?t|are|is|would|do)\b|you (?:forgot|missed|didn'?t|should|shouldn'?t)\b)",
+    re.IGNORECASE)
+LEADING_CD = re.compile(r"^\s*cd\s+(\"[^\"]+\"|'[^']+'|[^\s&;]+)\s*(?:&&|;)\s*")
+GIT_C = re.compile(r"\bgit\s+-C\s+(\"[^\"]+\"|'[^']+'|\S+)")
+
+
+def skill_name(raw):
+    name = str(raw).strip().split(":")[-1]
+    return ALIASES.get(name, name)
+
+
+def text_of(content):
+    if isinstance(content, str):
+        return content
+    out = []
+    for c in content or []:
+        if isinstance(c, dict):
+            if c.get("type") == "text":
+                out.append(c.get("text", ""))
+            elif c.get("type") == "tool_result":
+                out.append(text_of(c.get("content")))
+    return "\n".join(out)
+
+
+def expand(path, cwd):
+    path = path.strip("\"'").replace("$HOME", str(pathlib.Path.home()))
+    path = os.path.expanduser(path)
+    return os.path.normpath(os.path.join(cwd or "/", path))
+
+
+ASSIGN = re.compile(r"(?:^|[\s;&(])(\w+)=(\"[^\"]*\"|'[^']*'|[^\s;&|)]+)")
+
+
+HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?^\s*\2\s*$", re.DOTALL | re.MULTILINE)
+
+
+def code_of(cmd):
+    """A command without the heredoc bodies it writes or hands to another language: only one
+    fed to a shell is code the command runs."""
+    def keep_if_shell(m):
+        line = cmd[cmd.rfind("\n", 0, m.start()) + 1:m.start()]
+        return m.group(0) if re.search(r"\b(?:bash|sh|zsh)\b[^|;&]*$", line) else ""
+    return HEREDOC.sub(keep_if_shell, cmd)
+
+
+def substitute(cmd):
+    """The command with the variables it assigns itself filled in: `P=/tmp/x; cd "$P"`."""
+    known = {}
+    fill = lambda text: re.sub(r"\$\{?(\w+)\}?", lambda m: known.get(m.group(1), m.group(0)), text)
+    for name, value in ASSIGN.findall(cmd):
+        known[name] = fill(value.strip("\"'"))
+    return fill(cmd)
+
+
+def target_dir(cmd, cwd):
+    """The directory a Bash command acts on: its leading `cd`, its `git -C`, or its cwd."""
+    cmd = substitute(cmd)
+    m = LEADING_CD.match(cmd)
+    if m:
+        return expand(m.group(1), cwd)
+    m = GIT_C.search(cmd)
+    if m:
+        return expand(m.group(1), cwd)
+    return cwd or ""
+
+
+@functools.lru_cache(maxsize=None)
+def find_repo(path):
+    """The main checkout a path belongs to, or None. A worktree resolves to the repo it was
+    cut from, and a path under `.worktrees/` to the repo above it even once it is deleted."""
+    main, sep, _ = path.partition("/.worktrees/")
+    p = pathlib.Path(main)
+    for d in (p, *p.parents):
+        git = d / ".git"
+        try:
+            if git.is_file():
+                m = re.match(r"gitdir:\s*(.+?)/\.git/worktrees/", git.read_text(errors="replace"))
+                if m:
+                    return m.group(1)
+            if git.exists():
+                return str(d)
+        except OSError:
+            break
+    return main if sep else None
+
+
+def repo_root(path):
+    return find_repo(path) or path
+
+
+def repo_of(path):
+    return os.path.basename(repo_root(path)) if path else "?"
+
+
+def head(cmd):
+    """What makes two Bash calls 'the same command run again': its first words past a `cd`."""
+    cmd = LEADING_CD.sub("", cmd)
+    words = [w for w in cmd.split() if not re.match(r"^\w+=", w)]
+    return " ".join(words[:3])
+
+
+# ── one transcript ──────────────────────────────────────────────────────────────────────
+
+class Call:
+    __slots__ = ("id", "pos", "ts", "name", "input", "cwd", "result", "error", "result_ts")
+
+    def __init__(self, id, pos, ts, name, input, cwd):
+        self.id, self.pos, self.ts, self.name, self.input, self.cwd = id, pos, ts, name, input, cwd
+        self.result, self.error, self.result_ts = "", False, ""
+
+    @property
+    def cmd(self):
+        return str(self.input.get("command") or "") if self.name == "Bash" else ""
+
+    @property
+    def failed(self):
+        return self.error or (self.name == "Bash" and bool(ERROR_LINE.search(self.result)))
+
+
+def parse(path):
+    """A transcript as calls, uses (route starts), turn boundaries and per-request usage."""
+    calls, by_id, uses, bounds, usage = [], {}, [], [], {}
+    edits, cwds = set(), []
+    pending_slash = None
+    pos = -1
+    try:
+        fh = open(path, errors="replace")
+    except OSError:
+        return None
+    with fh:
+        for line in fh:
+            try:
+                e = json.loads(line)
+            except ValueError:
+                continue
+            t = e.get("type")
+            if t not in ("user", "assistant"):
+                continue
+            pos += 1
+            ts, cwd = e.get("timestamp") or "", e.get("cwd") or ""
+            if cwd and not cwds:
+                cwds.append(cwd)
+            msg = e.get("message") or {}
+            content = msg.get("content")
+            if t == "assistant":
+                mid = msg.get("id") or e.get("requestId") or e.get("uuid")
+                u = msg.get("usage") or {}
+                usage[mid] = (pos, ts, sum(int(u.get(k) or 0) for k in (
+                    "input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")))
+                for c in content if isinstance(content, list) else []:
+                    if not isinstance(c, dict) or c.get("type") != "tool_use":
+                        continue
+                    call = Call(c.get("id"), pos, ts, c.get("name"), c.get("input") or {}, cwd)
+                    calls.append(call)
+                    by_id[call.id] = call
+                    route_start(call, pos, ts, uses, edits)
+                continue
+            # user entries: tool results, injected skill bodies, prompts
+            if isinstance(content, list) and any(isinstance(c, dict) and c.get("type") == "tool_result" for c in content):
+                for c in content:
+                    if isinstance(c, dict) and c.get("type") == "tool_result" and c.get("tool_use_id") in by_id:
+                        call = by_id[c["tool_use_id"]]
+                        call.result, call.error, call.result_ts = text_of(c.get("content")), bool(c.get("is_error")), ts
+                continue
+            text = text_of(content)
+            m = BASE_DIR.match(text)
+            if m:
+                if pending_slash is not None:
+                    uses.append((pending_slash[0], pending_slash[1], skill_name(os.path.basename(m.group(1).rstrip("/"))), "slash"))
+                pending_slash = None
+                continue
+            origin = (e.get("origin") or {}).get("kind")
+            if e.get("isMeta") and not origin:
+                continue
+            kind = "human" if origin == "human" or (origin is None and not text.lstrip().startswith("<")) else "auto"
+            if text.startswith(INTERRUPT):
+                kind = "interrupt"
+            elif text.lstrip().startswith(("<command-", "<local-command")):
+                kind = "command"
+            bounds.append((pos, ts, kind, text[:300]))
+            pending_slash = (pos, ts) if COMMAND.search(text) else None
+    return dict(calls=calls, uses=uses, bounds=bounds, usage=usage, edits=edits,
+                cwd=cwds[0] if cwds else "", end=pos)
+
+
+def route_start(call, pos, ts, uses, edits):
+    inp = call.input
+    if call.name == "Skill":
+        uses.append((pos, ts, skill_name(inp.get("skill", "")), "tool"))
+        return
+    if call.name in EDIT_TOOLS:
+        m = SKILL_DIR.search(str(inp.get("file_path") or inp.get("notebook_path") or ""))
+        if m:
+            edits.add(skill_name(m.group(1)))
+        return
+    if call.name == "Read":
+        path = str(inp.get("file_path") or "")
+        if not path.startswith(PROBE):
+            for name in SKILL_MD.findall(path):
+                uses.append((pos, ts, skill_name(name), "read"))
+        return
+    if call.name == "Bash":
+        cmd = call.cmd
+        edits.update(skill_name(n) for n in SHELL_WRITE.findall(cmd))
+        if PROBE in cmd and target_dir(cmd, call.cwd).startswith(PROBE):
+            return
+        seen = []
+        for name in SKILL_MD.findall(cmd):
+            name = skill_name(name)
+            if name not in seen:
+                seen.append(name)
+                uses.append((pos, ts, name, "read"))
+
+
+def spans_of(tr):
+    """Cut a transcript into skill spans: each use runs to the next use or the turn's end."""
+    starts = sorted(tr["uses"], key=lambda u: u[0])
+    bounds = tr["bounds"]
+    spans = []
+    for i, (pos, ts, skill, route) in enumerate(starts):
+        nxt_use = starts[i + 1][0] if i + 1 < len(starts) else None
+        if spans and spans[-1]["skill"] == skill and spans[-1]["end_pos"] > pos:
+            spans[-1]["routes"].append(route)   # the same skill again inside its own span
+            continue
+        bound = next((b for b in bounds if b[0] > pos), None)
+        end, ended_by = tr["end"] + 1, None
+        if bound and (nxt_use is None or bound[0] <= nxt_use):
+            end, ended_by = bound[0], bound
+        elif nxt_use is not None:
+            end = nxt_use
+        spans.append(dict(skill=skill, routes=[route], start_pos=pos, end_pos=end, start=ts,
+                          ended_by=ended_by))
+    for s in spans:
+        inside = [c for c in tr["calls"] if s["start_pos"] <= c.pos < s["end_pos"]]
+        reqs = [(p, t, n) for p, t, n in tr["usage"].values() if s["start_pos"] <= p < s["end_pos"]]
+        stamps = [s["start"]] + [t for _, t, _ in reqs] + [c.ts for c in inside] + [c.result_ts for c in inside]
+        last = max((t for t in stamps if t), default=s["start"])
+        s["calls"] = inside
+        s["turns"] = len(reqs)
+        s["tokens"] = sum(n for _, _, n in reqs)
+        s["wall"] = seconds(s["start"], last)
+        failed = [c for c in inside if c.failed]
+        s["failed"] = bool(failed)
+        s["redo"] = any(later.name == f.name and (head(later.cmd) == head(f.cmd) if f.name == "Bash"
+                                                  else later.input == f.input)
+                        for f in failed for later in inside if later.pos > f.pos)
+        kind, text = (s["ended_by"][2], s["ended_by"][3]) if s["ended_by"] else (None, "")
+        s["interrupted"] = kind == "interrupt"
+        s["corrected"] = kind == "human" and bool(CORRECTION.match(text))
+    return spans
+
+
+def seconds(a, b):
+    try:
+        fa = datetime.datetime.fromisoformat(a.replace("Z", "+00:00"))
+        fb = datetime.datetime.fromisoformat(b.replace("Z", "+00:00"))
+    except ValueError:
+        return 0.0
+    return max(0.0, (fb - fa).total_seconds())
+
+
+# ── one session: its transcript plus its subagents ──────────────────────────────────────
+
+def session(job):
+    sid, parent, subs, since, until, wanted = job
+    main = parse(parent) if parent else None
+    agents = []
+    for sub in subs:
+        tr = parse(sub)
+        if tr is None:
+            continue
+        meta = pathlib.Path(str(sub)[: -len(".jsonl")] + ".meta.json")
+        try:
+            tr["tool_use_id"] = json.loads(meta.read_text()).get("toolUseId")
+        except (OSError, ValueError):
+            tr["tool_use_id"] = None
+        agents.append(tr)
+    trs = [t for t in [main, *agents] if t]
+    if not trs:
+        return None
+    cwd = (main or trs[0])["cwd"]
+    if cwd.startswith(PROBE) or (cwd and pathlib.Path(cwd).is_relative_to(EVAL_HOME)):
+        return None
+    edits = set().union(*(t["edits"] for t in trs))
+    all_spans = []
+    owner = {}   # Agent tool_use id -> the span it was dispatched from
+    for tr in trs:
+        if tr["cwd"].startswith(PROBE):
+            continue
+        sp = spans_of(tr)
+        tr["spans"] = sp
+        for s in sp:
+            for c in s["calls"]:
+                if c.name in ("Agent", "Task"):
+                    owner[c.id] = s
+        all_spans.extend(sp)
+    for tr in agents:
+        parent_span = owner.get(tr.get("tool_use_id"))
+        if parent_span is None:
+            continue
+        own = [(s["start_pos"], s["end_pos"]) for s in tr.get("spans", [])]
+        parent_span["tokens"] += sum(n for p, _, n in tr["usage"].values()
+                                     if not any(a <= p < b for a, b in own))
+    repo = repo_of(cwd)
+    rows = []
+    for s in all_spans:
+        day = s["start"][:10]
+        if not day or not (since <= day <= until) or s["skill"] in edits:
+            continue
+        if wanted and s["skill"] not in wanted:
+            continue
+        rows.append(dict(skill=s["skill"], day=day, repo=repo, routes=s["routes"], turns=s["turns"],
+                         wall=s["wall"], tokens=s["tokens"], failed=s["failed"], redo=s["redo"],
+                         interrupted=s["interrupted"], corrected=s["corrected"]))
+    signals = {}
+    for skill, fn in SIGNALS.items():
+        days = sorted(r["day"] for r in rows if r["skill"] == skill)
+        if days:
+            calls = sorted((c for tr in trs for c in tr["calls"]), key=lambda c: c.ts or "")
+            signals[skill] = (days[0], fn(calls))
+    return dict(session=sid, repo=repo, spans=rows, signals=signals)
+
+
+# ── per-skill signals ───────────────────────────────────────────────────────────────────
+# A signal function gets one session's tool calls, in time order, and returns
+# {repo: {signal: count}}. Each repo it names counts the session once under `sessions`.
+
+WT_SCRIPT = re.compile(r"(?:^|&&|;|\|\||\(|\bbash\s+|\bsh\s+)\s*(?:\w+=\S*\s+)*[\"']?(\S*/)?(?:create|new)-worktree\.sh\b")
+WT_ADD = re.compile(r"\bgit\s+(?:-C\s+\S+\s+)?worktree\s+add\b")
+RENAME = re.compile(r"\bgit\s+(?:-C\s+\S+\s+)?branch\s+(?:-m|-M|--move)\b")
+FLUTTER_STEPS = {"direnv": r"\bdirenv\s+allow\b", "fvm install": r"\bfvm\s+install\b",
+                 "pre-commit": r"\bpre-commit\s+install\b", "pub get": r"\bpub\s+get\b",
+                 "build_runner": r"\bbuild_runner\b", "gen-l10n": r"\bgen-l10n\b"}
+UNGENERATED = re.compile(r"uri_has_not_been_generated|Target of URI hasn't been generated")
+CHECKED = re.compile(r"\bgit\s+(?:-C\s+\S+\s+)?push\b|\b(?:flutter|dart)\s+analyze\b|\bpre-commit\s+run\b")
+DIRTY_FVM = re.compile(r"(?m)^\s*(?:M|modified:)\s+(?:\.fvmrc|\.vscode/settings\.json)\s*$")
+
+
+def worktree_target(cmd, cwd):
+    """Where a creation command puts its worktree, or None when it is no creation."""
+    cmd = code_of(cmd)
+    base = target_dir(cmd, cwd)
+    cmd = substitute(cmd)
+    if WT_ADD.search(cmd):
+        try:
+            words = shlex.split(cmd[WT_ADD.search(cmd).end():].split("&&")[0].split(";")[0])
+        except ValueError:
+            words = cmd.split()
+        takes_value = {"-b", "-B", "--reason", "--orphan"}
+        i = 0
+        while i < len(words):
+            w = words[i]
+            if w in takes_value:
+                i += 2
+                continue
+            if w.startswith("-"):
+                i += 1
+                continue
+            path = expand(w, base)
+            # A path it cannot resolve, or one in no repo, is a throwaway probe.
+            # `.worktrees/$(…)` still names its repo.
+            unresolved = "$" in w and "/.worktrees/" not in path
+            root = find_repo(path)
+            return None if unresolved or path.startswith(PROBE) or not root or "$" in root else path
+        return None
+    m = WT_SCRIPT.search(cmd)   # anchored to a command word, so `cat …/create-worktree.sh` is no run
+    if m:
+        script_dir = m.group(1)
+        if script_dir and script_dir.startswith("/"):
+            return repo_root(script_dir)
+        return repo_root(base)
+    return None
+
+
+def is_flutter(path):
+    root = pathlib.Path(repo_root(path))
+    return (root / "pubspec.yaml").exists() or (root / ".fvmrc").exists()
+
+
+def create_worktree_signals(calls):
+    out = collections.defaultdict(collections.Counter)
+    bash = [c for c in calls if c.name == "Bash"]
+    for i, c in enumerate(bash):
+        target = worktree_target(c.cmd, c.cwd)
+        if target is None:
+            continue
+        repo = repo_of(target)
+        out[repo]["creations"] += 1
+        # The result of the whole command line: only what creation prints counts against it.
+        if ERROR_LINE.search(c.result):
+            out[repo]["creation failed"] += 1
+        if any(RENAME.search(code_of(n.cmd)) for n in bash[i + 1:i + 13]):
+            out[repo]["renamed"] += 1
+        if is_flutter(target):
+            later = " \n".join(n.cmd for n in bash[i + 1:]) + " \n" + c.cmd
+            missing = [s for s, rx in FLUTTER_STEPS.items() if not re.search(rx, later)]
+            out[repo]["steps skipped"] += bool(missing)
+    if not out:
+        return {}
+    first = next(c.ts for c in bash if worktree_target(c.cmd, c.cwd) is not None)
+    for c in bash:
+        where = target_dir(code_of(c.cmd), c.cwd)
+        root = find_repo(where)
+        if (c.ts or "") < (first or "") or not root or where.startswith(PROBE):
+            continue
+        if CHECKED.search(c.cmd) and UNGENERATED.search(c.result):
+            out[os.path.basename(root)]["ungenerated push"] += 1
+        if DIRTY_FVM.search(c.result) and re.search(r"\bgit\b.*\b(?:status|diff)\b", c.cmd):
+            out[os.path.basename(root)]["fvm files dirty"] += 1
+    # A session-level signal counts once per session.
+    for counts in out.values():
+        for k in ("renamed", "steps skipped", "ungenerated push", "fvm files dirty"):
+            counts[k] = min(counts[k], 1)
+    return {repo: dict(c) for repo, c in out.items()}
+
+
+SIGNALS = {"create-worktree": create_worktree_signals}
+SIGNAL_COLUMNS = {"create-worktree": ["creations", "creation failed", "renamed", "steps skipped",
+                                      "ungenerated push", "fvm files dirty"]}
+
+
+# ── the report ──────────────────────────────────────────────────────────────────────────
+
+def discover(root, since):
+    """Sessions under root as {session id: (parent transcript, [subagent transcripts])}."""
+    floor = datetime.datetime.fromisoformat(since).replace(tzinfo=datetime.timezone.utc).timestamp() - 86400
+    found = collections.defaultdict(lambda: [None, []])
+    for project in sorted(root.iterdir()) if root.is_dir() else []:
+        if not project.is_dir():
+            continue
+        for f in project.glob("*.jsonl"):
+            if f.stat().st_mtime >= floor:
+                found[(project.name, f.stem)][0] = f
+        for f in project.glob("*/subagents/agent-*.jsonl"):
+            if f.stat().st_mtime >= floor:
+                found[(project.name, f.parent.parent.name)][1].append(f)
+    return {f"{p}/{s}": tuple(v) for (p, s), v in found.items()}
+
+
+def group_key(by, day, repo):
+    if by == "week":
+        y, w, _ = datetime.date.fromisoformat(day).isocalendar()
+        return f"{y}-W{w:02d}"
+    if by == "repo":
+        return repo
+    return ""
+
+
+def pct(values, q):
+    if not values:
+        return 0
+    values = sorted(values)
+    return values[min(len(values) - 1, int(q * len(values)))]
+
+
+def build(results, by):
+    groups = collections.defaultdict(lambda: dict(sessions=set(), tool=0, slash=0, read=0, spans=[]))
+    signals = collections.defaultdict(lambda: collections.defaultdict(collections.Counter))
+    for r in results:
+        for s in r["spans"]:
+            g = groups[(group_key(by, s["day"], s["repo"]), s["skill"])]
+            g["sessions"].add(r["session"])
+            for route in s["routes"]:
+                g[route] += 1
+            g["spans"].append(s)
+        for skill, (day, per_repo) in r["signals"].items():
+            for repo, counts in per_repo.items():
+                key = group_key(by, day, repo) if by == "week" else ""
+                c = signals[skill][(key, repo)]
+                c["sessions"] += 1
+                c.update(counts)
+    rows = []
+    for (key, skill), g in groups.items():
+        sp = g["spans"]
+        walls, toks, turns = [s["wall"] for s in sp], [s["tokens"] for s in sp], [s["turns"] for s in sp]
+        rows.append(dict(
+            group=key, skill=skill, sessions=len(g["sessions"]),
+            routes=dict(tool=g["tool"], slash=g["slash"], read=g["read"]), spans=len(sp),
+            turns=dict(p50=statistics.median(turns), p90=pct(turns, .9)),
+            wall_seconds=dict(p50=round(statistics.median(walls), 1), p90=round(pct(walls, .9), 1),
+                              sum=round(sum(walls), 1)),
+            tokens=dict(p50=statistics.median(toks), p90=pct(toks, .9), sum=sum(toks)),
+            failed_spans=sum(s["failed"] for s in sp), redo_spans=sum(s["redo"] for s in sp),
+            interrupted=sum(s["interrupted"] for s in sp), corrected=sum(s["corrected"] for s in sp)))
+    rows.sort(key=lambda r: (r["group"], -r["sessions"], r["skill"]))
+    sig = {skill: [dict(group=k, repo=repo, **dict(c)) for (k, repo), c in sorted(per.items())]
+           for skill, per in signals.items()}
+    return rows, sig
+
+
+def human(n, unit=""):
+    if unit == "s":
+        return f"{n / 3600:.1f}h" if n >= 3600 else f"{n / 60:.1f}m" if n >= 60 else f"{n:.0f}s"
+    return f"{n / 1e6:.1f}M" if n >= 1e6 else f"{n / 1e3:.0f}k" if n >= 1e3 else f"{n:.0f}"
+
+
+def render(rows, sig, top, by):
+    cols = ["skill", "sess", "tool", "slash", "read", "spans", "turns", "wall", "tok", "Σwall", "Σtok",
+            "fail", "redo", "intr", "corr"]
+    if by:
+        cols.insert(0, by)
+    out = []
+    shown = collections.Counter()
+    table = []
+    for r in rows:
+        if top and shown[r["group"]] >= top:
+            continue
+        shown[r["group"]] += 1
+        n = r["spans"] or 1
+        line = [r["skill"], r["sessions"], r["routes"]["tool"], r["routes"]["slash"], r["routes"]["read"],
+                r["spans"], f"{r['turns']['p50']:g}", human(r["wall_seconds"]["p50"], "s"),
+                human(r["tokens"]["p50"]), human(r["wall_seconds"]["sum"], "s"), human(r["tokens"]["sum"]),
+                f"{100 * r['failed_spans'] / n:.0f}%", f"{100 * r['redo_spans'] / n:.0f}%",
+                r["interrupted"], r["corrected"]]
+        table.append(([r["group"]] if by else []) + line)
+    out.append(fmt([cols] + table, 2 if by else 1))
+    for skill, entries in sig.items():
+        if not entries:
+            continue
+        names = ["sessions"] + SIGNAL_COLUMNS.get(skill, sorted({k for e in entries for k in e} - {"group", "repo", "sessions"}))
+        head_ = (["week"] if by == "week" else []) + ["repo"] + names
+        body = [([e["group"]] if by == "week" else []) + [e["repo"]] + [e.get(k, 0) for k in names]
+                for e in entries]
+        out.append(f"\n{skill} signals (sessions that used it; a session-level signal counts once)\n"
+                   + fmt([head_] + body, 2 if by == "week" else 1))
+    return "\n".join(out)
+
+
+def fmt(table, left=1):
+    widths = [max(len(str(row[i])) for row in table) for i in range(len(table[0]))]
+    lines = []
+    for row in table:
+        cells = [str(v).ljust(w) if i < left else str(v).rjust(w) for i, (v, w) in enumerate(zip(row, widths))]
+        lines.append("  ".join(cells).rstrip())
+    return "\n".join(lines)
+
+
+def main():
+    today = datetime.date.today()
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
+                                 formatter_class=argparse.RawDescriptionHelpFormatter,
+                                 epilog="Columns: sess = sessions; tool/slash/read = uses by route; turns, wall "
+                                        "and tok = median per span (Σ = total); fail and redo = share of spans "
+                                        "with a failed call / a failed call run again; intr = spans ended by an "
+                                        "interrupt; corr = spans followed by a human prompt that reads as a "
+                                        "correction.")
+    ap.add_argument("--since", default=str(today - datetime.timedelta(days=28)), help="first day, YYYY-MM-DD (UTC)")
+    ap.add_argument("--until", default=str(today), help="last day, inclusive")
+    ap.add_argument("--by", choices=["week", "repo"], help="split every row by ISO week or by repo")
+    ap.add_argument("--skill", action="append", default=[], help="only this skill (repeatable)")
+    ap.add_argument("--top", type=int, default=40, help="rows per group, 0 for all (default 40)")
+    ap.add_argument("--root", type=pathlib.Path, default=ROOT, help=f"transcript root (default {ROOT})")
+    ap.add_argument("--json", action="store_true", help="print the rows as JSON instead")
+    ap.add_argument("--jobs", type=int, default=os.cpu_count() or 1)
+    a = ap.parse_args()
+    for d in (a.since, a.until):
+        datetime.date.fromisoformat(d)
+    wanted = {skill_name(s) for s in a.skill}
+    sessions = discover(a.root, a.since)
+    jobs = [(sid, p, subs, a.since, a.until, wanted) for sid, (p, subs) in sessions.items()]
+    if a.jobs > 1 and len(jobs) > 1:
+        with concurrent.futures.ProcessPoolExecutor(a.jobs) as pool:
+            results = [r for r in pool.map(session, jobs, chunksize=8) if r]
+    else:
+        results = [r for r in map(session, jobs) if r]
+    rows, sig = build(results, a.by)
+    if a.json:
+        print(json.dumps(dict(since=a.since, until=a.until, by=a.by, rows=rows, signals=sig), indent=1))
+        return
+    print(f"{len(results)} sessions, {a.since} to {a.until}, from {a.root}\n")
+    print(render(rows, sig, 0 if wanted else a.top, a.by))
+
+
+if __name__ == "__main__":
+    main()

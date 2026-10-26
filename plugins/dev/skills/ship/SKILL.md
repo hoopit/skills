@@ -1,15 +1,16 @@
 ---
 name: ship
-description: Take one understood piece of work in one repo from a branch to a monitored PR. Use when asked to implement, fix, ship or handle an issue.
+description: Take one change from a branch to a monitored PR. Use for any change headed for a PR, or when asked to ship or handle an issue.
 argument-hint: "<the work, or the item tracking it> [--unattended]"
 ---
 
 # Ship
 
-The shared spine of every shipping workflow: given a **known repo** and an
-**understood piece of work**, take it from a branch to an open PR with a watch on it.
-Bug, feature, chore; Jira, GitHub issue, Sentry, or nothing tracked at all — the shape
-is the same, and each step defers its specifics to the repo's own conventions.
+The one path every agent-opened PR takes: given a **known repo** and an **understood
+piece of work**, take it from a branch to an open PR with a watch on it. Bug or feature,
+docs or config, down to a one-line typo; Jira, GitHub issue, Sentry, or nothing tracked
+at all — the shape is the same, and each step defers its specifics to the repo's own
+conventions.
 
 Origin-specific work — reading the report, resolving *which* repo, creating or linking
 the tracker item — belongs to the caller, which sets the inputs below. Invoked directly,
@@ -38,6 +39,12 @@ Every other fact this skill needs is read at runtime from `TARGET_REPO` —
 `DEFAULT_BRANCH` and tracker config from its `AGENTS.md` *Workflow skills config*,
 conventions from the repo itself.
 
+Where `WORK_ITEM` is a GitHub issue and `hoopit-board` is on `PATH` (the `github-tracker`
+plugin), run `hoopit-board start <owner/repo> <n>` before Step 1. It moves the item into
+flight unless a caller already has, and ties this session to it, so the board shows what
+the run is doing — Working, Needs you, Idle, Gone — through every step after. A failure is
+never fatal: note it and go on.
+
 ## Step 1 — Investigate against the code
 
 Confirm the brief in `TARGET_REPO` before changing anything: locate the code it points
@@ -53,8 +60,11 @@ the command *and* its run in this one PR: the run happens once the PR is green a
 before the merge (`monitor-pr`), and its run log lands on the branch. Decide here whether
 it can. The run needs its own issue only when the command needs this PR live in
 production first — a migration the PR adds, or a writer the PR fixes, whose bad rows would
-keep arriving between the run and the deploy. Then file the run through `create-gh-issue`
-with a `Gate: deployed` line naming this PR, and say why in the PR body.
+keep arriving between the run and the deploy. Then file the run through the driver's
+tracker — `github-tracker:create-gh-issue` when installed, otherwise the
+personal-agent-tracker rule in the repo's `docs/agents/issue-tracker.md` (ask which
+tracker if neither is clear, and file nothing until answered) — with a `Gate: deployed`
+line naming this PR, and say why in the PR body.
 
 ## Step 2 — Create the branch as a worktree
 
@@ -193,8 +203,10 @@ it first, or leave it out — a `text-only` fix commit is the exception (Step 6)
 git push -u origin "$BRANCH"
 ```
 
-Follow the **`create-pull-request`** skill for the body, the labels-at-creation rule, and
-link hygiene. Add to the body it specifies:
+Follow the **`create-pull-request`** skill for the body, the labels-at-creation rule,
+link hygiene, and draft or ready. A `ship` PR is born a draft either way: an agent works its
+rounds (Step 8), and an author outside the reviewing team needs the draft besides. Add to
+the body it specifies:
 
 - the `WORK_ITEM` link section — or, unset, a line saying the change is untracked;
 - a `## Testing` line covering the tests added, or why none was feasible;

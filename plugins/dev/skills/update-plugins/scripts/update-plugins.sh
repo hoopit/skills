@@ -1,21 +1,26 @@
 #!/usr/bin/env bash
-# Bring hoopit-dev@hoopit-skills to the marketplace's latest version in every checkout
-# on this machine that has it installed, and install it in Hoopit product checkouts.
+# Bring each of PLUGINS to its marketplace's latest version in every checkout on this
+# machine that has it installed, and install it at project scope in Hoopit product
+# checkouts. Each of WHERE_INSTALLED is updated only where it already has an install
+# record: at user scope, and at project or local scope in a checkout found here. It is
+# never installed.
 #
 # Usage: update-plugins.sh [checkout-dir ...]
 #
 # Only main worktrees count (linked worktrees are skipped). Every project path with a
-# hoopit-dev record in installed_plugins.json is updated, whatever its remote. Siblings of
+# PLUGINS record in installed_plugins.json is updated, whatever its remote. Siblings of
 # recorded project paths get a fresh install only when their origin is hoopit/<repo> for
 # one of REPOS. A directory named as an argument is installed or updated whatever its
-# remote. Prints one line per checkout (<name> is the product repo, else the basename):
-#   RESULT <name> <dir> <updated|current|installed|stale|failed> <old> -> <new>
+# remote. Prints one line per plugin and checkout (<repo> is the product repo, else the
+# directory's basename):
+#   RESULT <plugin> <repo> <dir> <updated|current|installed|stale|failed> <old> -> <new>
+# A user-scope record reports `user` as both <repo> and <dir>.
 # `stale` means the CLI reported success but this checkout's own record is not at <new>;
 # the records at fault are listed beneath it.
 set -uo pipefail
 
-PLUGIN="hoopit-dev@hoopit-skills"
-MARKETPLACE="hoopit-skills"
+PLUGINS=(hoopit-dev@hoopit-skills mattpocock-skills@claude-plugins-official)
+WHERE_INSTALLED=(github-tracker@hoopit-skills)
 REPOS=(api web-admin flutter-app public-calendar)
 INSTALLED="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/installed_plugins.json"
 export MISE_QUIET=1
@@ -26,8 +31,10 @@ command -v jq >/dev/null || { echo "jq is required" >&2; exit 2; }
 mapfile -t git_env < <(git rev-parse --local-env-vars)
 unset "${git_env[@]}"
 
-echo "Refreshing marketplace $MARKETPLACE..."
-claude plugin marketplace update "$MARKETPLACE" >/dev/null || { echo "marketplace update failed" >&2; exit 1; }
+for m in $(printf '%s\n' "${PLUGINS[@]#*@}" "${WHERE_INSTALLED[@]#*@}" | sort -u); do
+  echo "Refreshing marketplace $m..."
+  claude plugin marketplace update "$m" >/dev/null || { echo "marketplace update failed: $m" >&2; exit 1; }
+done
 
 # installed_plugins.json records native paths. On Windows that is `D:\x` or `d:\x`
 # while Git Bash sees `/d/x`, so both sides compare as `d:/x`. Case is folded only where
@@ -41,17 +48,13 @@ elif [[ "$(uname -s)" == Darwin ]]; then
   PATH_NORM='ascii_downcase'
 fi
 
+# Whether <plugin> has a <scope> record, for checkout <dir> unless the scope is user.
 has_record() {
-  jq -e --arg d "$(native "$1")" --arg p "$PLUGIN" \
+  jq -e --arg d "$(native "$3")" --arg p "$1" --arg s "$2" \
     "def norm: $PATH_NORM;
-     .plugins[\$p] // [] | any(.scope == \"project\" and (.projectPath | norm) == (\$d | norm))" \
+     .plugins[\$p] // [] | any(.scope == \$s and (\$s == \"user\" or (.projectPath | norm) == (\$d | norm)))" \
     "$INSTALLED" >/dev/null 2>&1
 }
-
-declare -A found=() forced=()
-for arg in "$@"; do
-  [[ -d "$arg" ]] && forced["$(cd "$arg" && pwd -P)"]=1
-done
 
 candidates=("$@")
 if [[ -f "$INSTALLED" ]]; then
@@ -61,6 +64,11 @@ if [[ -f "$INSTALLED" ]]; then
     for sib in "$parent"/*/; do candidates+=("${sib%/}"); done
   done < <(jq -r '.plugins[][] | .projectPath // empty' "$INSTALLED" | sort -u)
 fi
+
+declare -A found=() forced=()
+for arg in "$@"; do
+  [[ -d "$arg" ]] && forced["$(cd "$arg" && pwd -P)"]=1
+done
 
 for dir in "${candidates[@]}"; do
   [[ -d "$dir/.git" || -f "$dir/.git" ]] || continue
@@ -75,18 +83,20 @@ for dir in "${candidates[@]}"; do
   for r in "${REPOS[@]}"; do
     [[ "$name" == "$r" ]] && product=$r
   done
-  if [[ -n "$product" || -n "${forced[$dir]:-}" ]] || has_record "$dir"; then
+  recorded=
+  for plugin in "${PLUGINS[@]}"; do
+    has_record "$plugin" project "$dir" && recorded=1
+  done
+  if [[ -n "$product" || -n "${forced[$dir]:-}" || -n "$recorded" ]]; then
     found["$dir"]=${product:-$(basename "$dir")}
   fi
 done
 
-while IFS= read -r dir; do
-  name=${found[$dir]}
-  if has_record "$dir"; then
-    out=$(cd "$dir" && claude plugin update "$PLUGIN" --scope project --json 2>&1)
-  else
-    out=$(cd "$dir" && claude plugin install "$PLUGIN" --scope project --json 2>&1)
-  fi
+# Run `claude plugin <verb>` for <plugin> at <scope> from <dir>, and print its RESULT line.
+apply() {
+  local verb=$1 plugin=$2 scope=$3 repo=$4 dir=$5 out line status old new stale
+  out=$(cd "$dir" && claude plugin "$verb" "$plugin" --scope "$scope" --json 2>&1)
+  [[ $scope == user ]] && dir=user
   line=$(grep -m1 '^{' <<<"$out")
   if [[ -n "$line" ]] && jq -e '.outcome == "ok"' <<<"$line" >/dev/null 2>&1; then
     status=$(jq -r 'if .command == "install" then "installed"
@@ -95,20 +105,39 @@ while IFS= read -r dir; do
     new=$(jq -r '.newVersion // .version // "-"' <<<"$line")
     # The CLI can write a different record than this checkout's: a nested worktree's,
     # or one of several records whose paths differ only in case.
-    stale=$(jq -r --arg d "$(native "$dir")" --arg p "$PLUGIN" --arg v "$new" \
+    stale=$(jq -r --arg d "$(native "$dir")" --arg p "$plugin" --arg v "$new" --arg s "$scope" \
       "def norm: $PATH_NORM;
-       .plugins[\$p] // [] | map(select(.scope == \"project\" and (.projectPath | norm) == (\$d | norm)))
+       .plugins[\$p] // [] | map(select(.scope == \$s and (\$s == \"user\" or (.projectPath | norm) == (\$d | norm))))
        | if length == 0 then [\"(no record)\"] else map(select(.version != \$v) | \"\(.projectPath) \(.version)\") end
        | .[]" "$INSTALLED" 2>&1)
     if [[ "$new" != "-" && -n "$stale" ]]; then
-      echo "RESULT $name $dir stale $old -> $new"
+      echo "RESULT $plugin $repo $dir stale $old -> $new"
       sed 's/^/  /' <<<"$stale"
     else
-      echo "RESULT $name $dir $status $old -> $new"
+      echo "RESULT $plugin $repo $dir $status $old -> $new"
     fi
   else
-    echo "RESULT $name $dir failed - -> -"
+    echo "RESULT $plugin $repo $dir failed - -> -"
     sed 's/^/  /' <<<"$out"
   fi
-done < <(for d in "${!found[@]}"; do printf '%s\n' "$d"; done | sort)
+}
 
+for plugin in "${WHERE_INSTALLED[@]}"; do
+  has_record "$plugin" user - && apply update "$plugin" user user "$HOME"
+done
+
+while IFS= read -r dir; do
+  repo=${found[$dir]}
+  for plugin in "${PLUGINS[@]}"; do
+    if has_record "$plugin" project "$dir"; then
+      apply update "$plugin" project "$repo" "$dir"
+    else
+      apply install "$plugin" project "$repo" "$dir"
+    fi
+  done
+  for plugin in "${WHERE_INSTALLED[@]}"; do
+    for scope in project local; do
+      has_record "$plugin" "$scope" "$dir" && apply update "$plugin" "$scope" "$repo" "$dir"
+    done
+  done
+done < <(for d in "${!found[@]}"; do printf '%s\n' "$d"; done | sort)

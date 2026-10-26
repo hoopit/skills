@@ -1,0 +1,20 @@
+diff --git a/featureflags/tasks.py b/featureflags/tasks.py
+index 7430fa0c95..bd76011c3c 100644
+--- a/featureflags/tasks.py
++++ b/featureflags/tasks.py
+@@ -1,15 +1,11 @@
+ from __future__ import annotations
+ 
+ from logging import getLogger
+-from typing import TYPE_CHECKING
+ 
+ from club_united_api.celery.decorators import task_on_commit
+ from featureflags.feature_flag import FeatureFlag
+ from featureflags.models import JiraFlag
+ 
+-if TYPE_CHECKING:
+-    pass
+-
+ LOGGER = getLogger(__name__)
+ 
+ 

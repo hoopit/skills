@@ -6,12 +6,12 @@ description: Run independent code reviewers. Use right before opening a PR, or b
 # Review Gate
 
 Reviews the branch's committed changes against a fixed point — the repo's default branch, or on a
-`light` pass only what the previous pass hasn't seen — then gates PR creation. The
-always-on **independent** review prefers the **`mattpocock-skills:code-review` skill** (a two-axis
-Standards + Spec reviewer that spawns its own cold sub-agents — genuinely independent eyes); without
-it, a fresh independent subagent, and inline self-review only when no subagent tool is available.
-**Codex** is a second, separate engine and is **required**: engine diversity is the point, so a pass
-that cannot run it blocks rather than passing on one engine's word.
+`light` pass only what the previous pass hasn't seen — then gates PR creation. Both reviewers are
+**required**, and a pass missing either blocks rather than reporting reduced coverage. The
+**independent** review is the **`mattpocock-skills:code-review` skill** (a two-axis Standards + Spec
+reviewer that spawns its own cold sub-agents — genuinely independent eyes). **Codex** is a second,
+separate engine: engine diversity is the point, so a pass that cannot run it blocks rather than
+passing on one engine's word.
 
 ## Contract
 
@@ -24,10 +24,18 @@ Return exactly one verdict:
   skipped with a one-line justification. Say which **scope** ran and against which fixed point, and
   whether this pass **made fix commits** — none, `text-only`, or code: fixed code no reviewer has
   seen is what the caller's next round is for. Caller opens the PR and pastes the gate notes into it.
-- **`BLOCK: <reason>`** — **Codex did not run** (step 2), there is a **disputed Critical/High** finding
+- **`BLOCK: <reason>`** — **`mattpocock-skills:code-review` is not installed** (step 1),
+  **Codex did not run** (step 2), there is a **disputed Critical/High** finding
   (you judge it invalid/not worth fixing), or a valid Critical/High that isn't safe to fix here. You
   may **not** unilaterally dismiss a Critical/High. Caller must NOT open the PR — surface the blocking findings; unattended, the
   caller hands back per its own contract, which owns what an escalation writes to the tracker.
+
+A `PASS` clears the branch to open or push, not to merge. The product repos require a
+`merge-briefing` status on a ready PR, which passes once the description carries a merge
+briefing for the PR's head whose Codex merge-readiness challenge ran — the read of the PR
+as a whole that no pass of this gate gives. `monitor-pr`'s `GREEN` writes it; on a PR
+nobody monitors, run the `merge-briefing` skill. Only PRs into the default branch are
+judged, and a PR a bot opened passes without one.
 
 ## Inputs
 
@@ -58,12 +66,10 @@ Set by the caller; unset, the pass is a full review of the whole branch.
   lines. Otherwise the challenge does not run and the notes say *shape unchanged since
   `<CHALLENGE_AT>`*. Keying on the last **challenge** rather than the last round is what
   catches a shape that arrives in ten commits none of which moves it alone.
-- `CODEX_MODEL` *(optional)* — the Codex model for Codex's **standard review**, overriding what the
-  scope would pick (step 2). The challenge is not steerable at all: questioning an approach is
-  what a strong model buys, so it always runs on the model `~/.codex/config.toml` names.
-  Reasoning effort is **not** an input either: `codex-companion` takes `--effort` on `task` alone,
-  and the standard review goes through `review/start`, which carries no effort field — both reviews
-  read `model_reasoning_effort` from `~/.codex/config.toml`, so that file is where effort changes.
+- `CODEX_MODEL`, `CODEX_EFFORT` *(optional)* — override the model and reasoning effort step 2
+  picks for Codex's **standard review**. The challenge takes neither: the script pins its model
+  and effort, and only `CODEX_CHALLENGE_MODEL` / `CODEX_CHALLENGE_EFFORT` replace a pinned pair
+  Codex no longer accepts.
 - `PRIOR_ROUNDS` *(optional)* — one line per earlier pass: the highest severity among its valid
   findings. It is what lets this pass close (step 5).
 
@@ -73,7 +79,11 @@ that policy.
 
 ## Steps
 
-1. **Fixed point.** Resolve `$DEFAULT_BRANCH` from the repo's AGENTS.md *Workflow skills config*
+1. **Fixed point.** First confirm `mattpocock-skills:code-review` is among your available skills.
+   When it is not, return `BLOCK: mattpocock-skills:code-review not installed — claude plugin
+   install mattpocock-skills@claude-plugins-official --scope project` before opening anything:
+   step 3 has no other independent reviewer, and finding that out after Codex's minutes-long
+   run wastes them. Then resolve `$DEFAULT_BRANCH` from the repo's AGENTS.md *Workflow skills config*
    (e.g. `master`), then set the base every reviewer in this pass diffs against:
    `git fetch` and `REVIEW_BASE=origin/$DEFAULT_BRANCH` under `full`, `REVIEW_BASE=$REVIEWED_AT`
    under `light`. **The remote-tracking ref carries the fixed point**, because a worktree branched
@@ -92,7 +102,7 @@ that policy.
    A workflow, a config file or a script is code. Say in the notes that the diff was text-only.
 2. **External reviewer (Codex, required).** Run the bundled script:
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh" "$REVIEW_BASE" --out "$GATE_DIR" --challenge "$CHALLENGE" --model "$MODEL" $SKIP_DOCS_ONLY
+   bash "${CLAUDE_PLUGIN_ROOT}/skills/review-gate/scripts/run_external_reviewers.sh" "$REVIEW_BASE" --out "$GATE_DIR" --challenge "$CHALLENGE" --model "$MODEL" --effort "$EFFORT" $SKIP_DOCS_ONLY
    ```
    Pass `--challenge` on a pass whose challenge runs (Inputs); leave it off otherwise. It
    prints `codex=<ran|cached|skipped|error|unavailable>[:file]` and, with a challenge,
@@ -121,15 +131,24 @@ that policy.
    spent on it. It does not block — there is no code for a second engine to read — and the notes
    say the external step skipped and why.
 
-   **The model follows the scope, not a judgement about the diff.** Under `full`,
-   `MODEL="$CODEX_MODEL"` — empty unless the caller overrode it, leaving Codex on its own default.
-   Under `light`, `MODEL="${CODEX_MODEL:-gpt-5.6-luna}"`: that pass reviews only the previous
-   pass's fix commits, behind a `full` pass that cleared everything before `REVIEWED_AT`, which is
-   the same reason it already drops the Spec axis. Nobody — not the caller, not this gate — rules a
-   change "simple" and reviews it more cheaply for it: that judgement is what the review exists to
-   test, and the passes most likely to be misjudged are the ones it would weaken. `--model` is
-   safe to pass empty. A model Codex doesn't know fails the run, so the pass blocks with the id in
-   `codex_reason` — set `CODEX_MODEL=""` to take the next pass back to the config model.
+   **The model and effort follow the scope, not a judgement about the diff:**
+
+   | Scope   | `MODEL`                        | `EFFORT`                   |
+   |---------|--------------------------------|----------------------------|
+   | `full`  | `${CODEX_MODEL:-gpt-6.1-sol}`  | `${CODEX_EFFORT:-high}`    |
+   | `light` | `${CODEX_MODEL:-gpt-6-luna}`   | `${CODEX_EFFORT:-medium}`  |
+
+   The gate names both so a local `~/.codex/config.toml` never decides how hard a branch is read.
+   `light` runs lighter because it reviews only the previous pass's fix commits, behind a `full`
+   pass that cleared everything before `REVIEWED_AT` — the same reason it drops the Spec axis.
+   Nobody — not the caller, not this gate — rules a change "simple" and reviews it more cheaply for
+   it: that judgement is what the review exists to test, and the passes most likely to be
+   misjudged are the ones it would weaken. A missing flag, a model Codex doesn't know, or an effort
+   that model does not take ends as `codex=error`, and the pass blocks. For the next pass, set
+   `CODEX_MODEL` or `CODEX_EFFORT` to a pair Codex accepts; when it is a pinned default that
+   went away, update this table. `~/.codex/models_cache.json` lists candidates but not every
+   model Codex accepts — it omits `gpt-6.1-sol` — so confirm a pair with a one-line
+   `codex exec -m <model> -c model_reasoning_effort=<effort>` run, not by its absence there.
 
    **`SKIP_DOCS_ONLY`**: `--skip-docs-only` under `light`, empty under `full`. On a `light` pass
    the diff *is* the fix commits, so a docs-only one has nothing for a code reviewer; on a `full`
@@ -148,12 +167,12 @@ that policy.
    once, and a reviewer that reverts a file there hands every peer a tree that is neither the
    branch nor the base — a measurement taken in that window is false, and nothing downstream
    can tell. Give each reviewer its own `PROBE_DIR` on the same prompt as its brief —
-   `$GATE_DIR/standards-probe`, `$GATE_DIR/spec-probe`, `$GATE_DIR/independent-probe` — where
+   `$GATE_DIR/standards-probe`, `$GATE_DIR/spec-probe` — where
    it builds a private worktree the first time a probe has to change files (the agent
    definition holds how), so only an axis that probes pays for the checkout. A `PROBE_DIR`
    is always inside `$GATE_DIR`: closing the dir is what removes the worktree, and one built
    anywhere else outlives the pass.
-   - **Preferred — invoke the `mattpocock-skills:code-review` skill** (the two-axis reviewer;
+   - **Invoke the `mattpocock-skills:code-review` skill** (the two-axis reviewer;
      use the namespaced name so it isn't confused with the built-in `/review`, which reviews an
      existing GitHub PR). Give it **`$REVIEW_BASE` as the fixed point** — it runs
      `git diff "$REVIEW_BASE"...HEAD`, spawns its own parallel **Standards** and **Spec** sub-agents
@@ -171,17 +190,9 @@ that policy.
      findings there and returns a `FINDINGS <path> · <n> findings` receipt; you read the file.
      That is what makes a lost report survivable (Notes), so pass the path even when you expect
      the report to arrive normally.
-   - **Fallback — if that skill isn't installed** (e.g. only `hoopit-dev`, not `mattpocock-skills`):
-     if the Agent/Task tool is available, spawn a fresh `hoopit-dev:code-reviewer` subagent (same
-     pinned reviewer as above, `FINDINGS_FILE` included — `$GATE_DIR/independent.md`) to review the
-     change **cold**: give it only the repo path and `git diff "$REVIEW_BASE"...HEAD`; otherwise
-     review the diff yourself inline. For this fallback look for: correctness/logic bugs, security,
-     data-integrity/regressions, missed edge cases, and repo conventions (read the relevant
-     `$REPO/.claude/skills/*` for the area you touched).
    A subagent sitting at `idle` with no result has **not** failed, and a result that never
-   arrives is recoverable — see Notes. Work that ladder rather than falling back.
-   Note in the PR which mode ran (`mattpocock-skills:code-review` · independent subagent ·
-   self-review) and at which scope.
+   arrives is recoverable — see Notes. Work that ladder rather than reviewing the diff yourself.
+   Note in the PR at which scope the axes ran.
    `mattpocock-skills:code-review` findings aren't pre-labelled by severity — assign each a severity when you
    triage (step 5): a missing/incorrect spec requirement, or any correctness/security/data-integrity
    issue, is usually Critical/High; baseline code-smells and style nits are Medium/Low.
@@ -265,26 +276,31 @@ Solution:
   Lifting the block is the user's call, not the gate's: the caller asks (`ship` Step 6 offers
   *Open the PR anyway*), and a PR opened that way says in its body that Codex never ran.
 - `mattpocock-skills:code-review` ships via the **`mattpocock-skills`** plugin
-  (`mattpocock-skills@claude-plugins-official`). Without it the gate uses the cold-subagent fallback
-  above — equivalent independence, minus the structured two-axis split.
-- `codex` may be slow (minutes) and needs its own auth (codex setup); an auth/`error` result
-  blocks the pass exactly as a missing install does — fix the auth and run the gate again. The
-  script already retried it once, so `error` is a second failure, not a blip: re-running the
-  gate on the spot buys a third attempt at best.
+  (`mattpocock-skills@claude-plugins-official`). Without it step 1 blocks: there is no in-house
+  substitute, and self-review is not independent review.
+- **The Codex CLI backs the external step.** The standard review runs as `codex exec review`, the
+  challenge as a `codex exec` turn in a read-only sandbox, on the adversarial prompt and output
+  schema vendored under `challenge/` from the codex plugin; its findings are that schema's JSON.
+  Without the CLI both report `unavailable`. Both take minutes and need Codex's own auth
+  (`codex setup`), and an auth `error` blocks exactly as a missing install does — fix it and run the gate again. The
+  script already retried once, so `error` is a second failure: re-running the gate on the spot
+  buys a third attempt at best.
 - **Stop a Codex run by killing its pid, one at a time.** `TaskStop` on the shell that launched
-  the script leaves `codex-companion.mjs` running, so read the pid off `ps` and kill that:
+  the script leaves Codex running, so read the pid off `ps` and kill that:
 
   ```bash
-  ps -eo pid,args | grep 'codex-companion.mjs review'   # `adversarial-review` is the challenge
+  ps -eo pid,args | grep 'codex exec review --base'   # the standard review
+  ps -eo pid,args | grep 'codex exec .*--output-schema' # the challenge
   ```
 
-  Match the subcommand, or you take the challenge down with the standard run. Killing by pattern
+  Match the one you mean, or you take the other down with it; `readlink /proc/<pid>/cwd` tells
+  this worktree's run from another session's. Killing by pattern
   instead — `pkill -f` — is wrong twice over: every concurrent session's review matches the same
   pattern, and the `bash -c` wrapper running the `pkill` carries the pattern in its own argv, so
   it kills its caller too (the shell reports 144) whatever the escaping.
 - **A reviewer subagent at `idle` with no result is not a dead one.** It usually means the work
   finished and the result has not been handed back yet, and delivery can lag the work by a long way.
-  Spawning replacements or dropping to self-review on that signal throws away the independent axis
+  Spawning replacements or reviewing the diff yourself on that signal throws away the independent axis
   while its findings are still in flight. Recover the review in this order, stopping at the first
   that yields it:
   1. **`SendMessage` the agent by name** and wait — a send resumes it from its transcript, so

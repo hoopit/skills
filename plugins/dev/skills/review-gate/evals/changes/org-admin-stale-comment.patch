@@ -1,0 +1,47 @@
+diff --git a/payments/web/views/organization_bank_account_list_view.py b/payments/web/views/organization_bank_account_list_view.py
+--- a/payments/web/views/organization_bank_account_list_view.py
++++ b/payments/web/views/organization_bank_account_list_view.py
+@@ -126,7 +126,7 @@
+ 
+     @property
+     def resource_class(self) -> BankAccountsExportResource:
+-        return BankAccountsExportResource(can_view_balance=self._can_view_balance())
++        return BankAccountsExportResource(can_view_balance=self._is_org_admin())
+ 
+     def get_filename(self) -> str:
+         return f"{self.get_permission_object().get_name()}_bank_accounts"
+@@ -240,8 +240,8 @@
+         # Org admins manage the root org and see every account in it. A team or other
+         # sub-group admin only sees accounts connected to a group they manage — enabled
+         # for one via a DestinationAccount, or set as the default for its subgroups.
+-        user = self.get_user()
+-        if not user.get_admin_groups().filter(pk=root.pk).exists():
++        if not self._is_org_admin():
++            user = self.get_user()
+             managed_group_ids = list(user.get_admin_groups_and_subgroups(root).values_list("pk", flat=True))
+             connected_account_ids = queryset.connected_to_groups(managed_group_ids).values("pk")
+             queryset = queryset.filter(pk__in=connected_account_ids)
+@@ -290,9 +290,11 @@
+             .order_by("has_incomplete_setup_order", "name")
+         )
+ 
+-    def _can_view_balance(self) -> bool:
+-        # Only org (root) admins see the account-level balance; same scope boundary as the
+-        # enabled_for_count / default_for_subgroups_of_count narrowing in get_queryset.
++    def _is_org_admin(self) -> bool:
++        # Org (root) admins see every account and its balance; anyone below the root is
++        # narrowed in get_queryset and never sees the account-level balance. BAC-4412: this
++        # replaces _can_view_balance and the inline check get_queryset used to carry, which had
++        # already drifted apart once before they were merged here.
+         group: OrganizationGroup = self.get_permission_object()
+         return self.get_user().get_admin_groups().filter(pk=group.get_root().pk).exists()
+ 
+@@ -300,7 +302,7 @@
+         context = super().get_serializer_context()
+         group: OrganizationGroup = self.get_permission_object()
+         context["permission_object"] = group
+-        context["can_view_balance"] = self._can_view_balance()
++        context["can_view_balance"] = self._is_org_admin()
+         # Build the handler once per request and share it across all serialized bank accounts.
+         request = self.request
+         if request is not None:

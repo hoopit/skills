@@ -1,0 +1,3 @@
+prompt.md and schema.json are copied unchanged from the openai/codex-plugin-cc
+plugin v1.0.6 (prompts/adversarial-review.md, schemas/review-output.schema.json),
+Copyright 2026 OpenAI, licensed under the Apache License, Version 2.0 — see LICENSE.

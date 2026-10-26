@@ -2,16 +2,22 @@
 # Print one ROUND line the moment the PR has work the previous round did not see, and one GREEN
 # line the first time a head has nothing left to do; exit when the PR leaves OPEN.
 # Usage: watch-pr.sh <owner/repo> <pr_number> [interval_seconds=60]
-# Env:   GATE_CHECKS     — comma-separated reviewer check names (default "codex-review").
-#                          A head goes GREEN only once all of them have reported on it. A
-#                          reviewer outside the list (CodeRabbit) holds a head the way any check
-#                          does — while its status is pending, or a thread of its is unresolved —
-#                          and its silence holds nothing.
-#        GATE_TIMEOUT    — seconds an otherwise-clean head waits for a gate check that never
+# Env:   GATE_CHECKS     — comma-separated reviewer gates (default "codex-review,CodeRabbit").
+#                          A head goes GREEN only once all of them have reported on it. Each is
+#                          a check name, except `CodeRabbit`, which posts no check: it reports
+#                          through its summary comment (`pr_coderabbit`), and a CodeRabbit that
+#                          has said it will not review the head (rate-limited, paused, skipped)
+#                          counts as reported.
+#        GATE_TIMEOUT    — seconds an otherwise-clean head waits for a gate check that has not
 #                          reported before going GREEN anyway (default 900 = 15m). A gate check can
-#                          go missing entirely on a head (skipped, rate-limited) rather than just
-#                          pending, so waiting on it forever would idle the watch; the timeout
-#                          bounds that wait, and the GREEN line names what stayed silent.
+#                          go missing entirely on a head (skipped, rate-limited), or sit at pending
+#                          for good (a reviewer that reviewed another head), so waiting on it
+#                          forever would idle the watch; the timeout bounds that wait, and the GREEN
+#                          line names what stayed silent.
+#        STALL_AFTER     — seconds a head held by nothing but a red gate check waits before one
+#                          STALLED line (default 900 = 15m). Declined findings leave a verdict red
+#                          until a fresh review clears it, so a re-review that never started would
+#                          hold the head forever with nothing to fire a ROUND or a GREEN.
 #        MAX_FETCH_FAILS — consecutive failed GitHub reads before giving up (default 5).
 #        REVIEW_MAX_AGE  — seconds a review-thread read is reused while nothing says it changed
 #                          (default 600). The thread read is the watch's only GraphQL call, and
@@ -19,6 +25,12 @@
 #                          re-asked only when the head or pr_meta's review marker moves. A
 #                          thread resolved in the UI without a reply moves neither; this bounds
 #                          how late the watch sees it.
+#        WATCH_RESUME    — 1 to pick up where the last watch on this PR left off: the threads,
+#                          checks, conflict and GREEN it already fired on stay fired. A Monitor
+#                          is killed after 30 minutes at most, and a re-arm that started fresh
+#                          would fire every open thread as a new ROUND and the same head GREEN
+#                          again. Any other start forgets that state, so a watch armed anew —
+#                          after a stop or a hard fork — sees everything still open as work.
 #
 # A round fires on the *first* feedback of any kind — the actionable set holding something not in
 # the previously fired round: a thread key (id:commentCount, so a reply in an old thread counts), a
@@ -27,21 +39,47 @@
 # the round starts on what has landed, and takes a last look for the rest before it pushes.
 #
 # A head goes GREEN once it has nothing left at all — no unresolved thread, no failing check, none
-# still pending, no conflict — and every gate check has reported on it (or GATE_TIMEOUT elapsed
-# waiting for one that never did). Fired once per head, so a quiet PR asks to be merged exactly
-# once. Requiring zero unresolved threads (not merely zero *new* ones) is what keeps a GREEN from
-# firing mid-round, while the session is still working threads it has seen.
+# still pending but a gate, no conflict — and every gate check has reported on it (or GATE_TIMEOUT
+# elapsed waiting for one that never did). Fired once per head, so a quiet PR asks to be merged
+# exactly once. Requiring zero unresolved threads (not merely zero *new* ones) is what keeps a GREEN
+# from firing mid-round, while the session is still working threads it has seen.
+#
+# A head goes STALLED when its only failing checks are gate checks and it has no unresolved
+# thread, nothing pending and no conflict, for STALL_AFTER. `verdicts=<check>:<n>` counts how
+# many times the watch saw that check turn red on this head, so 1 means no re-review has run on it.
+# Fired once per verdict.
 set -u
 REPO=$1; PR=$2; INTERVAL=${3:-60}
-GATE_CHECKS=${GATE_CHECKS:-codex-review}
+GATE_CHECKS=${GATE_CHECKS:-codex-review,CodeRabbit}
 GATE_TIMEOUT=${GATE_TIMEOUT:-900}
 MAX_FETCH_FAILS=${MAX_FETCH_FAILS:-5}
 REVIEW_MAX_AGE=${REVIEW_MAX_AGE:-600}
+STALL_AFTER=${STALL_AFTER:-900}
 . "$(dirname "${BASH_SOURCE[0]}")/gh-pr-api.sh"
 
 fired_threads=""; fired_fail=""; fired_conflict=0; fired_head=""; fired_green=""; fetch_fails=0
 gate_wait_start=0
+gate_fail_prev=""; verdict_events=""; stall_start=0; fired_stall=""
 threads=""; review_key=""; review_read_at=0
+STATE_DIR=${XDG_STATE_HOME:-$HOME/.local/state}/monitor-pr
+STATE=$STATE_DIR/${REPO//\//_}-$PR
+mkdir -p "$STATE_DIR"
+if [ "${WATCH_RESUME:-0}" = 1 ] && [ -r "$STATE" ]; then
+  # shellcheck disable=SC1090  # written by save_state below, from this script's own variables
+  . "$STATE"
+else
+  rm -f "$STATE"
+fi
+# Written whenever a fired_* or stall value changes — on a ROUND, GREEN or STALLED, when a check
+# leaves the fail bucket, and as a verdict starts its STALL_AFTER — so a resumed watch fires
+# again on exactly what this one would have.
+saved_state=""
+save_state() {
+  local now
+  now=$(declare -p fired_threads fired_fail fired_conflict fired_head fired_green     gate_fail_prev verdict_events stall_start fired_stall)
+  [ "$now" = "$saved_state" ] && return
+  printf '%s\n' "$now" > "$STATE.tmp" && mv "$STATE.tmp" "$STATE" && saved_state=$now
+}
 while true; do
   if ! meta=$(pr_meta "$REPO" "$PR" 2>&1); then
     fetch_fails=$((fetch_fails + 1))
@@ -52,9 +90,12 @@ while true; do
     sleep "$INTERVAL"; continue
   fi
   read -r state conflicting head review_marker <<<"$meta"
-  if [ "$state" != "OPEN" ]; then echo "PR_CLOSED state=$state"; exit 0; fi
+  if [ "$state" != "OPEN" ]; then rm -f "$STATE"; echo "PR_CLOSED state=$state"; exit 0; fi
 
-  if [ "$head" != "$fired_head" ]; then fired_fail=""; fired_conflict=0; fired_head=$head; gate_wait_start=0; fi
+  if [ "$head" != "$fired_head" ]; then
+    fired_fail=""; fired_conflict=0; fired_head=$head; gate_wait_start=0
+    gate_fail_prev=""; verdict_events=""; stall_start=0
+  fi
 
   # An empty read here reads as "no failing checks, none running", which is half of what
   # GREEN tests for — so a failure polls again rather than calling the head clean.
@@ -69,12 +110,31 @@ while true; do
   IFS=, read -ra gates <<<"$GATE_CHECKS"
   pending_gates=""
   for g in "${gates[@]}"; do
+    if [ "$g" = CodeRabbit ]; then
+      # A failed read holds the gate like a silent CodeRabbit, and GATE_TIMEOUT bounds both.
+      rabbit=$(pr_coderabbit "$REPO" "$PR" "$head" 2>/dev/null) || rabbit=pending
+      [ "$rabbit" = pending ] && pending_gates="${pending_gates:+$pending_gates,}$g"
+      continue
+    fi
     awk -F'\t' -v n="$g" '$2==n && $1!="pending"{found=1} END{exit !found}' <<<"$checks" \
       || pending_gates="${pending_gates:+$pending_gates,}$g"
   done
   gate_open=1; [ -n "$pending_gates" ] && gate_open=0
   failing=$(awk -F'\t' '$1=="fail"{print $2}' <<<"$checks" | sort)
-  running=$(awk -F'\t' '$1=="pending"{print $2}' <<<"$checks" | grep -c .)
+  # A gate still pending is waited on as a gate, under GATE_TIMEOUT, not as a running check:
+  # nothing else would end the wait on one stuck there.
+  running=$(awk -F'\t' -v gates=",$GATE_CHECKS," '$1=="pending" && !index(gates, "," $2 ","){print $2}' <<<"$checks" | grep -c .)
+  gate_fail=$(grep -Fxf <(printf '%s
+' "${gates[@]}") <<<"$failing")
+  other_fail=$(grep -vFxf <(printf '%s
+' "${gates[@]}") <<<"$failing" | grep .)
+  # One line per gate check turning red on this head; a check's line count is its verdict count.
+  verdict_events=$(printf '%s
+%s
+' "$verdict_events"     "$(comm -13 <(printf '%s
+' "$gate_fail_prev") <(printf '%s
+' "$gate_fail"))" | grep .)
+  gate_fail_prev=$gate_fail
 
   now=$(date +%s)
   if [ "$head $review_marker" != "$review_key" ] || [ $((now - review_read_at)) -ge "$REVIEW_MAX_AGE" ]; then
@@ -94,28 +154,45 @@ while true; do
   # A fired check that left the fail bucket is forgotten, so a re-run or re-review that comes
   # back red on the same head fires again instead of reading as already seen.
   fired_fail=$(comm -12 <(printf '%s\n' "$fired_fail") <(printf '%s\n' "$failing") | grep .)
+  save_state
   new_fail=$(comm -13 <(printf '%s\n' "$fired_fail") <(printf '%s\n' "$failing") | grep . | paste -sd, -)
   new_conflict=0; [ "$conflicting" = 1 ] && [ "$fired_conflict" = 0 ] && new_conflict=1
   actionable=0; { [ "$new_threads" -gt 0 ] || [ -n "$new_fail" ] || [ "$new_conflict" = 1 ]; } && actionable=1
+  stalled=0
+  [ -n "$gate_fail" ] && [ -z "$other_fail" ] && [ -z "$threads" ] && [ "$running" = 0 ]     && [ "$conflicting" = 0 ] && stalled=1
+  [ "$actionable" = 1 ] || [ "$stalled" = 0 ] && stall_start=0
 
   if [ "$actionable" = 1 ]; then
     gate_wait_start=0
-    echo "ROUND head=${head:0:7} unresolved=$(grep -c . <<<"$threads") new_threads=$new_threads failing=${failing:+$(paste -sd, - <<<"$failing")} conflicting=$conflicting${pending_gates:+ pending_gates=$pending_gates}"
+    echo "ROUND head=$head unresolved=$(grep -c . <<<"$threads") new_threads=$new_threads failing=${failing:+$(paste -sd, - <<<"$failing")} conflicting=$conflicting${pending_gates:+ pending_gates=$pending_gates}"
     fired_threads=$threads; fired_fail=$failing; fired_conflict=$conflicting
+    save_state
   elif [ "$fired_green" != "$head" ] && [ -z "$threads" ] && [ -z "$failing" ] \
        && [ "$running" = 0 ] && [ "$conflicting" = 0 ]; then
-    # Nothing pending means a closed gate is a reviewer that never reported at all; give it
-    # GATE_TIMEOUT to show up rather than calling the head green behind its back.
+    # Everything else has settled, so a closed gate is a reviewer that has not reported, posted
+    # nothing or stuck at pending; give it GATE_TIMEOUT rather than calling the head green
+    # behind its back.
     if [ "$gate_open" = 0 ]; then
       now=$(date +%s)
       [ "$gate_wait_start" = 0 ] && gate_wait_start=$now
       if [ $((now - gate_wait_start)) -lt "$GATE_TIMEOUT" ]; then sleep "$INTERVAL"; continue; fi
     fi
     gate_wait_start=0
-    echo "GREEN head=${head:0:7}${pending_gates:+ pending_gates=$pending_gates}"
+    echo "GREEN head=$head${pending_gates:+ pending_gates=$pending_gates}"
     fired_green=$head
+    save_state
+  elif [ "$stalled" = 1 ]; then
+    gate_wait_start=0
+    now=$(date +%s)
+    [ "$stall_start" = 0 ] && stall_start=$now
+    verdicts=$(while IFS= read -r g; do echo "$g:$(grep -cFx "$g" <<<"$verdict_events")"; done       <<<"$gate_fail" | paste -sd, -)
+    if [ $((now - stall_start)) -ge "$STALL_AFTER" ] && [ "$fired_stall" != "$head $verdicts" ]; then
+      echo "STALLED head=$head verdicts=$verdicts"
+      fired_stall="$head $verdicts"
+    fi
   else
     gate_wait_start=0
   fi
+  save_state
   sleep "$INTERVAL"
 done

@@ -1,0 +1,30 @@
+[
+ {
+  "fix": "code",
+  "fix_file": "posts/views/post_image_detail_view.py",
+  "fix_replace": [
+   [
+    "from django.shortcuts import get_object_or_404\n\n",
+    ""
+   ],
+   [
+    "    lookup_url_kwarg = \"attachment_id\"\n",
+    "    model = PostImage\n    lookup_url_kwarg = \"attachment_id\"\n"
+   ],
+   [
+    "\n    def get_object(self, check_permission: bool = False, filter_qs: bool = True) -> Image:\n        return get_object_or_404(PostImage, id=self.kwargs[self.lookup_url_kwarg])\n",
+    ""
+   ]
+  ],
+  "fix_message": "GH-18161: Use BaseView's default lookup for the post image",
+  "findings": [
+   "Fixed: [Medium] Standards \u2014 `get_object` re-implements BaseView's lookup; declare `model = PostImage` and use the default, which already answers 404",
+   "Skipped: [Low] Standards \u2014 the unused `LOGGER`: outside this change"
+  ]
+ },
+ {
+  "findings": [
+   "Findings: none"
+  ]
+ }
+]
