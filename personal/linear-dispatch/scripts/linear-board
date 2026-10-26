@@ -14,10 +14,11 @@ read, and what a person removes to send the issue back to triage. A comment carr
 reasoning, ending in one machine-readable line (`TRIAGE_LINE`) with the repo and Effort an
 implementer is started on. The newest such comment is the verdict in force.
 
-Every open issue that has not been started and carries no `agent` label is in `inbox`,
-whatever its team or assignee. Dispatch is narrower: `candidates` offers a doable issue
-only while it is unassigned or assigned to the key's own user, so no agent opens a PR on
-work somebody else holds. A claim assigns the issue to that user and moves it to the
+The flow covers one queue: the Support team's issues in its Triage state. Every other team
+plans its own work, and nothing here reads, labels or comments on it. An issue in that
+queue with no `agent` label is in `inbox`. Dispatch is narrower: `candidates` offers a
+doable issue only while it is unassigned or assigned to the key's own user, so no agent
+opens a PR on work somebody else holds. Support names no repo, so every verdict does. A claim assigns the issue to that user and moves it to the
 team's In Progress state; the PRs go out under that user's name.
 
 Linear is reached through `linear-gql`, which finds the key itself (`LINEAR_API_KEY`
@@ -30,18 +31,15 @@ first). The registry is reached through `hoopit-board claims`.
   claim <KEY> --agent A [--model M] [--reasoning-effort E]
                                  registry first, then assign, In Progress and a claim comment
   pr <KEY> <url>                 add an open PR to the issue's claim
-  release <KEY> --reason R       hand the issue back: `released`, unassigned, Backlog
+  release <KEY> --reason R       hand the issue back: `released`, unassigned, back in Triage
   settle [--apply]               drop or release the claims whose work has ended
   provision [--apply]            create the `agent` label group; a dry run without --apply
 """
 import argparse, json, os, re, subprocess, sys
 
-# The repo a team's work lands in. Every other team — Support above all — has no repo of its
-# own, and its verdict names one.
-TEAM_REPOS = {"BE": "hoopit/api", "ADM": "hoopit/web-admin", "APP": "hoopit/flutter-app",
-              "CAL": "hoopit/public-calendar"}
+# The one queue the flow reads: this team's issues in a state of this type.
+TEAM, QUEUE = "SUP", "triage"
 EFFORTS = ["XS", "S", "M", "L", "XL"]
-NOT_STARTED = ["triage", "backlog", "unstarted"]
 ENDED = ("completed", "canceled", "duplicate")
 GROUP = "agent"
 VERDICTS = {"doable": "Triaged: an agent can take it to a PR unattended.",
@@ -108,13 +106,14 @@ def viewer():
 
 
 def open_issues():
-    """Every issue not yet started, in every team."""
+    """Every issue in the queue: `TEAM`'s, in a state of type `QUEUE`."""
     out, after = [], None
     while True:
-        page = gql(f"""query Open($after:String, $types:[String!]) {{
-            issues(first:100, after:$after, filter:{{ state:{{ type:{{ in:$types }} }} }}) {{
+        page = gql(f"""query Open($after:String, $team:String!, $type:String!) {{
+            issues(first:100, after:$after, filter:{{ team:{{ key:{{ eq:$team }} }},
+                   state:{{ type:{{ eq:$type }} }} }}) {{
               pageInfo {{ hasNextPage endCursor }} nodes {{ {ISSUE} }} }} }}""",
-                   after=after, types=NOT_STARTED)["issues"]
+                   after=after, team=TEAM, type=QUEUE)["issues"]
         out += page["nodes"]
         if not page["pageInfo"]["hasNextPage"]:
             return out
@@ -218,15 +217,15 @@ def team_state(i, name, kind):
 
 def brief(i):
     return {"key": i["identifier"], "team": i["team"]["key"],
-            "repo": TEAM_REPOS.get(i["team"]["key"]), "title": i["title"],
+            "title": i["title"],
             "description": i.get("description") or "", "url": i["url"],
             "state": i["state"]["name"], "assigned": bool(i.get("assignee")),
             "priority": PRIORITY.get(i.get("priority"), ""), "created": i["createdAt"]}
 
 
 def cmd_inbox(a):
-    """The issues no verdict covers yet: not started, no `agent` label, newest first, so a
-    new report is triaged on the tick it arrives and the backlog drains behind it."""
+    """The queue's issues no verdict covers yet — no `agent` label — newest first, so a new
+    report is triaged on the tick it arrives and the backlog drains behind it."""
     todo = [i for i in open_issues() if agent_label(i) is None]
     todo.sort(key=lambda i: i["createdAt"], reverse=True)
     print(json.dumps([brief(i) for i in todo[:a.limit]], indent=2))
@@ -250,6 +249,8 @@ def cmd_verdict(a):
     if not findings:
         sys.exit("verdict: the findings on stdin are empty — say why")
     i = issue(a.key)
+    if i["team"]["key"] != TEAM:
+        sys.exit(f'verdict: {a.key} is a {i["team"]["key"]} issue; the flow triages {TEAM} alone')
     swap = swap_label(i, verdict)
     fields = {"verdict": verdict, "repo": a.repo, "effort": a.effort}
     head = f"**Agent triage: {verdict}**"
@@ -263,8 +264,10 @@ def cmd_verdict(a):
 
 
 def eligible(i, me):
-    """Whether a doable issue may be dispatched now: not started, and held by nobody else."""
-    return (agent_label(i) == "doable" and i["state"]["type"] in NOT_STARTED
+    """Whether a doable issue may be dispatched now: still in the queue, and held by nobody
+    else."""
+    return (agent_label(i) == "doable" and i["team"]["key"] == TEAM
+            and i["state"]["type"] == QUEUE
             and (i.get("assignee") or {}).get("id") in (None, me))
 
 
@@ -367,7 +370,7 @@ def drop(key):
 
 def release(key, reason):
     i = issue(key)
-    fields = {**swap_label(i, "released"), "stateId": team_state(i, "Backlog", "backlog")}
+    fields = {**swap_label(i, "released"), "stateId": team_state(i, "Triage", QUEUE)}
     if (i.get("assignee") or {}).get("id") == viewer():
         fields["assigneeId"] = None
     update(i, **fields)
@@ -378,7 +381,7 @@ def release(key, reason):
 
 def cmd_release(a):
     """Hand an issue back: `released` replaces the verdict, so no tick offers it again until
-    a person removes the label, and the issue returns to Backlog with the reason."""
+    a person removes the label, and the issue returns to Support's Triage with the reason."""
     release(a.key, a.reason)
     print(f"RELEASED\t{a.key}")
     return 0
