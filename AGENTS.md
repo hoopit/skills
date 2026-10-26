@@ -18,6 +18,11 @@ Never expand existing frontmatter descriptions without approval.
   feature branch, no PR. Skip the usual "branch first on the default branch" step here.
 - **Edit skills in a working clone of `hoopit/skills`.** Before the first edit, read
   `git rev-parse --show-toplevel`: under `~/.claude/plugins/`, switch to the working clone.
+- **`hoopit-board` and `linear-board` run from this clone.** `~/.local/bin` symlinks them to
+  `plugins/github-tracker/bin/hoopit-board` and `personal/linear-dispatch/scripts/linear-board`,
+  so every edit is live for every session at once, and a truncated or stubbed copy makes each
+  bare call silently do nothing. Point tests, probes and edit scripts at a copy, and after
+  touching either file, `git diff --stat` it.
 
 ## Skill scope — Hoopit-specific is fine, single-project is not
 
