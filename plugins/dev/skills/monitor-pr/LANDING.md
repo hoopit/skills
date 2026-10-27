@@ -19,6 +19,19 @@ Step 4a of [SKILL.md](SKILL.md). Four steps, in order, attended or `--unattended
    (listed with its number and priority), dropped with its reason, or asked — or the sweep
    says *nothing left open*.
 
+   A PR naming a Sentry issue (`## Sentry`, `Fixes <SENTRY_ID>`) has that issue resolved
+   in the next release, at merge. Read its status; when the merge left it unresolved — a
+   squash that dropped the footer — resolve it by hand now, with the numeric id from its
+   URL:
+
+   ```bash
+   sentry api organizations/<org>/issues/<numeric id>/ --method PUT \
+     -d '{"status":"resolved","statusDetails":{"inNextRelease":true}}'
+   ```
+
+   `sentry issue resolve <ID>` alone skips regression tracking, and `--in @next` names
+   the release built from the local HEAD; use the `inNextRelease` form above.
+
 3. **Clean up.** Invoke `clean-up-worktree` for the branch as a caller landing a merge: the
    merge is its approval, so it asks no confirmation, and a safety stop stays a question.
    Skip it, saying why, when step 1 pushed commits past the merge: that branch is live

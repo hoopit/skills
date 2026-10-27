@@ -75,7 +75,8 @@ Awaiting release is pushed to Ready for QA — past the release automation's
   section + `Refs <ITSM_ISSUE_KEY>` footer) — a different project, and the
   workflow depends on that link.
 - **Inert — never matches:** a Sentry short ID (e.g. `BAC-QCB`, no digits after
-  the dash). Keep the `## Sentry` reference and `Fixes <SENTRY_ID>` footer.
+  the dash). Keep the `## Sentry` reference and `Fixes <SENTRY_ID>` footer: the footer in
+  the squash commit is what resolves the Sentry issue in the next release at merge.
 - **Everything else drops the hyphen:** a spun-out follow-up, a blocked-by or
   related ticket, a "same class as …" or "supersedes …" aside, a sibling-project
   issue.

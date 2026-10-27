@@ -157,7 +157,9 @@ to a monitored PR. Pass it:
 - `WORK_ITEM` — the Jira issue from Step 2 and its `$JIRA_BASE_URL/browse/<JIRA_KEY>`
   url, tracked in Jira.
 - Ask for a `Fixes <SENTRY_ID>` commit footer and a `## Sentry` PR section linking
-  `SENTRY_URL` (`SENTRY_ID` is the short id, e.g. `BAC-QCB`).
+  `SENTRY_URL` (`SENTRY_ID` is the short id, e.g. `BAC-QCB`). The footer resolves the
+  Sentry issue in the next release at merge; when the squash commit drops it, `ship`'s
+  landing resolves the issue by hand (`monitor-pr`'s LANDING.md).
 
 You've done the Sentry-specific work (fetched the issue + event in Step 1, created or
 linked the Jira issue and its native Sentry↔Jira link in Step 2);

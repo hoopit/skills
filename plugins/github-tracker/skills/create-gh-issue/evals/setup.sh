@@ -9,7 +9,8 @@
 # call goes to the runner's gh shim unchanged.
 #
 # sentry: not one of the runner's shims, and the real CLI on this machine is signed in. Every
-# call is recorded as tool `sentry`; resolving or viewing API-5KD answers, anything else fails.
+# call is recorded as tool `sentry`; resolving or viewing API-5KD (numeric id 6912045538) answers,
+# anything else fails.
 set -euo pipefail
 shims="$EVAL_RUN_DIR/shims"
 mv "$shims/gh" "$EVAL_RUN_DIR/gh-recorder"
@@ -67,9 +68,9 @@ argv = sys.argv[1:]
 with open(CALLS, "a") as fh:
     fh.write(json.dumps({"tool": "sentry", "argv": argv, "stdin": None, "cwd": os.getcwd()}) + "\n")
 line = " ".join(argv)
-if "API-5KD" in line and "resolve" in line:
+if ("API-5KD" in line or "6912045538" in line) and ("resolve" in line):
     print("Resolved API-5KD: it reopens as a regression on the next matching event.")
-elif "API-5KD" in line:
+elif "API-5KD" in line or "6912045538" in line:
     print("API-5KD  TypeError: '<' not supported between instances of 'NoneType' and 'datetime.date'\n"
           "status: unresolved   events: 212   users: 64   last seen: 2026-10-01T06:41Z\n"
           "culprit: payments.models.payment_plan in _get_next_charge_date")

@@ -11,7 +11,7 @@ frontmatter, which reaches here as EVAL_EXPECT_<NAME>:
     expect_no_parent    `1`: no `sub_issues` write
     expect_names        text every created issue's body must contain
     expect_reads        an issue number some gh call must read
-    expect_resolve      a Sentry short id the run must resolve with the `sentry` CLI
+    expect_resolve      a Sentry issue id the run must resolve in the next release (`inNextRelease`)
     expect_effort       comma-separated Efforts the created issue may carry
     expect_proposals    `backlog`: every created issue but the Ops one stays out of Ready
     expect_dropped      a word no created issue's title may contain: the item the change settled
@@ -204,7 +204,7 @@ if "reads" in E:
 
 if "resolve" in E:
     sentry = [" ".join(c["argv"]) for c in calls if c["tool"] == "sentry"]
-    ok = any(E["resolve"] in s and "resolve" in s for s in sentry)
+    ok = any(E["resolve"] in s and "inNextRelease" in s for s in sentry)
     out("PASS" if ok else "FAIL", "sentry_resolved", "" if ok else f"sentry calls: {sentry or 'none'}")
 
 if E.get("decision") == "1":

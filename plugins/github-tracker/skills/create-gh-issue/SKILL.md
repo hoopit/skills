@@ -88,10 +88,21 @@ parent named too (step 4).
     on it. File the operational half separately, as an `Ops` issue carrying `Gate:
     deployed` (step 5), and let the first close at its merge.
   - An acceptance line that only needs the Sentry issue to go **quiet** resolves it
-    directly, no follow-up: `sentry issue resolve <ID>` once the fix reaches the branch
-    the event comes from. A resolved issue reopens itself on the next matching event —
-    that regression is the verification a follow-up would otherwise spend a day's
-    traffic window to re-derive.
+    **in the next release, at merge**, no follow-up and no waiting for a deploy. The PR's
+    `Fixes <SENTRY_ID>` footer does it when the squash commit keeps it; when the merge
+    left the issue unresolved, resolve it by hand right then, with the numeric id from
+    the issue's URL:
+
+    ```bash
+    sentry api organizations/<org>/issues/<numeric id>/ --method PUT \
+      -d '{"status":"resolved","statusDetails":{"inNextRelease":true}}'
+    ```
+
+    That is the UI's "Resolved in the next release". `sentry issue resolve <ID>` alone
+    resolves with no regression tracking, and `--in @next` ties it to the release built
+    from your local HEAD. Resolved this way, the issue reopens itself on a matching event
+    from a later release — that regression is the verification a follow-up would
+    otherwise spend a day's traffic window to re-derive.
   - A run that only needs the code **reviewed** stays in one issue. Where the repo has
     a script that runs the local checkout against prod (see its `AGENTS.md`), a repair
     command runs from its own branch once the PR is green and ready (`monitor-pr` asks

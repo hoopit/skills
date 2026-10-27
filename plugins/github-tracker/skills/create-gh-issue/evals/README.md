@@ -16,7 +16,7 @@ for the issues and PRs the prompts name. `setup.sh` adds the two shims the runne
 | `repair-after-deploy` | The converse: a repair of rows a bug keeps writing until its PR ships is a second, `Ops` issue with a live `Gate: deployed` on that PR. |
 | `finding-to-backlog` | A finding a run turns up, put in Ready, or attached as a sub-issue of the item the run was dispatched for. |
 | `p1-finding` | The same with a P1 security hole, where the Ready table's "P0 or P1 defect" and "a finding is a proposal" pull apart (hoopit/api#18182 went in Ready). |
-| `sentry-fixed` | A "verify the Sentry issue stays quiet" follow-up filed where resolving the Sentry issue is the whole job. |
+| `sentry-fixed` | A "verify the Sentry issue stays quiet" follow-up filed, or the resolve held for a deploy, where resolving the Sentry issue in the next release is the whole job. |
 | `covered-on-board` | A new issue for a finding an open board item already covers. |
 | `drop-shim-is-code` | Code work that waits on something, typed as operational work. |
 | `needs-decision` | `Needs decision` with no `## The decision` section: 18 of 159 such filings from 2026-09-15 to 2026-10-01. |
