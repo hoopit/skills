@@ -78,6 +78,10 @@ WAITS_ON = ("product", "support")
 # Where a sub-issue waits until an agent takes it.
 WAITING = ("backlog", "unstarted")
 EFFORTS = ["XS", "S", "M", "L", "XL"]
+# Effort as the Estimate a team on Linear's T-shirt scale stores, mirrored onto a part for
+# people to sort and sum. The triage comment stays what the dispatcher reads: anybody in the
+# workspace can edit an estimate.
+ESTIMATE = {"XS": 1, "S": 2, "M": 3, "L": 5, "XL": 8}
 ENDED = ("completed", "canceled", "duplicate")
 GROUP = "agent"
 VERDICTS = {"doable": "Triaged: an agent can take it to a PR unattended.",
@@ -96,7 +100,7 @@ PR_URL = re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)")
 PRIORITY = {1: "P0", 2: "P1", 3: "P2", 4: "P3"}
 
 ISSUE = """id identifier title description url priority createdAt updatedAt
-  team { id key } state { id name type } assignee { id } creator { id }
+  team { id key issueEstimationType } state { id name type } assignee { id } creator { id }
   parent { id identifier team { key } }
   labels { nodes { id name parent { name } } }"""
 
@@ -283,6 +287,14 @@ def triage_of(key):
     return None, ""
 
 
+def estimate(i, effort):
+    """The update that mirrors a part's Effort into its Estimate — cleared for a part with
+    none — or nothing, on a team that keeps no T-shirt estimates."""
+    if i["team"].get("issueEstimationType") != "tShirt":
+        return {}
+    return {"estimate": ESTIMATE[effort] if effort else None}
+
+
 def update(i, **fields):
     gql("""mutation Update($id:String!, $input:IssueUpdateInput!) {
              issueUpdate(id:$id, input:$input) { success } }""", id=i["id"], input=fields)
@@ -425,6 +437,8 @@ def cmd_verdict(a):
     support = i["team"]["key"] == TEAM
     fields = merge(swap_label(i, None if support else verdict),
                    type_swap(i, a.type) if a.type else {})
+    if not support:
+        fields.update(estimate(i, effort))
     if not a.doable:
         fields["assigneeId"] = owner_for(a.waits_on)
     if support:
@@ -528,6 +542,7 @@ def cmd_split(a):
         comment(child, triage_comment(p["verdict"], p["repo"], p.get("effort"),
                                       "The findings are in the description.", together))
         fields = merge(swap_label(child, p["verdict"]), type_swap(child, p.get("type", kind)))
+        fields.update(estimate(child, p.get("effort")))
         if p["verdict"] == "not-doable":
             fields["assigneeId"] = owner_for(p["waits_on"])
         update(child, **fields)

@@ -28,7 +28,8 @@ def issue(key, state="Triage", kind="triage", label=None, assignee=None, team="S
     return {"id": f"id-{key}", "identifier": key, "title": f"title {key}",
             "description": description, "url": f"https://linear.app/hoopit/issue/{key}",
             "priority": priority, "createdAt": created, "updatedAt": created,
-            "team": {"id": f"team-{team}", "key": team},
+            "team": {"id": f"team-{team}", "key": team,
+                     "issueEstimationType": "notUsed" if team in ("SUP", "CAL") else "tShirt"},
             "state": {"id": f"s-{state.replace(' ', '')}", "name": state, "type": kind},
             "assignee": {"id": assignee} if assignee else None,
             "creator": {"id": creator},
@@ -124,6 +125,8 @@ class Fake:
             i["labels"] = {"nodes": nodes}
             if "stateId" in inp:
                 i["state"] = dict(STATE[inp["stateId"]])
+            if "estimate" in inp:
+                i["estimate"] = inp["estimate"]
             if "assigneeId" in inp:
                 i["assignee"] = {"id": inp["assigneeId"]} if inp["assigneeId"] else None
             return {}
@@ -243,6 +246,7 @@ def test_split_makes_one_sub_issue_per_platform_then_commits_on_the_parent():
     names = lambda i: sorted(l["name"] for l in i["labels"]["nodes"] if not l.get("parent"))
     assert names(fake.issues["BE-101"]) == ["Bug"] and names(fake.issues["APP-102"]) == ["Improvement"]
     assert fake.issues["APP-102"]["assignee"] == {"id": LUKAS} and fake.issues["BE-101"]["assignee"] is None
+    assert fake.issues["BE-101"]["estimate"] == 2 and fake.issues["APP-102"]["estimate"] is None
     be, app = fake.issues["BE-101"], fake.issues["APP-102"]
     assert (be["state"]["name"], be["priority"], be["parent"]["identifier"]) == ("Backlog", 2, "SUP-1")
     assert be["description"].startswith("Split from [SUP-1]") and "Edit `a.py`." in be["description"]
@@ -373,6 +377,7 @@ def test_a_held_part_sent_back_is_judged_again_and_frees_its_unit():
     out, code = run(m, "cmd_verdict", stdin="Answered: screen B.", key="APP-1", doable=True,
                     not_doable=False, repo=None, effort="S", type=None, waits_on=None)
     assert code == 0 and out.startswith("DOABLE\tAPP-1\thoopit/flutter-app\tS"), (out, code)
+    assert fake.issues["APP-1"]["estimate"] == 2, fake.issues["APP-1"]
     fake.comments["APP-1"].append({"body": fake.ops("Comment")[-1]["input"]["body"],
                                    "createdAt": "2026-10-09T00:00:00Z", "user": {"id": ME}})
     assert m.triage_of("APP-1")[0]["together"] is True
