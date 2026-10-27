@@ -3,7 +3,7 @@
 # machine that has it installed, and install it at project scope in Hoopit product
 # checkouts. Each of WHERE_INSTALLED is updated only where it already has an install
 # record: at user scope, and at project or local scope in a checkout found here. It is
-# never installed.
+# never installed. Each of PLUGINS is updated, never installed, at user scope too.
 #
 # Usage: update-plugins.sh [checkout-dir ...]
 #
@@ -122,7 +122,7 @@ apply() {
   fi
 }
 
-for plugin in "${WHERE_INSTALLED[@]}"; do
+for plugin in "${PLUGINS[@]}" "${WHERE_INSTALLED[@]}"; do
   has_record "$plugin" user - && apply update "$plugin" user user "$HOME"
 done
 

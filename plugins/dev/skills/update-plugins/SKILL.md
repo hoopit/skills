@@ -10,6 +10,7 @@ hoopit-dev and `mattpocock-skills`, which its skills lean on, install per projec
 checkout that has them pins its own version and drifts on its own. This run brings every
 such checkout on the machine to the marketplace's latest, and installs them in Hoopit
 product checkouts (`api`, `web-admin`, `flutter-app`, `public-calendar`) that lack them.
+A user-scope record of either is updated too, but they are never installed at user scope.
 github-tracker is updated too, but only where it is already installed — at user scope, or
 at project or local scope in a checkout — since it is not every developer's tracker.
 
@@ -26,12 +27,12 @@ output line means. Pass a checkout's directory as an argument when the user name
 search would miss; it is installed or updated whatever its remote.
 
 Done when the script has exited and printed a `RESULT` line per plugin and checkout found,
-and one per github-tracker install record.
+one per user-scope record, and one per github-tracker install record.
 
 ## 2. Report
 
 One line per checkout and plugin: its name and directory, and `old -> new` or `already
-current`. A github-tracker line at user scope names `user` in place of a repo. A `failed`
+current`. A line at user scope names `user` in place of a repo. A `failed`
 line carries the CLI's own output beneath it; report it verbatim
 with the checkout it belongs to.
 
