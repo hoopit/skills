@@ -202,9 +202,7 @@ memory you are torn on expires: a question keeps it alive, and a tie expires.
   `destinations.md` gives it.
 - Writing to the global `CLAUDE.md`? Back it up the same way first (`cp CLAUDE.md
   CLAUDE.md.bak`).
-- Keep `MEMORY.md` in sync: remove the expired lines. Maintain a **top pointer note**
-  recording where graduated knowledge went, so it isn't re-added to memory later
-  (e.g. "billing gotchas → `billing/AGENTS.md`; test gotchas → the `testing` rule").
+- Keep `MEMORY.md` in sync: remove the expired lines.
 
 ### 7. Verify consistency
 ```bash
