@@ -5,6 +5,7 @@ tags: [clean]
 expect_change: org-admin-clean
 expect_branch: BAC-4412-org-admin-check
 expect_codex: ran
+expect_test_economy: 0
 expect_verdict: PASS
 ---
 

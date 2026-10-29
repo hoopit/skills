@@ -1,0 +1,33 @@
+diff --git a/payments/tests/test_web_api/test_organization_bank_account_list_view.py b/payments/tests/test_web_api/test_organization_bank_account_list_view.py
+index 8117d2e616..2096fdc4ca 100644
+--- a/payments/tests/test_web_api/test_organization_bank_account_list_view.py
++++ b/payments/tests/test_web_api/test_organization_bank_account_list_view.py
+@@ -249,6 +249,28 @@ class OrganizationBankAccountListViewTest(BaseViewTestCase):
+ 
+         assert account.id in {item["id"] for item in response.data}
+ 
++    def test_get__is_org_admin__drives_balance_visibility(self):
++        """The balance column follows the one org-admin check."""
++        self._create_bank_account()
++        with patch(
++            "payments.web.views.organization_bank_account_list_view.OrganizationBankAccountListView._is_org_admin",
++            return_value=True,
++        ) as is_org_admin:
++            response = self.get(url_args=[self.org.lvl0_group.id])
++        self.assert_list_response(response, count=1)
++        assert is_org_admin.called
++
++    def test_get__subgroup_admin__no_balance(self):
++        """A sub-group admin gets no balance on an account they can see."""
++        account = self._create_bank_account()
++        DestinationAccountFactory.create(group=self.org.lvl1_group, bank_account=account, disabled=False)
++        FinancialRolePermissionFactory.create_for_admin(self.org.lvl1_admin)
++        self.authorize_as_user(self.org.lvl1_admin)
++
++        response = self.get(url_args=[self.org.lvl1_group.id])
++        self.assert_list_response(response, count=1)
++        assert response.data[0]["collected_not_paid_out"] is None
++
+     # ------------------------------------------------------------------
+     # POST (create) tests
+     # ------------------------------------------------------------------
