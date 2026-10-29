@@ -43,11 +43,13 @@ whole standard; say so in the findings file.
 
 ## Verdicts
 
-Every test and every edit under review gets one. A keep the probe could not run is
-*unproven* (Probing).
+Every test and every edit under review gets one, unless it is red on HEAD (keep, step 1). A
+keep the probe could not run is *unproven* (Probing).
 
 - **keep** — earned in `PROBE_DIR` by these steps, in order:
-  1. Run it unmutated on HEAD: it passes. Red here is a **delete** — the test is wrong.
+  1. Run it unmutated on HEAD: it passes. Red here ends your review of it with no verdict:
+     record it as **red on HEAD**. A failing test is either a wrong test or a real defect, and
+     telling them apart is the other reviewers' work, not a cut.
   2. Name a wrong implementation a real change could plausibly produce, make it in the code
      under test, and run it again: it goes red. When no plausible mutation turns it red, it
      is a **delete**, *vacuous*.
@@ -103,18 +105,19 @@ an edit carries `(edit)` after the edited test's name:
 ```
 probe:      Low · did not run — <why> — unproven: <the tests>
 
-<path>::<test name> [(edit)] — keep | fold | delete | unproven
+<path>::<test name> [(edit)] — keep | fold | delete | unproven | red
   keep:     green on HEAD → mutation <file:line, what you changed> → red (<the failing assertion>)[ → as cut: green]
   fold:     Low · into <path>::<test name> — <the change that absorbs it>
   delete:   Medium · <reason> — <the line that shows it>
   unproven: would mutate <file:line, what>
+  red:      on HEAD — <the failing assertion>
 ```
 
 Each line with a severity is a finding. Close with the tally: tests reviewed, kept, folded,
-deleted, unproven. Your last message is only:
+deleted, unproven, red. Your last message is only:
 
 ```
-FINDINGS <FINDINGS_FILE> · <n> findings · <reviewed> tests: <k> keep, <f> fold, <d> delete, <u> unproven
+FINDINGS <FINDINGS_FILE> · <n> findings · <reviewed> tests: <k> keep, <f> fold, <d> delete, <u> unproven, <r> red
 ```
 
 `<n>` counts the lines with a severity. The file is the deliverable and the message a
