@@ -191,17 +191,19 @@ that policy.
      findings there and returns a `FINDINGS <path> · <n> findings` receipt; you read the file.
      That is what makes a lost report survivable (Notes), so pass the path even when you expect
      the report to arrive normally.
-   - **Test economy, when the diff touches tests.** A *test path* is one under a `test/`,
+   - **Test economy, when the diff adds test lines.** A *test path* is one under a `test/`,
      `tests/`, `__tests__/` or `spec/` directory, or named `test_*`, `*_test.*`, `*.test.*` or
-     `*.spec.*`, plus `conftest.py`. When `git diff --name-only "$REVIEW_BASE"...HEAD` lists one,
+     `*.spec.*`, plus `conftest.py`. When `git diff "$REVIEW_BASE"...HEAD` adds a line to one,
      spawn `subagent_type: "hoopit-dev:test-economy-reviewer"` (pinned like the axes) beside
      them, on both scopes. Its brief is `REVIEW_BASE`, `FINDINGS_FILE=$GATE_DIR/test-economy.md`
      and `PROBE_DIR=$GATE_DIR/test-economy-probe`, and nothing else: the agent definition carries
      the job, and it finds the repo's own test rule itself. When the agent type isn't found,
      brief a `general-purpose` agent on `model: "opus"` with the body of
-     `${CLAUDE_PLUGIN_ROOT}/agents/test-economy-reviewer.md`. Because `REVIEW_BASE` is the fixed point, a `light` pass hands it
-     exactly the tests the previous pass's fix commits added — where the tests written in answer
-     to an "add a test" finding land. A diff with no test path skips it, and the notes say so.
+     `${CLAUDE_PLUGIN_ROOT}/agents/test-economy-reviewer.md`. Because `REVIEW_BASE` is the fixed
+     point, a `light` pass hands it exactly the tests the previous pass's fix commits added —
+     where the tests written in answer to an "add a test" finding land. A diff that only removes
+     test lines, as a pass of cuts does, leaves it nothing to judge: it skips, and the notes say
+     so.
    A subagent sitting at `idle` with no result has **not** failed, and a result that never
    arrives is recoverable — see Notes. Work that ladder rather than reviewing the diff yourself.
    Note in the PR at which scope the axes ran.
