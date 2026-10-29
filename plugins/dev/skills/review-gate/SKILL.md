@@ -250,10 +250,9 @@ that policy.
      on its merits alone, never as *not worth a round* — a cut is what the reviewer exists to
      land — and only by the evidence a keep needs: a mutation of the code under test, run in the
      reviewer's `PROBE_DIR`, that turns the test red. A `keep` is no finding.
-   - **The probe finding never blocks.** When the reviewer's probe did not run, its one `probe`
-     finding lists the `unproven` tests. The gate answers it by bringing the test environment up
-     and running their mutations; when it cannot either, the notes carry the finding unanswered,
-     with the reason, and the pass goes on.
+   - **The `probe` finding goes to the notes.** When the reviewer's probe did not run, its
+     `probe` finding names why and lists the `unproven` tests. The pass carries it into the
+     notes as it stands, so the PR's reader sees which tests no mutation backs, and goes on.
    - **Invalid Low/Medium → skip**, recording a one-line reason (collected for the PR). A
      skip on judgement — the finding reads the code right and asks for a change deliberately
      not made — carries its reason in the code, and a finding raised again is that

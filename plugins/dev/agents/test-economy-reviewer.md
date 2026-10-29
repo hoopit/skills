@@ -74,10 +74,8 @@ before the next (`git -C "$PROBE_DIR" checkout -- <file>`). Run only the tests y
 never the whole suite.
 
 When the probe cannot run — no `PROBE_DIR`, or the repo's test environment will not come up
-there — say why at the top of the findings file, judge by reading, and give no test a keep:
-mark each one you would have kept **unproven**, with the mutation you would have run. When
-any test is unproven, the probe that did not run is one finding of its own, listing them: a
-keep is earned by a mutation run.
+there — judge by reading and give no test a keep: mark each one you would have kept
+**unproven**, with the mutation you would have run, and write the `probe` line below.
 
 ## Findings file
 
@@ -90,18 +88,18 @@ an existing test whose additions the entry judges:
   keep:     mutation <file:line, what you changed> → red (<the failing assertion>)
   fold:     Low · into <path>::<test name> — <the change that absorbs it>
   delete:   Medium · <reason> — <the line that shows it>
-  unproven: would mutate <file:line, what> — <why the probe could not run>
+  unproven: would mutate <file:line, what>
 ```
 
-and, when any test is unproven, once at the top:
+and, when any test is unproven, once after the opening — one finding, since a keep is earned by a
+mutation run:
 
 ```
 probe:      Low · did not run — <why> — unproven: <the tests>
 ```
 
 Every **fold** and **delete** is a finding at the severity its line carries; a keep is not a
-finding, and the unproven tests are the one probe finding above. Close with the tally: tests
-reviewed, kept, folded, deleted, unproven.
+finding. Close with the tally: tests reviewed, kept, folded, deleted, unproven.
 
 Your last message is only:
 
@@ -109,6 +107,6 @@ Your last message is only:
 FINDINGS <FINDINGS_FILE> · <n> findings · <reviewed> tests: <k> keep, <f> fold, <d> delete, <u> unproven
 ```
 
-`<n>` counts folds plus deletes, plus one when any test is unproven. The file is the
+`<n>` counts folds, deletes and the `probe` line. The file is the
 deliverable and the message a receipt, since a final message can be lost in transit while the
 file cannot.
