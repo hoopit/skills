@@ -13,8 +13,8 @@ or why the change was written; work only from your brief and the repo.
 
 **Every verdict leaves the suite the same size or smaller.** A test that does not earn its
 place is cut; missing coverage is another reviewer's finding. This is a hard line: no finding
-of yours asks for a test, a case or a parametrize row, and the only assertion you ever move is
-the one a fold carries over.
+of yours asks for a test, a case or a parametrize row, and the only assertion one ever adds is
+the one a fold carries over from the test it deletes.
 
 ## What is under review
 
@@ -23,9 +23,8 @@ Your brief carries `REVIEW_BASE`, `FINDINGS_FILE` and `PROBE_DIR`. **The base** 
 against. Two things in that diff are under review:
 
 - every test function, method or case it adds;
-- every **edit**: the lines it adds to the body of a test that exists at the base. The test
-  itself is the **survivor**. Your verdict covers the edit alone, and cutting it puts the test
-  back as it stood at the base.
+- every **edit**: the lines it adds to the body of a test that exists at the base. Your verdict
+  covers the edit alone, and cutting it puts the edited test back as it stood at the base.
 
 Tests added in answer to another reviewer's "add a test" finding are the main inflow, and they
 get no benefit of the doubt for having been asked for.
@@ -41,15 +40,18 @@ whole standard; say so in the findings file.
 
 ## Verdicts
 
-Every test and every edit under review gets one.
+Every test and every edit under review gets one — or *unproven*, when the probe cannot run
+(Probing).
 
-- **keep** — earned in `PROBE_DIR`, in this order, and lost at the first step that fails:
+- **keep** — earned in `PROBE_DIR` by these steps, in order:
   1. Run it unmutated on HEAD: it passes. Red here is a **delete** — the test is wrong.
   2. Name a wrong implementation a real change could plausibly produce, make it in the code
      under test, and run it again: it goes red. When no plausible mutation turns it red, it
      is a **delete**, *vacuous*.
-  3. On an edit, run the survivor as the cut would leave it, under the same mutation: it
-     stays green. Red here means the edit adds nothing the survivor lacks — a **delete**.
+  3. On an edit, run the edited test as the cut would leave it, under the same mutation: it
+     stays green, so the mutation is one only the edit catches. Red here rejects that
+     mutation, not the edit — try another at step 2. When no plausible mutation separates
+     the two, the edit is a **delete**, *duplicate branch*.
 
   One mutation may serve several tests; run each of them against it.
 - **fold** — the case belongs inside a test that already exists, in the diff or before it.
@@ -64,8 +66,11 @@ Every test and every edit under review gets one.
   - *duplicate branch* — another test already drives the same branch to the same outcome;
   - *framework plumbing* — it tests the framework rather than what this repo adds to it.
 
+  A test that is wrong as well as surplus is a delete, never a fold.
+
 Fold and delete are **cuts**. A cut that names another test — every fold, and a *duplicate
-branch* delete — leans on a survivor: a test outside the diff, or one you keep. Of two added
+branch* delete of a whole test — leans on a **survivor**: a test outside the diff, or one you
+keep. Of two added
 duplicates, keep one and delete the other; a fold never targets a test you delete. Otherwise
 each cut is right alone and together they remove the branch's only coverage.
 
@@ -89,13 +94,13 @@ earned by a mutation run.
 
 Write it before you finish. Open with the standard you read (its path) and the probe you ran,
 then the `probe` line when any test is unproven, then one entry per test, grouped by file —
-an edit carries `(edit)` after its survivor's name:
+an edit carries `(edit)` after the edited test's name:
 
 ```
 probe:      Low · did not run — <why> — unproven: <the tests>
 
 <path>::<test name> [(edit)] — keep | fold | delete | unproven
-  keep:     green on HEAD → mutation <file:line, what you changed> → red (<the failing assertion>)[ → survivor green]
+  keep:     green on HEAD → mutation <file:line, what you changed> → red (<the failing assertion>)[ → as cut: green]
   fold:     Low · into <path>::<test name> — <the change that absorbs it>
   delete:   Medium · <reason> — <the line that shows it>
   unproven: would mutate <file:line, what>
