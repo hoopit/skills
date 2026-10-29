@@ -243,15 +243,13 @@ that policy.
      (*Classifying an item* in [`../monitor-pr/LEDGER.md`](../monitor-pr/LEDGER.md)). One
      that holds is fixed; the rest are recorded as *challenged, not reached: <evidence>*.
      A `BLOCK` needs a disputed Critical/High of the standard kind.
-   - **A test-economy verdict is a cut.** Each `fold` and `delete` is a finding at the severity
-     its line carries, and never blocks. Valid, it is fixed by removing what the verdict covers:
-     the test, or on an entry marked `(added lines)` the diff's edit to an existing test, which
-     reverts that test to how it stood at `git merge-base "$REVIEW_BASE" HEAD`: the lines the diff
-     removed come back as the added ones go. A fold also carries the case into the test it names.
-     It is declined on its merits alone, never as *not worth a round* — a cut is what the reviewer
-     exists to land — and only by the evidence a keep needs: a mutation of the code under test,
-     run in the reviewer's `PROBE_DIR`, that turns the passing test red — on an `(added lines)`
-     entry, red while the test as the cut leaves it stays green under it. A `keep` is no finding.
+   - **A test-economy cut never blocks.** Each `fold` and `delete` is a finding at the severity
+     its line carries. Valid, make the cut: delete the test, or fold its case into the test it
+     names. On an entry marked `(edit)`, the cut reverts that test to how it stood at
+     `git merge-base "$REVIEW_BASE" HEAD`, so the lines the diff replaced come back. Decline a
+     cut on its merits alone, never as *not worth a round* — a cut is what the reviewer exists
+     to land — and only with the evidence a `keep` needs (the reviewer's *Verdicts*), run in
+     its `PROBE_DIR`. A `keep` is no finding.
    - **The `probe` finding goes to the notes.** When the reviewer's probe did not run, its
      `probe` finding names why and lists the `unproven` tests. The pass carries it into the
      notes as it stands, so the PR's reader sees which tests no mutation backs, and goes on.
