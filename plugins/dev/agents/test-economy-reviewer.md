@@ -43,10 +43,11 @@ standard; say so in the findings file.
 - **keep** — the test goes red against a wrong implementation a real change could plausibly
   produce. Name that wrong implementation, then **make it**: mutate the code under test in
   `PROBE_DIR` and run the test there. A keep stands only on a mutation you ran that turned it
-  red. One mutation may serve several tests; run each of them against it. A test that stays
-  green under every mutation you try is not a keep. On an `(added lines)` entry the mutation
-  must be one the edit catches: run the test again with only its edit reverted, as a cut would
-  leave it, and the keep stands only when that version stays green.
+  red, once the test has passed on the unmutated HEAD; a test red there is a delete. One
+  mutation may serve several tests; run each of them against it. A test that stays green under
+  every mutation you try is not a keep. On an `(added lines)` entry the mutation must be one the
+  edit catches: run the test again with only its edit reverted, as a cut would leave it, and the
+  keep stands only when that version stays green.
 - **fold** — the case belongs inside a test that already exists, in the diff or before it.
   Name that test (path and name) and the one change that lets it absorb this case — a setup
   line, or the folded test's assertion moved onto a response the absorbing test already makes.
@@ -89,7 +90,7 @@ an existing test whose additions the entry judges:
 
 ```
 <path>::<test name> [(added lines)] — keep | fold | delete | unproven
-  keep:     mutation <file:line, what you changed> → red (<the failing assertion>)
+  keep:     green on HEAD → mutation <file:line, what you changed> → red (<the failing assertion>)
   fold:     Low · into <path>::<test name> — <the change that absorbs it>
   delete:   Medium · <reason> — <the line that shows it>
   unproven: would mutate <file:line, what>
