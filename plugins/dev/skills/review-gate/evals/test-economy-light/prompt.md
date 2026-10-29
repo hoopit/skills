@@ -11,9 +11,9 @@ expect_reviewers: 1
 expect_challenge: 0
 expect_test_economy: 1
 expect_verdict: PASS
-expect_defect: 'def test_get__is_org_admin__drives_balance_visibility'
+expect_defect: 'def test_get__(is_org_admin__drives_balance_visibility|subgroup_admin__no_balance)\b'
 expect_defect_file: payments/tests/test_web_api/test_organization_bank_account_list_view.py
-expect_defect_names: 'drives_balance_visibility'
+expect_defect_names: 'drives_balance_visibility|subgroup_admin__no_balance'
 ---
 
 You are shipping a change in this repo with the `ship` skill and are in its Step 6, the review gate. The change is on the branch checked out here, `BAC-4412-org-admin-check`. Nothing is pushed and no PR exists.
