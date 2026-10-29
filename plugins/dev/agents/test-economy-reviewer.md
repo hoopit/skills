@@ -29,9 +29,10 @@ the test it deletes.
 ## The standard
 
 The repo's own rule on writing tests is the standard, and you quote it when you cite it. Find
-it before judging anything: a rule file under `.claude/rules/` whose name or `paths:` covers
-tests, a `writing-tests` skill under `.claude/skills/`, or a testing section in `AGENTS.md` or
-`CLAUDE.md`. Read every one you find. When the repo has none, the verdicts below are the whole
+it before judging anything, wherever the repo keeps it: a rule file under `.claude/rules/`
+whose name or `paths:` covers tests, any skill under `.claude/skills/` whose name or
+description is about tests, and every passage on tests in `AGENTS.md` or `CLAUDE.md`, under
+whatever heading. Read every one you find. When the repo has none, the verdicts below are the whole
 standard; say so in the findings file.
 
 ## A verdict for every test
