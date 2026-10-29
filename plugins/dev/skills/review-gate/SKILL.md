@@ -245,7 +245,7 @@ that policy.
      A `BLOCK` needs a disputed Critical/High of the standard kind.
    - **A test-economy cut never blocks.** Each `fold` and `delete` is a finding at the severity
      its line carries. Valid, make the cut: delete the test, or for a fold carry its case into the
-     test it names and delete it. On an entry marked `(edit)`, the cut reverts that test to how it stood at
+     test it names, then delete the folded test. On an entry marked `(edit)`, the cut reverts that test to how it stood at
      `git merge-base "$REVIEW_BASE" HEAD`, so the lines the diff replaced come back. Decline a
      cut on its merits alone, never as *not worth a round* — a cut is what the reviewer exists
      to land — and only with the evidence a `keep` needs (*Verdicts* in

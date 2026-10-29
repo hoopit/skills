@@ -40,8 +40,8 @@ whole standard; say so in the findings file.
 
 ## Verdicts
 
-Every test and every edit under review gets one — or *unproven*, when the probe cannot run
-(Probing).
+Every test and every edit under review gets one. A keep the probe could not run is
+*unproven* (Probing).
 
 - **keep** — earned in `PROBE_DIR` by these steps, in order:
   1. Run it unmutated on HEAD: it passes. Red here is a **delete** — the test is wrong.
@@ -63,14 +63,14 @@ Every test and every edit under review gets one — or *unproven*, when the prob
   - *vacuous* — it stays green against the wrong implementation, by your mutation or because a
     marker, a mock or a disabled path makes the call a no-op;
   - *trivial* — it guards code a reader verifies by eye;
-  - *duplicate branch* — another test already drives the same branch to the same outcome;
+  - *duplicate branch* — another test, or on an edit the test as the cut leaves it, already
+    drives the same branch to the same outcome;
   - *framework plumbing* — it tests the framework rather than what this repo adds to it.
 
   A test that is wrong as well as surplus is a delete, never a fold.
 
 Fold and delete are **cuts**. A cut that names another test — every fold, and a *duplicate
-branch* delete of a whole test — leans on a **survivor**: a test outside the diff, or one you
-keep. Of two added
+branch* delete — leans on a **survivor**: a test outside the diff, or one you keep. Of two added
 duplicates, keep one and delete the other; a fold never targets a test you delete. Otherwise
 each cut is right alone and together they remove the branch's only coverage.
 
