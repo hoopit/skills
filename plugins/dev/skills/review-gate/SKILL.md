@@ -243,12 +243,13 @@ that policy.
      (*Classifying an item* in [`../monitor-pr/LEDGER.md`](../monitor-pr/LEDGER.md)). One
      that holds is fixed; the rest are recorded as *challenged, not reached: <evidence>*.
      A `BLOCK` needs a disputed Critical/High of the standard kind.
-   - **A test-economy verdict is a cut.** Each `fold` and `delete` is a finding at the severity
-     the reviewer gave it — Medium or Low, never one that blocks. Valid, it is fixed by making
-     the cut: delete the test, or fold the case into the test it names. Declined, the reason is
-     the one a keep would need: the wrong implementation that turns the test red. A `keep` or
-     `unproven` is no finding: an `unproven` names no cut to make, and the tally in the notes
-     is where it reaches the reader.
+   - **A test-economy verdict is a cut.** Each `fold` (Low) and `delete` (Medium) is a finding
+     that never blocks. Valid, it is fixed by making the cut: delete the test, or fold the case
+     into the test it names. It is declined on its merits alone, never as *not worth a round* —
+     a cut is what the reviewer exists to land — and the reason is the one a keep would need:
+     the wrong implementation that turns the test red. A probe that did not run is one Low
+     finding listing the `unproven` tests; it is answered by running the probe or by naming,
+     for each test, the wrong implementation that turns it red. A `keep` is no finding.
    - **Invalid Low/Medium → skip**, recording a one-line reason (collected for the PR). A
      skip on judgement — the finding reads the code right and asks for a change deliberately
      not made — carries its reason in the code, and a finding raised again is that

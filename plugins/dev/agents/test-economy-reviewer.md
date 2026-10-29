@@ -75,7 +75,9 @@ never the whole suite.
 
 When the probe cannot run — no `PROBE_DIR`, or the repo's test environment will not come up
 there — say why at the top of the findings file, judge by reading, and give no test a keep:
-mark each one you would have kept **unproven**, with the mutation you would have run.
+mark each one you would have kept **unproven**, with the mutation you would have run. The
+probe that did not run is then one finding of its own, **Low**, listing the unproven tests: a
+keep is earned by a mutation, and the author answers for every test that has none.
 
 ## Findings file
 
@@ -85,13 +87,13 @@ Then one entry per test under review, grouped by file:
 ```
 <path>::<test name> — keep | fold | delete | unproven
   keep:     mutation <file:line, what you changed> → red (<the failing assertion>)
-  fold:     into <path>::<test name> — <the change that absorbs it>
-  delete:   <reason> — <the line that shows it>
+  fold:     Low · into <path>::<test name> — <the change that absorbs it>
+  delete:   Medium · <reason> — <the line that shows it>
   unproven: would mutate <file:line, what> — <why the probe could not run>
 ```
 
 Every **fold** and **delete** is a finding, severity **Medium** for a delete and **Low** for a
-fold; a keep is not a finding. Close with the tally: tests reviewed, kept, folded, deleted,
+fold; a keep is not a finding, and the unproven tests are the one probe finding above. Close with the tally: tests reviewed, kept, folded, deleted,
 unproven.
 
 Your last message is only:
@@ -100,5 +102,5 @@ Your last message is only:
 FINDINGS <FINDINGS_FILE> · <n> findings · <reviewed> tests: <k> keep, <f> fold, <d> delete, <u> unproven
 ```
 
-`<n>` counts folds plus deletes. The file is the deliverable and the message a receipt, since a
+`<n>` counts folds plus deletes, plus one when the probe did not run. The file is the deliverable and the message a receipt, since a
 final message can be lost in transit while the file cannot.
