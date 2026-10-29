@@ -245,7 +245,8 @@ that policy.
      the reviewer gave it — Medium or Low, never one that blocks. Valid, it is fixed by making
      the cut: delete the test, or fold the case into the test it names. Declined, the reason is
      the one a keep would need: the wrong implementation that turns the test red. A `keep` or
-     `unproven` is no finding.
+     `unproven` is no finding: an `unproven` names no cut to make, and the tally in the notes
+     is where it reaches the reader.
    - **Invalid Low/Medium → skip**, recording a one-line reason (collected for the PR). A
      skip on judgement — the finding reads the code right and asks for a change deliberately
      not made — carries its reason in the code, and a finding raised again is that
@@ -268,8 +269,9 @@ that policy.
      for the PR: which reviewers ran (and which were skipped/unavailable), the challenge focus
      when one ran, findings fixed, findings skipped (with reasons), findings challenged and how
      they hold, and test economy's tally when it ran (kept, folded, deleted, unproven). Carry
-     `CHALLENGE_AT` in the verdict — this pass's `REVIEWED_AT` when the challenge ran, the sha the caller gave when it did not — because a caller that loses it
-     re-challenges a settled shape.
+     `CHALLENGE_AT` in the verdict — this pass's `REVIEWED_AT` when the challenge ran, the sha
+     the caller gave when it did not — because a caller that loses it re-challenges a settled
+     shape.
    - `BLOCK: <one-line reason>` + the blocking findings and your reasoning.
 
 ## Fix commit convention
