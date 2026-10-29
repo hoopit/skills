@@ -12,7 +12,7 @@ Reviews the branch's committed changes against a fixed point — the repo's defa
 reviewer that spawns its own cold sub-agents — genuinely independent eyes). **Codex** is a second,
 separate engine: engine diversity is the point, so a pass that cannot run it blocks rather than
 passing on one engine's word. Every one of them hunts for what is missing, so when the diff adds
-or changes tests a third reviewer, **test economy**, argues them away (step 3).
+test lines a third reviewer, **test economy**, argues them away (step 3).
 
 ## Contract
 
