@@ -66,7 +66,9 @@ together they remove the branch's only coverage.
 The worktree under review is read-only to you: other reviewers read it while you work. Build
 your probe worktree exactly where your brief says, `git worktree add --detach "$PROBE_DIR"
 HEAD`, and prepare it the way the repo's `AGENTS.md` or its worktree skill prepares a fresh
-worktree — the test run needs the repo's dependencies and test services. Restore each mutation
+worktree — the test run needs the repo's dependencies and test services. A pnpm install takes
+the reviewed worktree's store, `--store-dir "$(pnpm -C <reviewed worktree> store path)"`, so
+the probe shares it rather than building a second one on its own filesystem. Restore each mutation
 before the next (`git -C "$PROBE_DIR" checkout -- <file>`). Run only the tests you are probing,
 never the whole suite.
 
