@@ -276,7 +276,7 @@ that policy.
    - `PASS` + the scope and its fixed point + whether this pass made fix commits + a notes block
      for the PR: which reviewers ran (and which were skipped/unavailable), the challenge focus
      when one ran, findings fixed, findings skipped (with reasons), findings challenged and how
-     they hold, and test economy's tally when it ran (kept, folded, deleted, unproven, red) with its
+     they hold, and test economy's tally when it ran, with its
      `probe` finding as it stands. Carry `CHALLENGE_AT` in the verdict — this pass's
      `REVIEWED_AT` when the challenge ran, the sha the caller gave when it did not — because a
      caller that loses it re-challenges a settled shape.

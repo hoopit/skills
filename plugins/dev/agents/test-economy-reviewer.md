@@ -43,13 +43,13 @@ whole standard; say so in the findings file.
 
 ## Verdicts
 
-Every test and every edit under review gets one, unless it is red on HEAD (keep, step 1). A
-keep the probe could not run is *unproven* (Probing).
+Every test and every edit under review gets one, or one of two other outcomes: *red* (keep,
+step 1) or *unproven*, a keep the probe could not run (Probing).
 
 - **keep** — earned in `PROBE_DIR` by these steps, in order:
-  1. Run it unmutated on HEAD: it passes. Red here ends your review of it with no verdict:
-     record it as **red on HEAD**. A failing test is either a wrong test or a real defect, and
-     telling them apart is the other reviewers' work, not a cut.
+  1. Run it unmutated on HEAD: it passes. Red here ends your review of it: its outcome is
+     **red**, a finding rather than a cut. A failing test is either a wrong test or a real
+     defect, and the gate triages it like any other finding.
   2. Name a wrong implementation a real change could plausibly produce, make it in the code
      under test, and run it again: it goes red. When no plausible mutation turns it red, it
      is a **delete**, *vacuous*.
@@ -110,7 +110,7 @@ probe:      Low · did not run — <why> — unproven: <the tests>
   fold:     Low · into <path>::<test name> — <the change that absorbs it>
   delete:   Medium · <reason> — <the line that shows it>
   unproven: would mutate <file:line, what>
-  red:      on HEAD — <the failing assertion>
+  red:      Medium · fails on HEAD — <the failing assertion>
 ```
 
 Each line with a severity is a finding. Close with the tally: tests reviewed, kept, folded,
