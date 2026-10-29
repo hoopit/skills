@@ -11,8 +11,9 @@ checkout that has them pins its own version and drifts on its own. This run brin
 such checkout on the machine to the marketplace's latest, and installs them in Hoopit
 product checkouts (`api`, `web-admin`, `flutter-app`, `public-calendar`) that lack them.
 A user-scope record of either is updated too, but they are never installed at user scope.
-github-tracker is updated too, but only where it is already installed — at user scope, or
-at project or local scope in a checkout — since it is not every developer's tracker.
+github-tracker and hoopit-product are updated too, but only where they are already
+installed — at user scope, or at project or local scope in a checkout — since not every
+developer uses them.
 
 ## 1. Run the updater
 
@@ -27,7 +28,7 @@ output line means. Pass a checkout's directory as an argument when the user name
 search would miss; it is installed or updated whatever its remote.
 
 Done when the script has exited and printed a `RESULT` line per plugin and checkout found,
-one per user-scope record, and one per github-tracker install record.
+one per user-scope record, and one per github-tracker or hoopit-product install record.
 
 ## 2. Report
 

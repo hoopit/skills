@@ -2,8 +2,9 @@
 # Bring each of PLUGINS to its marketplace's latest version in every checkout on this
 # machine that has it installed, and install it at project scope in Hoopit product
 # checkouts. Each of WHERE_INSTALLED is updated only where it already has an install
-# record: at user scope, and at project or local scope in a checkout found here. It is
-# never installed. Each of PLUGINS is updated, never installed, at user scope too.
+# record: at user scope, and at project or local scope in any checkout. It is never
+# installed, and a checkout found only by its record gets no PLUGINS. Each of PLUGINS is
+# updated, never installed, at user scope too.
 #
 # Usage: update-plugins.sh [checkout-dir ...]
 #
@@ -20,7 +21,7 @@
 set -uo pipefail
 
 PLUGINS=(hoopit-dev@hoopit-skills mattpocock-skills@claude-plugins-official)
-WHERE_INSTALLED=(github-tracker@hoopit-skills)
+WHERE_INSTALLED=(github-tracker@hoopit-skills hoopit-product@hoopit-skills)
 REPOS=(api web-admin flutter-app public-calendar)
 INSTALLED="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/installed_plugins.json"
 export MISE_QUIET=1
@@ -65,7 +66,7 @@ if [[ -f "$INSTALLED" ]]; then
   done < <(jq -r '.plugins[][] | .projectPath // empty' "$INSTALLED" | sort -u)
 fi
 
-declare -A found=() forced=()
+declare -A found=() forced=() where_only=()
 for arg in "$@"; do
   [[ -d "$arg" ]] && forced["$(cd "$arg" && pwd -P)"]=1
 done
@@ -89,7 +90,14 @@ for dir in "${candidates[@]}"; do
   done
   if [[ -n "$product" || -n "${forced[$dir]:-}" || -n "$recorded" ]]; then
     found["$dir"]=${product:-$(basename "$dir")}
+    continue
   fi
+  for plugin in "${WHERE_INSTALLED[@]}"; do
+    if has_record "$plugin" project "$dir" || has_record "$plugin" local "$dir"; then
+      found["$dir"]=$(basename "$dir")
+      where_only["$dir"]=1
+    fi
+  done
 done
 
 # Run `claude plugin <verb>` for <plugin> at <scope> from <dir>, and print its RESULT line.
@@ -129,6 +137,7 @@ done
 while IFS= read -r dir; do
   repo=${found[$dir]}
   for plugin in "${PLUGINS[@]}"; do
+    [[ -n "${where_only[$dir]:-}" ]] && break
     if has_record "$plugin" project "$dir"; then
       apply update "$plugin" project "$repo" "$dir"
     else
