@@ -56,6 +56,11 @@ standard; say so in the findings file.
 
 A test that is wrong as well as surplus is a delete.
 
+**A cut leans on a survivor.** The test a fold or a *duplicate branch* delete names must survive
+this review: one outside the diff, or one you keep. Two added duplicates keep one and delete the
+other, and a fold never targets a test you delete — otherwise each cut is right alone and
+together they remove the branch's only coverage.
+
 ## Probing
 
 The worktree under review is read-only to you: other reviewers read it while you work. Build
