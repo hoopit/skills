@@ -248,9 +248,12 @@ that policy.
      the test, or on an entry marked `(added lines)` only the lines the diff added to an existing
      test — folding the case into the test it names when the verdict is a fold. It is declined
      on its merits alone, never as *not worth a round* — a cut is what the reviewer exists to
-     land — and the reason is the one a keep would need: the wrong implementation that turns the
-     test red. A probe that did not run is one Low finding listing the `unproven` tests, and only
-     a probe run answers it. A `keep` is no finding.
+     land — and only by the evidence a keep needs: a mutation of the code under test, run in the
+     reviewer's `PROBE_DIR`, that turns the test red. A `keep` is no finding.
+   - **The probe finding never blocks.** When the reviewer's probe did not run, its one `probe`
+     finding lists the `unproven` tests. The gate answers it by bringing the test environment up
+     and running their mutations; when it cannot either, the notes carry the finding unanswered,
+     with the reason, and the pass goes on.
    - **Invalid Low/Medium → skip**, recording a one-line reason (collected for the PR). A
      skip on judgement — the finding reads the code right and asks for a change deliberately
      not made — carries its reason in the code, and a finding raised again is that

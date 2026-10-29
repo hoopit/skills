@@ -76,15 +76,14 @@ never the whole suite.
 When the probe cannot run — no `PROBE_DIR`, or the repo's test environment will not come up
 there — say why at the top of the findings file, judge by reading, and give no test a keep:
 mark each one you would have kept **unproven**, with the mutation you would have run. When
-any test is unproven, the probe that did not run is one finding of its own, **Low**, listing
-them: a keep is earned by a mutation run, and only running it answers the finding.
+any test is unproven, the probe that did not run is one finding of its own, listing them: a
+keep is earned by a mutation run.
 
 ## Findings file
 
 Write it before you finish. Open with the standard you read (its path) and how the probe ran.
-Then one entry per test under review, grouped by file; an entry on the lines a diff added to
-an existing test carries `(added lines)` after the name, and its fold or delete removes those
-lines alone:
+Then one entry per test under review, grouped by file, with `(added lines)` after the name of
+an existing test whose additions the entry judges:
 
 ```
 <path>::<test name> [(added lines)] — keep | fold | delete | unproven
@@ -92,6 +91,12 @@ lines alone:
   fold:     Low · into <path>::<test name> — <the change that absorbs it>
   delete:   Medium · <reason> — <the line that shows it>
   unproven: would mutate <file:line, what> — <why the probe could not run>
+```
+
+and, when any test is unproven, once at the top:
+
+```
+probe:      Low · did not run — <why> — unproven: <the tests>
 ```
 
 Every **fold** and **delete** is a finding at the severity its line carries; a keep is not a
