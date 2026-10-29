@@ -201,9 +201,9 @@ that policy.
      brief a `general-purpose` agent on `model: "opus"` with the body of
      `${CLAUDE_PLUGIN_ROOT}/agents/test-economy-reviewer.md`. Because `REVIEW_BASE` is the fixed
      point, a `light` pass hands it exactly the tests the previous pass's fix commits added —
-     where the tests written in answer to an "add a test" finding land. A pass whose fix commits
-     are test-economy cuts alone leaves it nothing to judge — a cut only shrinks the suite,
-     whatever lines its revert restores — so it skips, and the notes say so.
+     where the tests written in answer to an "add a test" finding land. Which of the added lines
+     it judges is the reviewer's call: a diff with none under review comes back with a tally of
+     zero, which the notes report.
    A subagent sitting at `idle` with no result has **not** failed, and a result that never
    arrives is recoverable — see Notes. Work that ladder rather than reviewing the diff yourself.
    Note in the PR at which scope the axes ran.
