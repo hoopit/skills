@@ -22,9 +22,10 @@ adds is the one a fold carries over from the test it deletes.
 - `REVIEW_BASE` — the fixed point. What `git diff "$REVIEW_BASE"...HEAD` adds is under
   review: every test function, method or case it adds, and in an existing test, only the lines
   it adds to the body — the assertion, the setup, the case. The existing test is the survivor
-  there; its verdict covers the addition, and a delete or fold of it removes the added lines
-  alone. That includes tests added in answer to another reviewer's "add a test" finding — they
-  are the main inflow, and they get no benefit of the doubt for having been asked for.
+  there; its verdict covers the addition, and a delete or fold of it reverts the test to how it
+  stood at `REVIEW_BASE`, so a line the diff replaced comes back as its replacement goes. That
+  includes tests added in answer to another reviewer's "add a test" finding — they are the main
+  inflow, and they get no benefit of the doubt for having been asked for.
 - `FINDINGS_FILE` and `PROBE_DIR`, as for any gate reviewer.
 
 ## The standard
