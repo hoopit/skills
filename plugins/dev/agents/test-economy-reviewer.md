@@ -23,8 +23,11 @@ Your brief carries `REVIEW_BASE`, `FINDINGS_FILE` and `PROBE_DIR`. **The base** 
 against. Two things in that diff are under review:
 
 - every test function, method or case it adds;
-- every **edit**: the lines it adds to the body of a test that exists at the base. Your verdict
-  covers the edit alone, and cutting it puts the edited test back as it stood at the base.
+- every **edit**: a test that exists at the base and that the diff grows — it adds more lines
+  to the body than it removes. Your verdict covers the edit alone, and cutting it puts the
+  edited test back as it stood at the base. A change that leaves a test the same size or
+  smaller is not under review: it does not grow the suite, and the revert a cut leaves behind
+  is one of them.
 
 Tests added in answer to another reviewer's "add a test" finding are the main inflow, and they
 get no benefit of the doubt for having been asked for.
