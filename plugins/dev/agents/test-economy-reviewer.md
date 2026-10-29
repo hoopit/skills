@@ -70,8 +70,9 @@ Every test and every edit under review gets one. A keep the probe could not run 
   A test that is wrong as well as surplus is a delete, never a fold.
 
 Fold and delete are **cuts**. A cut that names another test — every fold, and a *duplicate
-branch* delete — leans on a **survivor**: a test outside the diff, or one you keep. Of two added
-duplicates, keep one and delete the other; a fold never targets a test you delete. Otherwise
+branch* delete — leans on a **survivor**: a test outside the diff, one you keep, or on an edit
+the test as the cut leaves it. Of two added duplicates, keep one and delete the other; a fold
+never targets a test you delete or an edit you cut. Otherwise
 each cut is right alone and together they remove the branch's only coverage.
 
 ## Probing

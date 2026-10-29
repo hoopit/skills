@@ -244,12 +244,14 @@ that policy.
      that holds is fixed; the rest are recorded as *challenged, not reached: <evidence>*.
      A `BLOCK` needs a disputed Critical/High of the standard kind.
    - **A test-economy cut never blocks.** Each `fold` and `delete` is a finding at the severity
-     its line carries. Valid, make the cut: delete the test, or for a fold carry its case into the
-     test it names, then delete the folded test. On an entry marked `(edit)`, the cut reverts that test to how it stood at
+     its line carries. Valid, make the cut. A fold first carries its case into the test it
+     names. Then the cut removes what the verdict covers: a test the diff adds is deleted; on an
+     entry marked `(edit)`, the test is reverted to how it stood at
      `git merge-base "$REVIEW_BASE" HEAD`, so the lines the diff replaced come back. Decline a
      cut on its merits alone, never as *not worth a round* — a cut is what the reviewer exists
      to land — and only with the evidence a `keep` needs (*Verdicts* in
-     `${CLAUDE_PLUGIN_ROOT}/agents/test-economy-reviewer.md`), run in its `PROBE_DIR`. A `keep` is no finding.
+     `${CLAUDE_PLUGIN_ROOT}/agents/test-economy-reviewer.md`), run in its `PROBE_DIR`. A
+     `keep` is no finding.
    - **The `probe` finding goes to the notes.** When the reviewer's probe did not run, its
      `probe` finding names why and lists the `unproven` tests. The pass carries it into the
      notes as it stands, so the PR's reader sees which tests no mutation backs, and goes on.
