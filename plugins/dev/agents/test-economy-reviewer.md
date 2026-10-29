@@ -79,7 +79,7 @@ there — judge by reading and give no test a keep: mark each one you would have
 
 ## Findings file
 
-Write it before you finish. Open with the standard you read (its path) and how the probe ran.
+Write it before you finish. Open with the standard you read (its path) and the probe you ran.
 Then one entry per test under review, grouped by file, with `(added lines)` after the name of
 an existing test whose additions the entry judges:
 
