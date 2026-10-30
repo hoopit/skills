@@ -308,7 +308,8 @@ check — the store version, the live bundle — so the agent it releases confir
 release itself, and pushes the date out when it has not landed.
 
 `blockedBy` is worth setting only where the blocker is an issue someone will close —
-`check` holds on an open one and ignores a closed one.
+`check` holds on an open one and ignores a closed one. `hoopit-board blocked-by <repo> <n>
+<ref>` sets it.
 
 An item with a future date is held out of `startable` and out of `check`, and ranks
 again by itself on the day — nothing has to remember it. A date in the past is

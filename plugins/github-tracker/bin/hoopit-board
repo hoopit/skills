@@ -141,6 +141,8 @@ session, tie it to the items it works.
   ready <repo> <n>               status -> Ready: the dispatch pool. Committed work, or the user's ask
   footprint <repo>...            paths the open PRs of each repo are touching
   drop <repo> <n> [--apply]      take a PullRequest item off the board
+  blocked-by <repo> <n> <ref>... [--remove]
+                                 link the issue as blocked by each <ref> (#12 or org/repo#12)
   triage <repo> <n> [--priority P2] [--effort M] [--autonomy Unattended]
          [--not-before YYYY-MM-DD|none] [--ready] [--tested]   (--ready is refused on a P3;
                                  --tested stamps `Triage tested` with today)
@@ -1047,6 +1049,7 @@ def cmd_scan(a):
             sig.append("untriaged")
         if scheduled(i):
             sig.append(f'not-before:{i["not_before"]}')
+        sig += [f"blocked-by:{b}" for b in i.get("blockers") or []]
         for u in i["prs"]:
             sig.append(f'pr-{i["pr_state"][u].lower()}:#{u.rsplit("/", 1)[-1]}')
         if i["type"] == "Issue":
@@ -3541,6 +3544,61 @@ def cmd_triage_due(a):
     return 0 if due else 1
 
 
+def issue_ref(repo, ref):
+    """(repo, number) of `#12` or `org/repo#12`, read relative to `repo`."""
+    other, _, number = ref.rpartition("#")
+    if not number.isdigit():
+        sys.exit(f"not an issue reference: {ref}")
+    return other or repo, int(number)
+
+
+def issue_id(repo, number):
+    """An issue's node id. Refuses a pull request, which `addBlockedBy` cannot take."""
+    res = gql('query($u:URI!){ resource(url:$u){ ... on Issue{ id } } }',
+              u=f"https://github.com/{repo}/issues/{number}")["resource"] or {}
+    if not res.get("id"):
+        sys.exit(f"not found: {repo}#{number}")
+    if res["id"].startswith("PR_"):
+        sys.exit(f"{repo}#{number} is a pull request: `blockedBy` links two issues. "
+                 "Hold work on a PR with a `Gate: deployed` line")
+    return res["id"]
+
+
+def blocker_path(start, goal):
+    """The chain of open blockers leading from `start` to `goal`, or None. A cycle holds
+    every issue on it out of `startable` for good, with nothing on the board to say so."""
+    seen, queue = {start}, [[start]]
+    while queue:
+        path = queue.pop(0)
+        if path[-1] == goal:
+            return path
+        repo, number = path[-1]
+        for ref in issue_gates(repo, number)[1]:
+            step = issue_ref(repo, ref)
+            if step not in seen:
+                seen.add(step)
+                queue.append(path + [step])
+    return None
+
+
+def cmd_blocked_by(a):
+    """Link an issue as blocked by others, or take the links off with --remove."""
+    issue = (a.repo, a.number)
+    field = "removeBlockedBy" if a.remove else "addBlockedBy"
+    for ref in a.refs:
+        blocker = issue_ref(a.repo, ref)
+        if not a.remove:
+            if blocker == issue:
+                sys.exit(f"{a.repo}#{a.number} cannot block itself")
+            cycle = blocker_path(blocker, issue)
+            if cycle:
+                sys.exit("refused, a cycle: " + " -> ".join(f"{r}#{n}" for r, n in cycle))
+        gql(f'mutation($i:ID!,$b:ID!){{ {field}(input:{{issueId:$i, blockingIssueId:$b}})'
+            '{ clientMutationId } }', i=issue_id(*issue), b=issue_id(*blocker))
+        print(f'{"UNLINKED" if a.remove else "LINKED"}\t{a.repo}#{a.number}\t'
+              f"blocked by {blocker[0]}#{blocker[1]}")
+
+
 def stamp_tested(project_id, fields, item_id):
     """The stamp is the project's own field, so it is written on the project item."""
     if TESTED_FIELD not in fields:
@@ -4253,6 +4311,11 @@ def main():
     s.add_argument("--tested", action="store_true",
                    help="stamp `Triage tested` with today, once a triage pass is done with it")
     s.set_defaults(fn=cmd_triage)
+    s = sub.add_parser("blocked-by", description=cmd_blocked_by.__doc__)
+    s.add_argument("repo"); s.add_argument("number", type=int)
+    s.add_argument("refs", nargs="+", metavar="ref", help="#12 or org/repo#12")
+    s.add_argument("--remove", action="store_true")
+    s.set_defaults(fn=cmd_blocked_by)
     s = sub.add_parser("batch"); s.set_defaults(fn=cmd_batch)
     s = sub.add_parser("add"); s.add_argument("repo"); s.add_argument("number", type=int); s.set_defaults(fn=cmd_add)
     s = sub.add_parser("archive-done"); s.add_argument("--older-than", type=int, default=7)

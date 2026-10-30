@@ -2372,6 +2372,54 @@ def test_triage_due_lists_only_unstarted_issues_and_exits_1_when_empty():
     print("  flight, PRs and stamped items stay out; nothing due exits 1")
 
 
+def blocked_by_module(links):
+    """A board whose open blockers are `links`, recording each mutation it is asked for."""
+    m, writes = load(), []
+    m.issue_gates = lambda r, n: ("", links.get(f"{r}#{n}", []), 0)
+    def gql(query, **kw):
+        if query.startswith("mutation"):
+            writes.append((query.split()[1].split("(")[0], kw["i"], kw["b"]))
+            return {}
+        return {"resource": {"id": "I_" + kw["u"].rsplit("/", 1)[-1]}}
+    m.gql = gql
+    return m, writes
+
+
+def run_blocked_by(m, number, *refs, remove=False):
+    with contextlib.redirect_stdout(io.StringIO()):
+        m.cmd_blocked_by(argparse.Namespace(repo="hoopit/api", number=number, refs=list(refs),
+                                            remove=remove))
+
+
+def test_blocked_by_links_across_repos_and_removes():
+    m, writes = blocked_by_module({})
+    run_blocked_by(m, 1, "#2", "hoopit/web-admin#3")
+    assert [w[0] for w in writes] == ["addBlockedBy", "addBlockedBy"] and writes[0][1:] == ("I_1", "I_2")
+    run_blocked_by(m, 1, "#2", remove=True)
+    assert writes[-1][0] == "removeBlockedBy", writes
+    print("  links same-repo and cross-repo refs, and takes one off")
+
+
+def test_blocked_by_refuses_a_cycle_a_self_link_and_a_pr():
+    m, writes = blocked_by_module({"hoopit/api#2": ["hoopit/web-admin#3"],
+                                   "hoopit/web-admin#3": ["hoopit/api#1"]})
+    for ref in ("#2", "#1"):
+        try:
+            run_blocked_by(m, 1, ref)
+            raise AssertionError(f"linked {ref}")
+        except SystemExit as e:
+            assert "cycle" in str(e) or "itself" in str(e), e
+    m.gql = lambda q, **kw: {"resource": {"id": "PR_9"}}
+    m.issue_gates = lambda r, n: ("", [], 0)
+    try:
+        run_blocked_by(m, 1, "#9")
+        raise AssertionError("linked a pull request")
+    except SystemExit as e:
+        assert "pull request" in str(e), e
+    assert writes == []
+    print("  a transitive cycle, a self-link and a pull request all write nothing")
+
+
 def test_the_stamp_lands_after_the_fields_and_needs_the_field():
     m = load()
     res = {"id": "I_1", "projectItems": {"nodes": []}}

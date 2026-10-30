@@ -19,8 +19,8 @@ Triage starts nothing. The dispatcher picks from **Ready** alone, and what sits 
 moves only on the user's say-so: `hoopit-board ready <repo> <n>`. Step 4 offers the
 list.
 
-Three passes, in order: **fields**, **collapse**, **grill**. Each costs more per item than
-the one before it, so an item that settles early never reaches a question.
+Three passes, in order: **sweep**, **holds**, **grill**. The later ones cost more per item,
+so an item that settles early never reaches a question.
 
 Every pass writes what it learned onto the issues, so the grill starts from the board
 alone. Invoked with `grill`, reach the board and go straight to step 5.
@@ -33,54 +33,29 @@ hoopit-board open >/dev/null && echo up
 
 Unreachable ends the run.
 
-## 2. Fields
+## 2. Sweep
+
+Load `github-tracker:triage-sweep` and run its steps. They ask the user nothing, so an attended
+run differs in four things:
+
+- The batch is everything `triage-due` lists, with no cap, and the collapse adds whatever
+  `hoopit-board decisions 40 --lines 1 --due` and `hoopit-board decisions --unnamed --due` list
+  beyond it.
+- Repo sessions start at the default permissions, so a prompt waits for the user there.
+- There is no time limit on a session.
+- Its report folds into step 4.
+
+**Done when** the sweep's own steps are done over that batch.
+
+## 3. Holds
 
 ```bash
-hoopit-board next > /tmp/next.json     # read-only
+hoopit-board next > <scratchpad>/next.json     # read-only
 ```
 
-`untriaged` is the list, and it comes first: these items are invisible to every ranking
-until they have fields, however small they look.
+Any `untriaged` entry the sweep left gets its fields as `triage-sweep` step 2 sets them.
 
-Read each issue and set all three from the rubrics in `create-gh-issue`:
-
-```bash
-hoopit-board triage <repo> <n> --priority P2 --effort M --autonomy Unattended --tested
-```
-
-`--tested` stamps the item as triaged, so `triage-sweep` passes over it. Leave it off a
-`Needs decision`: step 3 stamps those.
-
-Set them from the issue in front of you — the rubric is written down, so this pass asks
-the user nothing. State each value and a one-clause reason, then move on.
-
-Where a dispatcher runs with a dispatch ladder configured, **Effort also picks the
-model**; either way the rubric prices the hunt along with the fix. This is the one pass
-that reads the issue closely enough to see the hunt — price it here.
-
-Autonomy is the axis with no default, and the three non-`Unattended` values owe the body a
-section:
-
-- `Needs decision` — a `## The decision` heading naming the question and the shapes it
-  could take, so clearing it costs a sentence. Write it now where it is missing; an
-  unnamed decision costs a re-read before anyone can answer it, and those pile up under
-  `hoopit-board decisions --unnamed`.
-- `Waiting` — a `## Waiting on` section naming the party, what was asked, and when they
-  were last chased.
-- `Manual` — what it needs that no checkout has. Where part of it *is*
-  reachable, file that part as its own `Unattended` issue. A command to write and run
-  stays one issue (`create-gh-issue`, step 3).
-
-Two more things the body owes whoever starts it, both visible only from here:
-
-- **A backticked path that resolves in the checkout.** Footprints come from those, so an
-  issue naming none reads as collision-free, and one whose migration the judgement cannot
-  place in an app (`MIGRATION-GRAPH:*`) collides with every migration in flight, in both
-  directions, and starves. Name the file, or at least the app.
-- **A lead** — a file, a symbol, a log line worth starting from. A lead points; the agent
-  draws the conclusion.
-
-`needs_judgement` comes next: candidates whose collision judgement landed between
+`needs_judgement` lists candidates whose collision judgement landed between
 `COLLIDE_LOW` and `COLLIDE_HIGH`. `next` neither dispatches nor rejects them, so they
 recur every tick until settled here. Each entry's `judged` map names what it may collide
 with — an open PR of an item in flight, or another claimed issue — and the probability. Read the issue against
@@ -107,11 +82,80 @@ Three defects strand an item silently. Fix them while you are in here:
 `scheduled` and `awaiting_deploy` clear themselves. A `Start date` genuinely ahead is a
 gate that still binds; `--not-before none` is for one that has stopped binding.
 
-**Done when** every item that was in `untriaged` carries all three fields, each
-`Needs decision` names its decision, each `Manual` what it needs and each `Waiting` whom
-it waits on, and every `needs_judgement` entry has a footprint or a gate in its body.
+**Done when** `untriaged` is empty and every `needs_judgement` entry has a footprint or a gate in
+its body.
 
-## 3. Collapse
+## 4. Report the triage
+
+- Fields filled, with the values.
+- Items retired in the collapse — each with the evidence that retired it. This is
+  the number that matters: a retired item is a slot an unattended run fills from then on
+  with nobody present.
+- Defects fixed: gate lines added or corrected, decisions named, paths supplied.
+- Dependencies linked or removed, each with its clause.
+- What is now `Unattended` in Backlog and could be promoted, ranked as `hoopit-board
+  slots --unattended` lists Backlog — the user picks which move to Ready; move none on
+  your own.
+- The `Manual` and `Waiting` counts alone, and that `gh-followup` is what works those buckets.
+- Whether anything is draining the queue: check where a dispatcher runs, and whether
+  it is dispatching. A queue of `Unattended` items with nothing consuming it is the one
+  way a clean triage run still leaves the backlog stopped. Report the fact; enabling it
+  is the user's call. An active dispatcher can still be dispatching nothing — its logs name
+  the hold, and a dead session underneath clears with a re-authenticate.
+
+Flight counts move while the report is being read, so leave them to the dispatcher.
+
+This report is the boundary. A collapse that fanned out leaves this context heavy with
+reads the grill never uses, and every round would carry them. Ask the user: clear and run
+`/gh-triage grill` (recommended), or continue here. A collapse small enough to need no
+fan-out continues straight into the grill.
+
+## 5. Grill
+
+What survives is the user's: product behaviour, domain modelling, UX, scope, a trade with
+no measurable answer. Work it **one issue at a time**, highest priority first —
+`hoopit-board decisions` is already in that order, a `repo#n` argument ahead of it — in
+the format
+`mattpocock-skills:grilling` defines. Read that skill for the round structure and the
+question format; three things are particular to this use:
+
+- **The tree is one issue's.** A round covers that issue's frontier and nothing else, so
+  the user answers in the order the questions were asked.
+- **Every recommendation carries its argument against.** A recommendation with no
+  downside stated is a nudge, and nudging is how a triage run invents a requirement.
+- **Fire the `AskUserQuestion` ping** at the end of each round: a bare ping — "I've
+  asked some questions above", options "Answer in chat (recommended)" and "Take all
+  your recommendations" — so the round surfaces in a tab nobody is watching. The round
+  itself lives in the chat text; the ping is only what reaches the tab.
+
+Facts are yours, decisions are theirs. A frontier question needing a fact from the code,
+prod or Sentry is a fact to go and get — dispatch a subagent for a wide read, and let the
+rest of the frontier proceed while it runs. A fact that settles the question outright
+means the item belonged in the collapse: say so, and retire it there.
+
+An issue's frontier empties, and then:
+
+1. Comment the answers onto the issue — every question, its answer, and the reasoning the
+   answer alone does not carry. This is what the eventual agent reads.
+2. Fold what changed the issue's shape into the body — a new constraint, a ruled-out
+   option — so the body still describes the work.
+3. `hoopit-board triage <repo> <n> --autonomy Unattended`.
+4. Open the next issue.
+
+**With nobody there to answer**, the ping still goes out and the issue keeps its
+`Needs decision` with the round written onto it as a comment. That comment is what
+survives the run: the next pass answers it instead of re-deriving it.
+
+## 6. Report the grill
+
+- Decisions the user answered, and which issues reached `Unattended`.
+- Issues mid-grill, with the round they wait on.
+- The `hoopit-board decisions --unnamed` count: the grill skips those, and the next full
+  run names them.
+
+## The collapse
+
+The contract for `triage-sweep` step 5.
 
 ```bash
 hoopit-board decisions 40 --lines 1 --due
@@ -165,7 +209,7 @@ directory, group the pile by repo, and start one session at each checkout
 
 Permissions stay at the default, so a prompt waits for the user in that session. The prompt:
 
-> Run the collapse pass on `<the repo's issues>`. Your contract is `## 3. Collapse` in
+> Run the collapse pass on `<the repo's issues>`. Your contract is `## The collapse` in
 > `${CLAUDE_PLUGIN_ROOT}/skills/gh-triage/SKILL.md`; this session does that pass and nothing
 > else, and starts no other session. Batch by domain and dispatch one subagent per batch, in
 > parallel, naming in each brief the rules and traps its issues touch, since a subagent may
@@ -234,70 +278,3 @@ named **untested** with the others.
 **Done when** every item in both listings has been tested against all four retirements
 with each verdict stated, or sits in a repo named untested, every survivor names its
 decision, and every session that wrote its `summary.txt` is closed.
-
-## 4. Report the triage
-
-- Fields filled, with the values.
-- Items retired in the collapse — each with the evidence that retired it. This is
-  the number that matters: a retired item is a slot an unattended run fills from then on
-  with nobody present.
-- Defects fixed: gate lines added or corrected, decisions named, paths supplied.
-- What is now `Unattended` in Backlog and could be promoted, ranked as `hoopit-board
-  slots --unattended` lists Backlog — the user picks which move to Ready; move none on
-  your own.
-- The `Manual` and `Waiting` counts alone, and that `gh-followup` is what works those buckets.
-- Whether anything is draining the queue: check where a dispatcher runs, and whether
-  it is dispatching. A queue of `Unattended` items with nothing consuming it is the one
-  way a clean triage run still leaves the backlog stopped. Report the fact; enabling it
-  is the user's call. An active dispatcher can still be dispatching nothing — its logs name
-  the hold, and a dead session underneath clears with a re-authenticate.
-
-Flight counts move while the report is being read, so leave them to the dispatcher.
-
-This report is the boundary. A collapse that fanned out leaves this context heavy with
-reads the grill never uses, and every round would carry them. Ask the user: clear and run
-`/gh-triage grill` (recommended), or continue here. A collapse small enough to need no
-fan-out continues straight into the grill.
-
-## 5. Grill
-
-What survives is the user's: product behaviour, domain modelling, UX, scope, a trade with
-no measurable answer. Work it **one issue at a time**, highest priority first —
-`hoopit-board decisions` is already in that order, a `repo#n` argument ahead of it — in
-the format
-`mattpocock-skills:grilling` defines. Read that skill for the round structure and the
-question format; three things are particular to this use:
-
-- **The tree is one issue's.** A round covers that issue's frontier and nothing else, so
-  the user answers in the order the questions were asked.
-- **Every recommendation carries its argument against.** A recommendation with no
-  downside stated is a nudge, and nudging is how a triage run invents a requirement.
-- **Fire the `AskUserQuestion` ping** at the end of each round: a bare ping — "I've
-  asked some questions above", options "Answer in chat (recommended)" and "Take all
-  your recommendations" — so the round surfaces in a tab nobody is watching. The round
-  itself lives in the chat text; the ping is only what reaches the tab.
-
-Facts are yours, decisions are theirs. A frontier question needing a fact from the code,
-prod or Sentry is a fact to go and get — dispatch a subagent for a wide read, and let the
-rest of the frontier proceed while it runs. A fact that settles the question outright
-means the item belonged in the collapse: say so, and retire it there.
-
-An issue's frontier empties, and then:
-
-1. Comment the answers onto the issue — every question, its answer, and the reasoning the
-   answer alone does not carry. This is what the eventual agent reads.
-2. Fold what changed the issue's shape into the body — a new constraint, a ruled-out
-   option — so the body still describes the work.
-3. `hoopit-board triage <repo> <n> --autonomy Unattended`.
-4. Open the next issue.
-
-**With nobody there to answer**, the ping still goes out and the issue keeps its
-`Needs decision` with the round written onto it as a comment. That comment is what
-survives the run: the next pass answers it instead of re-deriving it.
-
-## 6. Report the grill
-
-- Decisions the user answered, and which issues reached `Unattended`.
-- Issues mid-grill, with the round they wait on.
-- The `hoopit-board decisions --unnamed` count: the grill skips those, and the next full
-  run names them.
