@@ -79,9 +79,9 @@ pr_checks() {
 # A commit status is shared by every PR with that head, so only rows ending ` (#<pr>)` count.
 pr_gate_wait() {
   local statuses
-  statuses=$(gh api "repos/$1/commits/$3/statuses?per_page=100") || return 1
+  statuses=$(gh api --paginate --slurp "repos/$1/commits/$3/statuses?per_page=100") || return 1
   jq -r --arg ctx "$4" --arg suffix " (#$2)" '
-    [.[] | select(.context == $ctx and ((.description // "") | endswith($suffix)))] as $rows
+    [.[][] | select(.context == $ctx and ((.description // "") | endswith($suffix)))] as $rows
     | (($rows | map(.state != "pending") | index(true)) // ($rows | length)) as $n
     | select($n > 0)
     | "\($n) \($rows[0].created_at | fromdateiso8601) \($rows[$n].state // "none")"' <<<"$statuses"
