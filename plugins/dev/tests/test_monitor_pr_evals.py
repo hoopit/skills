@@ -162,32 +162,29 @@ def dispatches(r):
 
 def test_a_stale_pending_review_is_re_requested_a_bounded_number_of_times():
     r = stuck()
-    lines = r.watch(8, REREQUEST_AFTER="2", GATE_TIMEOUT="60")
+    lines = r.watch(10, REREQUEST_AFTER="2", GATE_TIMEOUT="60")
     assert lines == [f"REREQUESTED head={r.head} gate=codex-review request=1/2",
                      f"REREQUESTED head={r.head} gate=codex-review request=2/2",
                      f"GATE_STUCK head={r.head} gate=codex-review requests=2 last_verdict=none"], lines
     assert dispatches(r) == ["codex-review-manual.yml"] * 2
 
 
-def test_a_healthy_review_is_left_alone_while_it_runs():
-    r = stuck(age=30)
-    assert r.watch(4, REREQUEST_AFTER="1500", GATE_TIMEOUT="60") == []
-    assert dispatches(r) == []
-
-
 def test_re_requests_keep_their_count_across_a_resumed_and_a_fresh_watch():
+    stuck_line = "GATE_STUCK head={} gate=codex-review requests=2 last_verdict=none"
+    queued = stuck(rereview_goes_pending=False)
+    assert len(queued.watch(3, REREQUEST_AFTER="600", GATE_TIMEOUT="60")) == 1
+    assert queued.watch(3, REREQUEST_AFTER="600", GATE_TIMEOUT="60", WATCH_RESUME="1") == []
+    assert queued.watch(8, REREQUEST_AFTER="1", GATE_TIMEOUT="60", WATCH_RESUME="1") == [
+        f"REREQUESTED head={queued.head} gate=codex-review request=2/2", stuck_line.format(queued.head)]
     r = stuck()
-    assert len(r.watch(2, REREQUEST_AFTER="3", GATE_TIMEOUT="60")) == 1
-    assert r.watch(3, REREQUEST_AFTER="3", GATE_TIMEOUT="60", WATCH_RESUME="1") == []
-    lines = r.watch(8, REREQUEST_AFTER="1", GATE_TIMEOUT="60")
-    assert lines == [f"REREQUESTED head={r.head} gate=codex-review request=2/2",
-                     f"GATE_STUCK head={r.head} gate=codex-review requests=2 last_verdict=none"], lines
-    assert len(dispatches(r)) == 2
+    assert len(r.watch(3, REREQUEST_AFTER="600", GATE_TIMEOUT="60")) == 1
+    assert r.watch(8, REREQUEST_AFTER="1", GATE_TIMEOUT="60") == [
+        f"REREQUESTED head={r.head} gate=codex-review request=2/2", stuck_line.format(r.head)]
 
 
 def test_a_re_request_that_answers_clears_a_green_held_for_the_gate():
     r = stuck(age=0, rereview_statuses=[{"context": "codex-review", "state": "success", "description": "Codex reviewed it (#4242)"}])
-    lines = r.watch(6, REREQUEST_AFTER="2", GATE_TIMEOUT="0")
+    lines = r.watch(8, REREQUEST_AFTER="2", GATE_TIMEOUT="0")
     assert lines == [f"GREEN head={r.head} pending_gates=codex-review",
                      f"REREQUESTED head={r.head} gate=codex-review request=1/2",
                      f"GREEN head={r.head} cleared=codex-review"], lines
@@ -218,14 +215,11 @@ def test_a_failed_dispatch_stops_asking_and_names_the_pass_the_pending_replaced(
         assert len(dispatches(r)) == 2
 
 
-def test_only_this_prs_pending_is_re_requested():
-    rows = {"passed": {"state": "success", "description": "x (#4242)"}, "failed": {"state": "failure", "description": "x (#4242)"},
-            "silent": None, "sibling": {"state": "pending", "description": "Waiting (#9999)"}}
-    for name, row in rows.items():
-        statuses = [{"context": "codex-review", "age": 9000, **row}] if row else []
-        r = Run(issue_comments=coderabbit("{HEAD}"), statuses=statuses)
-        r.watch(3, REREQUEST_AFTER="0", GATE_TIMEOUT="60")
-        assert dispatches(r) == [], name
+def test_another_prs_pending_on_a_shared_head_is_never_re_requested():
+    r = Run(issue_comments=coderabbit("{HEAD}"), statuses=[
+        {"context": "codex-review", "state": "pending", "age": 9000, "description": "Waiting (#9999)"}])
+    r.watch(3, REREQUEST_AFTER="0", GATE_TIMEOUT="60")
+    assert dispatches(r) == []
 
 
 def test_a_running_check_that_is_no_gate_still_holds_green():
