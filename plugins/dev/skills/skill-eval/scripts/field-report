@@ -22,8 +22,7 @@ or prints `error:`/`fatal:`); redos (a failed call run again in the same span); 
 turn ended: interrupted, or a human prompt that reads as a correction.
 
 Left out: a session's use of a skill whose files that session edits, anything under a
-review-gate probe (a gate dir, `~/.cache/review-gate/review-gate.*` or
-`/tmp/review-gate.*`), and sessions run from skill-eval's fixtures.
+review-gate probe (a gate dir, `review-gate.XXXXXX`, under whatever root), and sessions run from skill-eval's fixtures.
 
 Per-skill signals add rows of their own beside the generic ones (`SIGNALS` below).
 """
@@ -34,7 +33,7 @@ ROOT = pathlib.Path.home() / ".claude" / "projects"
 EVAL_HOME = pathlib.Path(os.environ.get("SKILL_EVAL_HOME") or
                          pathlib.Path(os.environ.get("XDG_CACHE_HOME") or pathlib.Path.home() / ".cache")
                          / "skill-evals")
-PROBE = re.compile(r"/tmp/review-gate\.|/review-gate/review-gate\.")
+PROBE = re.compile(r"[/\\]review-gate\.\w{6}(?:[/\\]|$)")
 # A skill that was renamed keeps one row across the rename.
 ALIASES = {"new-worktree": "create-worktree"}
 

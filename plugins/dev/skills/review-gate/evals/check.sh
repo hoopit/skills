@@ -114,9 +114,12 @@ else:
     say("PASS" if pinned else "FAIL", "codex_scope_pins",
         f"{len(review)} `codex exec review` call(s), none at {model}/{effort}" if review else "codex review never ran")
 
-# Every gate dir the pass opened is closed again by the time it returns.
-opened = set(re.findall(r"(/[\w./-]*?review-gate\.\w{6})", pathlib.Path(env["EVAL_LOG"]).read_text(errors="replace")))
-left = sorted(d for d in opened if os.path.isdir(d))
+# Every gate dir the pass opened is closed again by the time it returns. The log names each by its
+# unique `review-gate.XXXXXX`; the root is gate_dir.sh's, so a path with spaces or a drive letter
+# still resolves.
+gate_root = pathlib.Path(env.get("XDG_CACHE_HOME") or pathlib.Path.home() / ".cache") / "review-gate-dirs"
+opened = set(re.findall(r"review-gate\.\w{6}\b", pathlib.Path(env["EVAL_LOG"]).read_text(errors="replace")))
+left = sorted(str(gate_root / n) for n in opened if (gate_root / n).is_dir())
 say("FAIL" if left else "PASS", "gate_dir_closed", f"still open: {', '.join(left)}")
 
 bash = [str((u.get("input") or {}).get("command", "")) for u in uses if u.get("name") == "Bash"]
