@@ -29,6 +29,11 @@ tally in the description as **challenge findings weighed** and **held** — no r
 a head briefed again replaces its own earlier count rather than adding to it — and it is
 what the paths below read.
 
+**`cleared=<gates>`** — the gates an earlier `GREEN` on this head left in `pending_gates` have
+reported, so the hold that briefing recommended no longer stands. Brief the head again and
+carry on as for any `GREEN`: with no `pending_gates`, it reaches the hand-off and the merge
+question.
+
 **`HELD`** — a challenge finding held, and nothing was written. It opens a round rather
 than a question, the same work a reviewer thread would open: under `--subagent` as
 `ROUND: CHALLENGE head=<sha> findings=<n>` with the findings and the reachability read
@@ -53,7 +58,8 @@ question back on its own: the user asks for the re-brief, or a push moves the he
 **Stop monitoring, I'll take it from here**. *Brief this head again* re-runs
 `merge-briefing` on this head with the challenge — never skipped, and with any round's
 declines among the judgement rows — and carries on from the top of this file with what
-it returns. Nothing re-briefs a head on its own: the watch fires `GREEN` once per head.
+it returns. Past a `cleared=` line, nothing re-briefs a head on its own: the watch fires
+`GREEN` once per head.
 
 Drop `agent-working` before asking (Step 4): the PR is the user's until they answer.
 When this head is ready on the agent's side — the challenge ran (or was carried as `ran`)

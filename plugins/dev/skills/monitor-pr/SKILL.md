@@ -103,8 +103,8 @@ Monitor(
 
 A monitor lives 30 minutes at most. Its expiry notice is not a stop: re-arm at once with
 the same call, the command prefixed `WATCH_RESUME=1`, and say nothing more than that it
-re-armed. The resumed watch keeps the threads, checks, `GREEN` and `STALLED` it already fired on, so
-nothing fires twice. Every other arm starts fresh. A turn that ends without the watch
+re-armed. The resumed watch keeps the threads, checks, `GREEN`, `STALLED` and re-requests it already
+fired on, so nothing fires twice. Every other arm starts fresh. A turn that ends without the watch
 re-armed leaves the PR unwatched, and the board reads the issue as Idle.
 
 A **gate** is a reviewer a head must hear from before it goes `GREEN`: `codex-review`,
@@ -112,8 +112,9 @@ read as a check, and `CodeRabbit`, which posts no check and is read from its sum
 comment instead. A CodeRabbit that has said it will not review the head — rate-limited,
 paused, or skipped — counts as reported. For a repo whose reviewer checks have other
 names, prefix `GATE_CHECKS=<a>,<b>`, and tune how long a head waits on a silent gate with
-`GATE_TIMEOUT=<seconds>` (default 900), and how long a verdict may sit unanswered with
-`STALL_AFTER=<seconds>` (default 900).
+`GATE_TIMEOUT=<seconds>` (default 900), how long a verdict may sit unanswered with
+`STALL_AFTER=<seconds>` (default 900), and how `codex-review` is recovered from a stale
+`pending` with `REREQUEST_AFTER=<seconds>` (default 1500) and `REREQUEST_MAX=<n>` (default 2).
 
 The script polls every 60 s and prints only the lines below. Each `head=` is the PR head's
 full 40-character SHA: compare it with the PR's `headRefOid`, or with `git rev-parse HEAD`
@@ -128,6 +129,14 @@ run in the PR's worktree.
   no unresolved thread, no failing check, none still running, no conflict. Fired once per
   head; the merge decision goes to the user (Step 5). `pending_gates` here names a gate
   that had not reported when `GATE_TIMEOUT` elapsed: it posted nothing, or sat at pending.
+- `GREEN head=… cleared=<names>` — the gates this head's earlier `GREEN` named in
+  `pending_gates` have all reported, and the head is still settled. Fired once.
+- `REREQUESTED head=… gate=<check> request=<k>/<max>` — the review read `pending` for
+  `REREQUEST_AFTER`, so the watch re-requested it. The watch owns a stale `pending`: print
+  one line and leave it. Its answer comes as a `GREEN` or a `ROUND`.
+- `GATE_STUCK head=… gate=<check> requests=<n> last_verdict=<state|none>
+  [reason=dispatch-failed]` — the re-requests went unanswered, or one could not be
+  dispatched. `last_verdict` is what the `pending` replaced on this head. Step 5 answers it.
 - `STALLED head=… verdicts=<check>:<n>` — a **verdict** is all that holds the head, and has
   for `STALL_AFTER`: nothing else failing or running, no thread, no conflict. `<n>` counts
   the times the watch saw that check turn red on this head. Step 4 answers it.
@@ -259,7 +268,7 @@ asking: filed through the driver's tracker where it says it should be —
 rule in the repo's `docs/agents/issue-tracker.md` (ask which tracker if neither is
 clear, and file nothing until answered) — or held for the `GREEN` merge question.
 
-Five paths reach the user. The first two leave the watch running.
+Six paths reach the user. The first two and *gate stuck* leave the watch running.
 
 **A soft fork.** Collect every soft fork the round produced, let the round finish its
 push, then ask them as one round of questions. A question left unanswered
@@ -276,6 +285,14 @@ the merge itself, where the user handed it over.
 A `GREEN` after a closing round also lists that round's declines — each thread, and `not
 worth a round` with its evidence where that was the reason — so the user can take any of
 them back; a decline taken back rides into the next round as `ANSWERED`.
+
+**Gate stuck** — a `GATE_STUCK` line, once any round in flight has finished. Name the gate,
+how long it has read `pending`, and `requests`. `last_verdict=success` means Codex passed this
+head and a later request overwrote the status: recover it by re-running the `Codex review
+mirror` run that posted the pass, which spends no review. Otherwise recover it with
+`gh workflow run codex-review-manual.yml -f pr=<PR> --repo <OWNER_REPO>`. The bypass the repo
+documents stays the user's call, `--unattended` included. A late answer still arrives as a
+`GREEN` or a `ROUND`.
 
 **Closed or checkpointed** — a close holding a verdict, or a checkpoint that stopped.
 Stop, then ask whether to keep watching. The close's question lists its declines as a
@@ -303,6 +320,7 @@ options, because they answer different things:
 | Green | **Merge it** · **Not yet — keep watching** · **Stop monitoring, I'll take it from here** |
 | Green, no passing briefing ([GREEN.md](GREEN.md)) | **Brief this head again** · **Not yet — keep watching** · **Stop monitoring, I'll take it from here** |
 | Green, run owed | **Run it** · **I'll run it — output to follow in chat** · **Not yet — keep watching** ([GREEN.md](GREEN.md)) |
+| Gate stuck | **Recover it** · **Keep watching** · **Stop monitoring, I'll take it from here** |
 | Closed or checkpointed | **Keep watching** · **Stop, I'll take it** · **Answer in chat** (when questions are outstanding) |
 | Stop | **Re-arm the watch** (a transient stop — go back to Step 2, label included) · **Stop, I'll take it** · **Keep going anyway** (re-arm past a check failing for reasons outside this PR) |
 

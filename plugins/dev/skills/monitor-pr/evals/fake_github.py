@@ -9,7 +9,8 @@ This keeps the PR in `$EVAL_RUN_DIR/github/state.json` and answers from it:
 - checks and statuses are the case's for the head it was set up on, and `new_head_checks` /
   `new_head_statuses` for any head pushed after it; `statuses_after_polls` swaps statuses in
   once the watch has polled `after` times, and `rereview_statuses` once a Codex re-review is
-  dispatched;
+  dispatched, or with `rereview_goes_pending` a fresh pending row as the real dispatch writes; a
+  status's `age` dates it that many seconds before its first read, and it is otherwise dated then;
 - review threads resolve, labels come and go, the body and draft change, a merge closes it.
 
 Every call is appended to `EVAL_CALLS` like the runner's shims do, with the head and draft as
@@ -143,8 +144,16 @@ def override_statuses(s, rows):
 
 def dispatched(s, workflow, inputs):
     s.setdefault("dispatches", []).append({"workflow": workflow, "inputs": inputs})
-    if "codex-review-manual" in (workflow or "") and s.get("rereview_statuses"):
+    if "codex-review-manual" not in (workflow or ""):
+        return
+    if s.get("rereview_fails"):
+        raise Fail("HTTP 404: workflow codex-review-manual.yml not found on the default branch")
+    if s.get("rereview_statuses"):
         override_statuses(s, s["rereview_statuses"])
+    elif s.get("rereview_goes_pending"):
+        key = "statuses" if initial(s) else "new_head_statuses"
+        s[key] = s.get(key, []) + [{"context": "codex-review", "state": "pending", "created_at": stamp(),
+                                    "description": f"Waiting for Codex to review it (#{s['pr']['number']})"}]
 
 
 def check_runs(s, sha):
@@ -169,8 +178,13 @@ def statuses(s, sha):
     rows = rows + [st for st in s.get("posted_statuses", []) if st["sha"] == sha]
     return [{"context": st["context"], "state": st["state"], "description": st.get("description", ""),
              "target_url": st.get("target_url", f"https://github.com/{s['repo']}/actions"),
-             "updated_at": st.get("updated_at", s["started_at"]), "created_at": s["started_at"]}
+             "updated_at": st.get("updated_at", s["started_at"]),
+             "created_at": st.setdefault("created_at", stamp(st.get("age", 0)))}
             for st in rows]
+
+
+def stamp(age=0):
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - age))
 
 
 def combined(sts):
@@ -344,7 +358,7 @@ def rest(s, method, path, body, accept):
             sts = statuses(s, sha)
             return {"state": combined(sts), "sha": sha, "total_count": len(sts), "statuses": sts}
         if sub == ["statuses"]:
-            return statuses(s, sha)
+            return statuses(s, sha)[::-1]
         if sub == ["check-suites"]:
             return {"total_count": 0, "check_suites": []}
         if not sub:

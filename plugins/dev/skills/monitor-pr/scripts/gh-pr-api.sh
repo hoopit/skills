@@ -71,6 +71,22 @@ pr_checks() {
       else "fail" end), .context, (.target_url // "")] | @tsv' <<<"$statuses"
 }
 
+# pr_gate_wait <owner/repo> <pr> <head_sha> <context> — prints how a status check's wait on the
+# head stands, as "<pending_rows> <newest_pending_epoch> <verdict>", or nothing when its latest
+# row is no pending one. pending_rows counts the requests since the last verdict, and verdict is
+# the state of the row before them, or `none`.
+# The statuses history, not `commits/{sha}/status`: that collapses to the latest row per context.
+# A commit status is shared by every PR with that head, so only rows ending ` (#<pr>)` count.
+pr_gate_wait() {
+  local statuses
+  statuses=$(gh api "repos/$1/commits/$3/statuses?per_page=100") || return 1
+  jq -r --arg ctx "$4" --arg suffix " (#$2)" '
+    [.[] | select(.context == $ctx and ((.description // "") | endswith($suffix)))] as $rows
+    | (($rows | map(.state != "pending") | index(true)) // ($rows | length)) as $n
+    | select($n > 0)
+    | "\($n) \($rows[0].created_at | fromdateiso8601) \($rows[$n].state // "none")"' <<<"$statuses"
+}
+
 # pr_coderabbit <owner/repo> <pr> <head_sha> — prints CodeRabbit's standing on the head:
 #   reported      its summary comment records a review covering the head
 #   silent:<why>  it has said it will not review this head — rate-limited, paused,

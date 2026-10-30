@@ -171,8 +171,8 @@ Every fix in axes 1 to 3 is held to *Every fix* before it is committed.
      fork is. Decide it from **live state**, read at the kick: the `ROUND` line's
      `pending_gates` is a snapshot from when the round opened, and a verdict landing since
      makes it false. Skip only when `codex-review` reads `pending` on the head now — a
-     review is running, and a second would duplicate it. A `fail` is the verdict an appeal
-     exists to re-request:
+     review is running, and the watch re-requests one that goes stale. A `fail` is the
+     verdict an appeal exists to re-request:
 
      ```bash
      source <GH_PR_API>
