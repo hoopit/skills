@@ -14,10 +14,10 @@ Step 4a of [SKILL.md](SKILL.md). Four steps, in order, attended or `--unattended
    - TODOs and follow-ups written into the PR description outside the ledger block.
 
    Decide each item yourself, filing where this repo's `AGENTS.md` says work items live:
-   file what you are fairly sure is worth it, drop what you are fairly sure is not, saying
-   why, and ask, as Step 5 asks, only a 50/50. Done when every item is filed
-   (listed with its number and priority), dropped with its reason, or asked — or the sweep
-   says *nothing left open*.
+   drop what you would argue against, saying why, and file the rest; one you can't call
+   goes into the backlog, named in the report as your call. Done when every item is filed
+   (listed with its number and priority) or dropped with its reason — or the sweep says
+   *nothing left open*.
 
    A PR naming a Sentry issue (`## Sentry`, `Fixes <SENTRY_ID>`) has that issue resolved
    in the next release, at merge. Read its status; when the merge left it unresolved — a

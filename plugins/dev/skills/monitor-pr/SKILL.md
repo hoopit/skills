@@ -269,7 +269,7 @@ reach its code — a follow-up to file, a finding outside its scope — is settl
 asking: filed through the driver's tracker where it says it should be —
 `github-tracker:create-gh-issue` when installed, otherwise the personal-agent-tracker
 rule in the repo's `docs/agents/issue-tracker.md` (ask which tracker if neither is
-clear, and file nothing until answered) — or held for the `GREEN` merge question.
+clear, and file nothing until answered) — or dropped with its reason.
 
 Six paths reach the user. The first two and *gate stuck* leave the watch running.
 

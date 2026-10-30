@@ -20,10 +20,10 @@ Priority, Effort, Autonomy and `Start date` are org-wide **issue** fields on
 so it survives being taken off a board and is there to read from any other one. A pull
 request cannot carry them.
 
-## File it, drop it, or ask
+## File it or drop it
 
 Filing to this board is cheap, so the gate is low — a gate for this board and no
-other tracker. Decide each candidate yourself, and ask only the coin-flips.
+other tracker. Decide each candidate yourself.
 
 - **File** what you are fairly sure is worth recording: the work follows from something
   you established — the item the task itself needs, a follow-up the shipped change leaves
@@ -31,12 +31,9 @@ other tracker. Decide each candidate yourself, and ask only the coin-flips.
   prod, a finding that would otherwise be lost. "This is broken and nobody has recorded
   it" files itself. A refactor, a cleanup or a nice-to-have you would argue for files too,
   as a proposal in `Backlog`.
-- **Drop** what you are fairly sure is not: the merge or the change already settled it, or
-  you would argue against it yourself. Name each drop and its reason in your report.
-- **Ask** only a 50/50 — its worth is the judgement itself, and you can argue it either
-  way. Asking is its own question — title and one line per proposed issue, never a bullet
-  inside a larger summary being confirmed. With nobody there to ask, file it anyway with
-  Autonomy `Needs decision` and the decision named in the body.
+- **Drop** what you would argue against yourself, or what the merge or the change already
+  settled. Name each drop and its reason in your report.
+- **File into `Backlog`** what you can argue either way, named in your report as your call.
 
 ## 1. Resolve the repo
 
