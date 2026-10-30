@@ -153,7 +153,7 @@ hoopit-board init --owner <org> --number <n> --checkouts <dir> \
 ```
 
 A bare `--repo` means no production branch. Add `--force` only where step 0 agreed to
-replace a config. `--ladder` belongs to a backlog daemon's setup, not this one.
+replace a config. `--ladder` belongs to a dispatcher's setup, not this one.
 
 **Done** when `hoopit-board config` prints the board and a found checkout for every repo.
 

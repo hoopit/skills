@@ -17,7 +17,7 @@ sweep of their own at the end.
 Items that are **In progress** or **In review** are never closed or absorbed
 here — an agent may be inside one right now. They can be retriaged, and
 anything that looks abandoned goes on the doubt list. An item started by
-`start-backlog-daemon` or `gh-triage` carries a comment naming its agent; that is how you
+`hoopit-dispatcher` or `gh-triage` carries a comment naming its agent; that is how you
 tell abandoned from busy, and a later `Handed back to the backlog` comment
 cancels it — an assessment gave that slot up, and the item is ordinary again.
 

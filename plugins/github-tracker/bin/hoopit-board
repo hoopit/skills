@@ -6,7 +6,7 @@ skills that use it spend their tokens on judgement instead. Every subcommand is
 deterministic, and nothing here decides what a change is worth.
 
 `next` is the exception, and deliberately so: it ranks, footprints and rejects
-collisions itself, because `start-backlog-daemon` calls it with no model in the
+collisions itself, because `hoopit-dispatcher` calls it with no model in the
 loop. An issue's footprint is the backticked paths its body names — `create-gh-issue`
 writes them exact — kept only when they resolve against the repo checkout, plus the
 migration graph of any of them that is itself a migration file. So a footprint is exact
@@ -44,7 +44,7 @@ rework the reviewers demanded, and whether a Critical/High finding was disputed 
 challenge broke a decline — the findings that never became a fix commit. It fails open to
 the fix-commit count, and the thresholds that read its answers live here.
 
-Called as a bare command by `start-backlog-daemon` and by the `create-gh-issue`,
+Called as a bare command by `hoopit-dispatcher` and by the `create-gh-issue`,
 `gh-triage` and `curate-backlog` skills, so it has to be on PATH. PRIORITIES, EFFORTS and
 AUTONOMY below are the rubric tables in `create-gh-issue`: change the two
 together or the skill teaches a value this rejects.
@@ -349,7 +349,7 @@ MIGRATION_ANY = f"{MIGRATION_TOKEN}:*"
 #
 # Every call here fails open. No key, a timeout, a 429, a malformed answer — `next`
 # returns what it returned before and says so in its `judgement` field. An outage must
-# degrade the daemon, never stall it.
+# degrade the dispatcher, never stall it.
 # The key is `TYPESAFE_API_KEY` in the environment and nowhere else, so a caller whose
 # environment carries nothing — a systemd unit, say — judges nothing until it is handed one.
 TYPESAFE_URL = "https://api.typesafe.ai/v1/systemone"
@@ -1263,7 +1263,7 @@ def cmd_claim(a):
     project_id, fields, _, item_id = ensure_item(a.repo, a.number)
     set_status(project_id, fields, item_id, "In progress")
     tab = f" in tab `{a.tab}`" if a.tab else ""
-    # The model belongs in the comment, not just the daemon log: a merged PR is joinable
+    # The model belongs in the comment, not just the dispatcher log: a merged PR is joinable
     # to the model that wrote it only through this line.
     on = ""
     if a.model:
@@ -1281,7 +1281,7 @@ def cmd_claim(a):
 def cmd_start(a):
     """claim, for a session that is its own agent: same marker, no agent to name.
 
-    Work already in flight is left as it is — the daemon claimed it before its agent
+    Work already in flight is left as it is — the dispatcher claimed it before its agent
     existed, or an earlier step of this run started it — so a second `start` writes no
     Status and posts no second marker. Either way the session is bound to the item
     (`bind`), which is what lets every skill on the way run it unconditionally."""
@@ -1862,7 +1862,7 @@ def agents_sync():
 def cmd_agents(a):
     """The sessions on this machine tied to board items: session, state, whether its process
     runs, its items and its note. `--sync` first reaps the dead and writes the board what
-    changed — the hooks spawn it on every change, and the backlog daemon runs it each tick."""
+    changed — the hooks spawn it on every change, and the dispatcher runs it each tick."""
     if a.sync:
         agents_sync()
     for s in sessions_load():
@@ -2357,12 +2357,9 @@ def cmd_next(a):
     # `Needs decision` blocks on a sentence from the author, `Manual` on hands the author
     # keeps — a console, a credential, a prod write — and `Waiting` on an outside party,
     # so an agent alone cannot finish any of them however carefully it is dispatched.
-    # `decisions` is where they go. `--allow-manual` is for a caller whose agents have
-    # somebody at hand to lend those hands. A decision is never dispatched, since the
-    # answer is the author's to give, and nor is a wait, since nobody at hand can end it.
-    dispatchable = {"Unattended"} | ({"Manual"} if a.allow_manual else set())
-    held = [i for i in ranked if i["autonomy"] not in dispatchable]
-    ranked = [i for i in ranked if i["autonomy"] in dispatchable]
+    # `decisions` is where they go.
+    held = [i for i in ranked if i["autonomy"] != "Unattended"]
+    ranked = [i for i in ranked if i["autonomy"] == "Unattended"]
     # A type `--skip-type` names is left for a session with somebody in it. Unlike the
     # Autonomy filter above, this holds back work an agent could finish, for a caller that
     # wants a person reading what it finds. Nothing is released or moved — the item stays
@@ -3308,7 +3305,7 @@ def cmd_dispatches(a):
 
 def claim_of(i):
     """(agent, claimed-at) from an item's newest standing claim comment, `("-", None)`
-    when there is none or a release came after it. Only the daemon's claim names an
+    when there is none or a release came after it. Only the dispatcher's claim names an
     agent, so hand-started work reads `-` however recently it was claimed."""
     for c in reversed(rest(f'repos/{i["repo"]}/issues/{i["n"]}/comments', 100)):
         if RELEASE_RE.search(c["body"]):
@@ -3335,7 +3332,7 @@ def cmd_stale(a):
 
     Says nothing about whether the agent is alive — that is the caller's half, and the
     only half that can tell abandoned from slow. An item whose claim marker is missing
-    reports agent `-`, which is most of them: only the daemon writes that marker, so
+    reports agent `-`, which is most of them: only the dispatcher writes that marker, so
     hand-started work is unattributable from the board alone.
 
     A PR's `updatedAt` moves for a label or a bot comment, not just a push, so anything
@@ -3906,7 +3903,7 @@ def cmd_init(a):
 
 def cmd_config(a):
     """The config as this script reads it. A configured ladder is loaded too, so a broken
-    one is found here and not on the daemon's next tick."""
+    one is found here and not on the dispatcher's next tick."""
     cfg = config()
     print(f"config\t{cfg['path']}")
     print(f"board\t{board_url(cfg['owner'], cfg['number'])}")
@@ -4000,8 +3997,6 @@ def main():
                         "hand-started item be judged by the agent named gh<n>")
     s.add_argument("--skip-type", action="append", dest="skip_type", default=[],
                    metavar="TYPE", help="leave this issue type to an attended session")
-    s.add_argument("--allow-manual", action="store_true",
-                   help="rank Autonomy `Manual` alongside `Unattended`")
     s.add_argument("--repo", action="append", dest="scope", default=[], metavar="OWNER/NAME",
                    help="count flight and start work only in these repos; every repo when omitted")
     s.add_argument("--no-judge", action="store_true",

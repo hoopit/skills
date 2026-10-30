@@ -13,14 +13,14 @@
 #
 # Judgement that needs a human is the `gh-triage` skill, and the items no agent can
 # finish — Autonomy `Needs decision`, `Manual` or `Waiting` — are never started here at all;
-# `hoopit-board decisions` is the queue for clearing those by hand. START_BACKLOG_SKIP_TYPES
+# `hoopit-board decisions` is the queue for clearing those by hand. HOOPIT_DISPATCHER_SKIP_TYPES
 # can hold back a second set by issue type: work an agent could finish, kept for a session
 # with somebody in it. Those keep their place in Ready.
 #
 # --max-active caps the agent's turn — flight with no PR yet or a draft one — and frees a
 # slot when a PR goes ready, an assessment closes its issue, or an agent hands it back, so
 # agents start in waves as the earlier ones settle rather than all at once. --max-review
-# holds every start while that many ready PRs are a human's turn, so the daemon idles
+# holds every start while that many ready PRs are a human's turn, so the dispatcher idles
 # until something merges; work active when it closes still lands, and the queue can reach
 # --max-review + --max-active - 1. <target> caps all of flight, ready PRs included, for a
 # review queue that must never pass a number. One tick fills every slot the caps leave
@@ -38,13 +38,10 @@
 # answer — is logged as `quiet` and its place goes to the next candidate. Nothing is
 # released or closed for it, and it counts again the tick its agent moves.
 #
-#   start-backlog-daemon [<target>] [--max-active N] [--max-review M]
-#                        [--interval SEC] [--once] [--dry-run] [--attended]
+#   hoopit-dispatcher [<target>] [--max-active N] [--max-review M]
+#                     [--interval SEC] [--once] [--dry-run]
 #
-# --attended says somebody is watching the tabs. It also dispatches Autonomy
-# `Manual`, and tells each agent to ask in its tab and wait rather than release.
-#
-# START_BACKLOG_LINEAR=1 adds a second source, Support's Linear Triage queue, run after
+# HOOPIT_DISPATCHER_LINEAR=1 adds a second source, Support's Linear Triage queue, run after
 # the board inside the same locked tick. `linear-board` is its only way into Linear and
 # the claims registry is how the two sources see each other: `hoopit-board collide` gives
 # Linear candidates the board's caps and file-overlap rules, so one deficit is shared and
@@ -57,72 +54,71 @@
 # start into a run that fails late, with the slot claimed and the tab already open. Each
 # tick proves the session with one call before anything starts, and a dead one holds the
 # whole tick and raises a desktop notification. Nothing is released or closed while it
-# holds; the daemon dispatches again by itself once `aws login --profile login-raw` runs.
+# holds; the dispatcher dispatches again by itself once `aws login --profile login-raw` runs.
 #
-# Settings come from ~/.config/start-backlog.env, so a run from a terminal and the
+# Settings come from ~/.config/hoopit-dispatcher.env, so a run from a terminal and the
 # service behave alike. A variable already in the environment beats the file, and a flag
 # beats both.
 #
-# Installed as ~/.config/systemd/user/start-backlog.service;
-# journalctl --user -u start-backlog -f has the whole run.
+# Installed as ~/.config/systemd/user/hoopit-dispatcher.service;
+# journalctl --user -u hoopit-dispatcher -f has the whole run.
 
 set -uo pipefail
 
 # The file is a systemd EnvironmentFile — unquoted values with spaces in them — so it is
 # read as KEY=VALUE lines and never sourced.
-ENV_FILE=${START_BACKLOG_ENV_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/start-backlog.env}
+ENV_FILE=${HOOPIT_DISPATCHER_ENV_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/hoopit-dispatcher.env}
 if [[ -r "$ENV_FILE" ]]; then
   while IFS= read -r line; do
-    [[ "$line" =~ ^(START_BACKLOG_[A-Z_]+)=(.*)$ ]] || continue
+    [[ "$line" =~ ^(HOOPIT_DISPATCHER_[A-Z_]+)=(.*)$ ]] || continue
     [[ -v "${BASH_REMATCH[1]}" ]] || export "${BASH_REMATCH[1]}=${BASH_REMATCH[2]}"
   done < "$ENV_FILE"
 fi
-# START_BACKLOG_FLAGS goes first, so a flag typed on the command line wins.
+# HOOPIT_DISPATCHER_FLAGS goes first, so a flag typed on the command line wins.
 # shellcheck disable=SC2086
-set -- ${START_BACKLOG_FLAGS:-} "$@"
+set -- ${HOOPIT_DISPATCHER_FLAGS:-} "$@"
 
-TARGET=${START_BACKLOG_TARGET:-}
+TARGET=${HOOPIT_DISPATCHER_TARGET:-}
 # An empty cap is one not applied.
-MAX_ACTIVE=${START_BACKLOG_MAX_ACTIVE:-}
-MAX_REVIEW=${START_BACKLOG_MAX_REVIEW:-}
+MAX_ACTIVE=${HOOPIT_DISPATCHER_MAX_ACTIVE:-}
+MAX_REVIEW=${HOOPIT_DISPATCHER_MAX_REVIEW:-}
 INTERVAL=600
 ONCE=0
 DRY=0
-ATTENDED=${START_BACKLOG_ATTENDED:-0}
-# A candidate this daemon dispatched inside the cooloff is passed over. A reaped item
+# A candidate this dispatcher dispatched inside the cooloff is passed over. A reaped item
 # goes back to Ready and `check` reads the release as cancelling the claim, so without
 # this the same item redispatches every tick. (An agent that hands back with a question
 # parks its issue in Backlog, where only the user's promotion offers it again.)
-COOLOFF_HOURS=${START_BACKLOG_COOLOFF_HOURS:-6}
+COOLOFF_HOURS=${HOOPIT_DISPATCHER_COOLOFF_HOURS:-6}
 # In progress this long with no open PR, and its herdr agent gone, means a dead agent
 # holding a slot nothing will ever free.
-STALE_HOURS=${START_BACKLOG_STALE_HOURS:-1}
+STALE_HOURS=${HOOPIT_DISPATCHER_STALE_HOURS:-1}
 # An agent herdr does not report `working`, whose session transcript has not moved for
 # this long, is not at work.
-QUIET_MINUTES=${START_BACKLOG_QUIET_MINUTES:-60}
-REPOS_DIR=${START_BACKLOG_REPOS_DIR:-$HOME/Dev/Hoopit}
-# The repos this daemon fills: the caps count flight in these alone, and work starts
+QUIET_MINUTES=${HOOPIT_DISPATCHER_QUIET_MINUTES:-60}
+REPOS_DIR=${HOOPIT_DISPATCHER_REPOS_DIR:-$HOME/Dev/Hoopit}
+# The repos this dispatcher fills: the caps count flight in these alone, and work starts
 # nowhere else. The board also tracks tooling repos, and an unattended agent there
 # rewrites the skills every other agent is running on.
-REPOS=${START_BACKLOG_REPOS:-hoopit/api hoopit/web-admin hoopit/flutter-app}
+REPOS=${HOOPIT_DISPATCHER_REPOS:-hoopit/api hoopit/web-admin hoopit/flutter-app}
 # Issue types left to a session with somebody in it, space-separated. Empty, the default,
 # dispatches every type: an `Ops` issue whose deliverable is an answer ends in a findings
 # comment, and one whose answer needs the author ends in a question on the issue.
-SKIP_TYPES=${START_BACKLOG_SKIP_TYPES:-}
-LINEAR=${START_BACKLOG_LINEAR:-0}
+SKIP_TYPES=${HOOPIT_DISPATCHER_SKIP_TYPES:-}
+LINEAR=${HOOPIT_DISPATCHER_LINEAR:-0}
 # Triage reads and judges, and writes nothing but a verdict, so it is priced once here
 # rather than off the ladder, which prices implementation.
-TRIAGE_MODEL=${START_BACKLOG_TRIAGE_MODEL:-sonnet}
-TRIAGE_EFFORT=${START_BACKLOG_TRIAGE_EFFORT:-medium}
-TRIAGE_BATCH=${START_BACKLOG_TRIAGE_BATCH:-10}
+TRIAGE_MODEL=${HOOPIT_DISPATCHER_TRIAGE_MODEL:-sonnet}
+TRIAGE_EFFORT=${HOOPIT_DISPATCHER_TRIAGE_EFFORT:-medium}
+TRIAGE_BATCH=${HOOPIT_DISPATCHER_TRIAGE_BATCH:-10}
 TRIAGE_AGENT=lin-triage
 # Every Linear call is bounded: one hung request would hold the dispatch lock, and with it
 # the board, for good.
-LINEAR_TIMEOUT=${START_BACKLOG_LINEAR_TIMEOUT:-120}
+LINEAR_TIMEOUT=${HOOPIT_DISPATCHER_LINEAR_TIMEOUT:-120}
 # 0 for a board whose work never touches AWS.
-AWS_CHECK=${START_BACKLOG_AWS_CHECK:-1}
+AWS_CHECK=${HOOPIT_DISPATCHER_AWS_CHECK:-1}
 # How long between notifications while the session stays dead. The log says so every tick.
-AWS_ALERT_REPEAT_MINUTES=${START_BACKLOG_AWS_ALERT_REPEAT_MINUTES:-60}
+AWS_ALERT_REPEAT_MINUTES=${HOOPIT_DISPATCHER_AWS_ALERT_REPEAT_MINUTES:-60}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -134,17 +130,16 @@ while [[ $# -gt 0 ]]; do
     --interval) INTERVAL="$2"; shift 2 ;;
     --once) ONCE=1; shift ;;
     --dry-run) DRY=1; shift ;;
-    --attended) ATTENDED=1; shift ;;
     -h|--help) sed -n '2,/^$/p' "$0"; exit 0 ;;
     -*) echo "unknown flag: $1" >&2; exit 2 ;;
     *) TARGET="$1"; shift ;;
   esac
 done
 # --max-review holds starts and bounds none, so one of the other two must be there.
-[[ -n "$TARGET$MAX_ACTIVE" ]] || { echo "usage: start-backlog-daemon [<target>] [--max-active N] [--max-review M] [--interval SEC] [--once] [--dry-run] [--attended] — give <target> or --max-active" >&2; exit 2; }
+[[ -n "$TARGET$MAX_ACTIVE" ]] || { echo "usage: hoopit-dispatcher [<target>] [--max-active N] [--max-review M] [--interval SEC] [--once] [--dry-run] — give <target> or --max-active" >&2; exit 2; }
 
-STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/start-backlog"
-RUN_DIR="${XDG_RUNTIME_DIR:-/tmp}/start-backlog"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/hoopit-dispatcher"
+RUN_DIR="${XDG_RUNTIME_DIR:-/tmp}/hoopit-dispatcher"
 DISPATCHED="$STATE_DIR/dispatched.tsv"   # <repo#n>\t<epoch>, one dispatch per line
 TRIAGED="$STATE_DIR/triaged.tsv"         # <KEY>\t<epoch>, one line per key sent to triage
 LOCK="$RUN_DIR/dispatch.lock"
@@ -167,7 +162,7 @@ herdr_up() { herdr api snapshot >/dev/null 2>&1; }
 # desktop. A run on a machine without notify-send just logs.
 notify() {
   command -v notify-send >/dev/null 2>&1 || return 0
-  notify-send -a start-backlog -u "$1" "$2" "$3" >/dev/null 2>&1 || true
+  notify-send -a hoopit-dispatcher -u "$1" "$2" "$3" >/dev/null 2>&1 || true
 }
 
 # The only proof of an `aws login` session is a call: the credentials it hands out last
@@ -185,7 +180,7 @@ aws_ok() {
     if [[ -e "$AWS_ALERT_STAMP" ]]; then
       rm -f "$AWS_ALERT_STAMP"
       log "aws login session answers again — dispatching resumes"
-      notify normal "AWS login restored" "start-backlog is dispatching again."
+      notify normal "AWS login restored" "hoopit-dispatcher is dispatching again."
     fi
     return 0
   fi
@@ -193,7 +188,7 @@ aws_ok() {
   now=$(date +%s)
   [[ -e "$AWS_ALERT_STAMP" ]] && last=$(<"$AWS_ALERT_STAMP")
   if (( now - last >= AWS_ALERT_REPEAT_MINUTES * 60 )); then
-    notify critical "AWS login expired — backlog daemon holding" \
+    notify critical "AWS login expired — dispatcher holding" \
       "No agent starts until: aws login --profile login-raw"
     printf '%s' "$now" > "$AWS_ALERT_STAMP"
   fi
@@ -315,18 +310,10 @@ dispatch() {
   local prompt="Work $repo#$n: $url
 
 Run it with: /github-tracker:assess-issue $url --started
-"
-  if [[ $ATTENDED == 1 ]]; then
-    prompt+="
-Somebody is watching this tab. If the work needs something no checkout reaches, or a
-decision only the author can make, write the question onto the issue, then ask it here
-and wait for the answer."
-  else
-    prompt+="
+
 Nobody is watching this tab. If the assessment turns on a decision only the author can
 make, write the question onto the issue and release the slot with
 \`hoopit-board release $repo $n --reason '<why>'\` rather than waiting for an answer."
-  fi
   herdr agent prompt "$agent" "$prompt" >/dev/null 2>&1 ||
     log "warning: $agent started but the opening prompt did not send"
 
@@ -591,7 +578,7 @@ for b in d["blocked"] + d["needs_judgement"]:
     why = b.get("collides") or b.get("judged")
     print(f'  linear held {b["n"]} {b["url"]}: {why}')
 for o in d["out_of_scope"]:
-    print(f'  linear out of scope {o["n"]}: {o["repo"]} is not a repo this daemon fills')
+    print(f'  linear out of scope {o["n"]}: {o["repo"]} is not a repo this dispatcher fills')
 PY
   # Whole units only: a unit starts when every member is startable and they all fit the
   # deficit; anything less waits, named, for a tick that can take it whole.
@@ -647,7 +634,6 @@ tick() {
   local scope=() r t
   for r in $REPOS; do scope+=(--repo "$r"); done
   for t in $SKIP_TYPES; do scope+=(--skip-type "$t"); done
-  [[ $ATTENDED == 1 ]] && scope+=(--allow-manual)
   hoopit-board next $TARGET ${MAX_ACTIVE:+--max-active "$MAX_ACTIVE"} \
     ${MAX_REVIEW:+--max-review "$MAX_REVIEW"} "${live[@]}" \
     "${scope[@]}" "${excludes[@]}" > "$run"
@@ -748,7 +734,7 @@ if d["deficit"] > 0 and not d["startable"]:
         (len(d["scheduled"]), "have a Start date still ahead"),
         (len(d["awaiting_deploy"]), "wait on the deploy their Gate line names"),
         (len(d["excluded"]), f"were dispatched in the last {cooloff_hours}h and are cooling off"),
-        (len(d["out_of_scope"]), "are in a repo this daemon does not fill"),
+        (len(d["out_of_scope"]), "are in a repo this dispatcher does not fill"),
         (sum(p["status"] == "Ready" for p in d.get("parents", [])),
          "are parents whose open sub-issues are the work"),
         (d["unexamined"], "were not reached this tick"),
@@ -783,14 +769,14 @@ PY
 # The board, the repos' production branches and the ladder all come from hoopit-board's
 # config. Without one every tick would read as a GitHub outage, and without a ladder every
 # start would inherit the CLI's default model and effort, which the dispatch-ladder skill
-# forbids — so both refuse the daemon here, once, with hoopit-board's own reason.
+# forbids — so both refuse the dispatcher here, once, with hoopit-board's own reason.
 board_config=$(hoopit-board config) || { log "hoopit-board has no usable config — exiting"; exit 1; }
 if grep -q $'^ladder\tnone$' <<<"$board_config"; then
   log "no ladder in hoopit-board's config — \`hoopit-board init --force --ladder <path>\` sets one; exiting"
   exit 1
 fi
 
-log "start-backlog daemon: target=${TARGET:-none} max_active=${MAX_ACTIVE:-none} max_review=${MAX_REVIEW:-none} quiet_after=${QUIET_MINUTES}m interval=${INTERVAL}s dry=$DRY aws_check=$AWS_CHECK repos=$REPOS skip_types=${SKIP_TYPES:-none} attended=$ATTENDED linear=$LINEAR triage=$TRIAGE_MODEL/$TRIAGE_EFFORT"
+log "hoopit-dispatcher: target=${TARGET:-none} max_active=${MAX_ACTIVE:-none} max_review=${MAX_REVIEW:-none} quiet_after=${QUIET_MINUTES}m interval=${INTERVAL}s dry=$DRY aws_check=$AWS_CHECK repos=$REPOS skip_types=${SKIP_TYPES:-none} linear=$LINEAR triage=$TRIAGE_MODEL/$TRIAGE_EFFORT"
 while :; do
   # The board's Agent field: a session that died without its SessionEnd hook — a crash, a
   # kill — is noticed here, and reads Gone. Needs neither herdr nor AWS.
@@ -801,7 +787,7 @@ while :; do
     :   # aws_ok logged and notified; reaping and dispatch both wait for the session.
   else
     prune_dispatched
-    # One dispatcher at a time — a second daemon, or a manual run, waits its turn
+    # One dispatcher at a time — a second dispatcher, or a manual run, waits its turn
     # rather than double-claiming an issue or double-releasing a reaped one.
     exec {lockfd}>"$LOCK"
     if flock -n "$lockfd"; then

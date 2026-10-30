@@ -1,13 +1,13 @@
 ---
 name: review-dispatch
-description: Review how the backlog daemon's model/effort ladder is performing, and move at most one rung.
+description: Review how the dispatcher's model/effort ladder is performing, and move at most one rung.
 argument-hint: "[days] — window to read, default 14"
 disable-model-invocation: true
 ---
 
 # Review the dispatch ladder
 
-`start-backlog-daemon` prices every issue off one table, a joint ladder over model **and**
+`hoopit-dispatcher` prices every issue off one table, a joint ladder over model **and**
 effort. Load the `dispatch-ladder` skill first: it names the file, the current rungs and the
 one invariant — **no rung may be priced under a smaller one.**
 
@@ -30,7 +30,7 @@ stop; everything below is unreadable without it.
 
 Attribution comes from the claim comment, which has carried `on \`<model>\` at \`<effort>\`
 effort` only since **2026-09-18**. Anything merged before that is `(unattributed)`, and
-hand-started work is unattributable for good — only the daemon writes the marker.
+hand-started work is unattributable for good — only the dispatcher writes the marker.
 
 ## 2. Refuse a verdict the numbers cannot carry
 

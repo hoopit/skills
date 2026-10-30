@@ -1,6 +1,6 @@
 ---
 name: dispatch-ladder
-description: The backlog daemon's Effort-to-model/effort ladder. Use when reading or moving a rung, or deciding which model and reasoning effort an Effort gives an unattended start.
+description: The dispatcher's Effort-to-model/effort ladder. Use when reading or moving a rung, or deciding which model and reasoning effort an Effort gives an unattended start.
 user-invocable: false
 ---
 
@@ -11,11 +11,11 @@ model and the reasoning effort the agent is started on. The table lives in
 [`ladder.json`](ladder.json) beside this file — read it for the current rungs rather than
 copying them. `hoopit-board` reads it through the `ladder` path in its config
 (`hoopit-board init --ladder`); `next` prices every candidate off it at every tick,
-`start-backlog-daemon` passes each rung to `claude --model <model> --effort <effort>`, and
+`hoopit-dispatcher` passes each rung to `claude --model <model> --effort <effort>`, and
 `review-dispatch` is the only procedure that moves a rung.
 
 A config with no ladder leaves `next` pricing nothing — a session can still rank the board
-— and the daemon refuses to start, since every agent it started would inherit the CLI's
+— and the dispatcher refuses to start, since every agent it started would inherit the CLI's
 defaults.
 
 - `models` and `efforts` list the axes cheapest first; that order is what "under" means.

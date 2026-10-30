@@ -10,11 +10,11 @@ disable-model-invocation: true
 Board: the board in your `hoopit-board` config — `hoopit-board config` prints it.
 
 `Unattended` is the goal state: the one Autonomy an unattended run can pick up, and what
-the backlog daemon, where one runs, consumes. This run's whole output is triage — fields
+the dispatcher, where one runs, consumes. This run's whole output is triage — fields
 set, holds lifted, decisions named — written onto the issues themselves, where the agent
 that eventually works them will read it.
 
-Triage starts nothing. The daemon picks from **Ready** alone, and what sits in
+Triage starts nothing. The dispatcher picks from **Ready** alone, and what sits in
 **Backlog** is a proposal — filed there because its worth was the judgement — so it
 moves only on the user's say-so: `hoopit-board ready <repo> <n>`. Step 4 offers the
 list.
@@ -51,7 +51,7 @@ hoopit-board triage <repo> <n> --priority P2 --effort M --autonomy Unattended
 Set them from the issue in front of you — the rubric is written down, so this pass asks
 the user nothing. State each value and a one-clause reason, then move on.
 
-Where a backlog daemon runs with a dispatch ladder configured, **Effort also picks the
+Where a dispatcher runs with a dispatch ladder configured, **Effort also picks the
 model**; either way the rubric prices the hunt along with the fix. This is the one pass
 that reads the issue closely enough to see the hunt — price it here.
 
@@ -98,7 +98,7 @@ Three defects strand an item silently. Fix them while you are in here:
 - A rollout follow-up in `held` or `blocked` with no `Gate: deployed #<pr>` line. Add it,
   or the item gets started against an unpromoted prod.
 - A gate line naming an unreadable PR — a typo. Fix it against the real PR.
-- A `P0` behind a full board. The daemon respects its target, so surface it in the
+- A `P0` behind a full board. The dispatcher respects its target, so surface it in the
   report: interrupting flight is the user's call and the only thing here worth it.
 
 `scheduled` and `awaiting_deploy` clear themselves. A `Start date` genuinely ahead is a
@@ -174,7 +174,7 @@ Retire an item on evidence alone. Descoping, abandoning and closing are *answers
 decision, so they belong to the user in the grill.
 
 **A wrong `Unattended` is cheap, and that is why this pass rewards being decisive.** The
-daemon's opening prompt tells the agent that on a decision it cannot make it writes the
+dispatcher's opening prompt tells the agent that on a decision it cannot make it writes the
 question onto the issue and calls `hoopit-board release`; `check` reads that **handback**,
 so an item that turns out to be undecided returns here with a sharper question than it
 left with. The opposite error has no such loop: an item parked on `Needs decision` that
@@ -204,13 +204,13 @@ with each verdict stated, and every survivor names its decision.
   slots --unattended` lists Backlog — the user picks which move to Ready; move none on
   your own.
 - The `Manual` and `Waiting` counts alone, and that `gh-followup` is what works those buckets.
-- Whether anything is draining the queue: check where a backlog daemon runs, and whether
+- Whether anything is draining the queue: check where a dispatcher runs, and whether
   it is dispatching. A queue of `Unattended` items with nothing consuming it is the one
   way a clean triage run still leaves the backlog stopped. Report the fact; enabling it
-  is the user's call. An active daemon can still be dispatching nothing — its logs name
+  is the user's call. An active dispatcher can still be dispatching nothing — its logs name
   the hold, and a dead session underneath clears with a re-authenticate.
 
-Flight counts move while the report is being read, so leave them to the daemon.
+Flight counts move while the report is being read, so leave them to the dispatcher.
 
 This report is the boundary. A collapse that fanned out leaves this context heavy with
 reads the grill never uses, and every round would carry them. Ask the user: clear and run

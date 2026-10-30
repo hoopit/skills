@@ -249,8 +249,7 @@ def run_next(m, target=15, no_judge=False, max_active=None, max_review=None):
         code = m.cmd_next(argparse.Namespace(target=target, exclude=[], scope=None,
                                              no_judge=no_judge, max_active=max_active,
                                              max_review=max_review, live_agents=None,
-                                             idle_agents=None, skip_type=[],
-                                             allow_manual=False))
+                                             idle_agents=None, skip_type=[]))
     return json.loads(out.getvalue()), code
 
 
@@ -565,7 +564,7 @@ def run_collide(m, candidates, target=15, max_active=None, max_review=None,
 
 
 def test_a_claim_with_no_pr_holds_the_paths_its_body_names():
-    """Minutes after a Linear agent starts there is no PR, and the board's daemon must
+    """Minutes after a Linear agent starts there is no PR, and the board's dispatcher must
     still see what it is about to touch."""
     with registry_at(claim(body="rework `payments/models.py`")):
         m = next_module([item(1)], bodies={1: "fix `payments/models.py`"},
@@ -634,12 +633,12 @@ def run_next_live(m, live):
         code = m.cmd_next(argparse.Namespace(target=None, exclude=[], scope=None,
                                              no_judge=True, max_active=1, max_review=None,
                                              live_agents=live, idle_agents=None,
-                                             skip_type=[], allow_manual=False))
+                                             skip_type=[]))
     return json.loads(out.getvalue()), code
 
 
 def test_collide_walks_outside_candidates_against_the_board():
-    """The Linear daemon's question. A candidate on a board PR's file is blocked, a clear
+    """The Linear dispatcher's question. A candidate on a board PR's file is blocked, a clear
     one is priced off the ladder by its own Effort, and one already claimed is in flight
     rather than a candidate."""
     board_pr = "https://github.com/hoopit/api/pull/90"
@@ -728,7 +727,7 @@ def test_a_claim_whose_pr_cannot_be_read_holds_its_body_and_sweeps_nothing():
 
 def test_a_claim_with_a_non_string_body_never_reaches_a_tick():
     """`put` refuses it, and a file written past `put` is skipped rather than crashing
-    `body_footprint` inside the board daemon's tick."""
+    `body_footprint` inside the board dispatcher's tick."""
     with registry_at():
         m = load()
         sys.stdin = io.StringIO(json.dumps(claim() | {"body": {"x": 1}}))
@@ -754,8 +753,7 @@ def test_a_claim_outside_the_repo_scope_holds_no_slot():
         with contextlib.redirect_stdout(out):
             m.cmd_next(argparse.Namespace(target=1, exclude=[], scope=["hoopit/api"],
                                           no_judge=True, max_active=None, max_review=None,
-                                          live_agents=None, idle_agents=None, skip_type=[],
-                                          allow_manual=False))
+                                          live_agents=None, idle_agents=None, skip_type=[]))
         d = json.loads(out.getvalue())
     assert d["in_flight"] == 0 and only(d, "startable") == ["hoopit/api#1"], d
     print("  --repo hoopit/api leaves a web-admin claim out of every cap")

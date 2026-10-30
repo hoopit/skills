@@ -8,7 +8,7 @@ description: File a triaged GitHub issue. Use when filing an issue, TODO, follow
 An issue is filed only once it is **triaged**: assigned, typed, prioritised,
 costed, and judged startable alone or not. Type says what kind of work it is;
 Priority and Effort are what the board sorts on, and Autonomy is what
-the backlog daemon filters on — so a blank one hands the triage
+the dispatcher filters on — so a blank one hands the triage
 straight back to a human. Untriaged is unfinished.
 
 Board: the board in your `hoopit-board` config — `hoopit-board config` prints it.
@@ -193,7 +193,7 @@ leave empty.
 Torn between two levels, take the lower — except a production symptom, which
 floors at `P1`.
 
-**Status** — `--ready` puts the issue in the pool the backlog daemon, where one runs,
+**Status** — `--ready` puts the issue in the pool the dispatcher, where one runs,
 dispatches from, and that pool is for work already **committed** to: the decision is
 taken and only the doing is left. Where filing the issue *is* the decision, it is a
 **proposal**, and it waits in Backlog for the user to promote it.
@@ -221,7 +221,7 @@ dispatched to do something else. That it would otherwise be lost is what makes i
 | `L` | Multi-day, or cross-cutting enough that the approach needs deciding first. |
 | `XL` | Too big for one PR — say so, and offer to split it into sub-issues (step 4). |
 
-Price the hunt along with the fix: where a backlog daemon runs with a dispatch ladder
+Price the hunt along with the fix: where a dispatcher runs with a dispatch ladder
 configured, the `dispatch-ladder` skill maps Effort to the model and reasoning effort
 an unattended start gets, so Effort also picks the model there — but the rubric prices
 the hunt along with the fix either way, and this is the one pass that reads the issue

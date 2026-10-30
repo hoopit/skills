@@ -22,7 +22,7 @@ that leaves the issue exactly as it was found.
 Flags:
 
 - `--started` — a caller has already claimed this issue and moved it to **In
-  progress** (`start-backlog-daemon` and `gh-triage` both do, before the agent
+  progress** (`hoopit-dispatcher` and `gh-triage` both do, before the agent
   they dispatch exists).
   Skips the claim gate in step 1 and the status move in step 6; everything else
   is unchanged. Without it, an issue someone else claimed is not yours.
