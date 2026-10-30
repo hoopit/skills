@@ -106,11 +106,17 @@ save_state() {
 # status as a review in flight and exits. Each pending row is a request, so the count and the wait
 # survive a fresh arm, and review_request_at covers a dispatch that has not written its row yet. A
 # gate that reported nothing at all has no pending row, and stays GATE_TIMEOUT's.
+#
+# A pending that replaced a pass is re-requested like any other: Codex answered three of four asks
+# on passed heads, and the fourth stalled as a first review does. The dispatch writes pending
+# without looking, so a verdict landing in the seconds before it runs is overwritten, and that
+# pending recovers the same way. A fresh arm has only the rows to go on, so a dispatch that never
+# wrote one is asked again.
 recover_review() {
-  local requests since verdict asked now why=""
-  read -r requests since verdict < <(pr_gate_wait "$REPO" "$PR" "$head" "$REVIEW_GATE" 2>/dev/null)
-  [ -n "$requests" ] || return 0
-  asked=$((requests - 1))
+  local pending_rows since verdict asked now why=""
+  read -r pending_rows since verdict < <(pr_gate_wait "$REPO" "$PR" "$head" "$REVIEW_GATE" 2>/dev/null)
+  [ -n "$pending_rows" ] || return 0
+  asked=$((pending_rows - 1))
   [ "$review_requests" -gt "$asked" ] && asked=$review_requests
   [ "$review_request_at" -gt "$since" ] && since=$review_request_at
   now=$(date +%s)

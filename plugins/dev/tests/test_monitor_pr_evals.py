@@ -150,9 +150,10 @@ def test_a_gate_stuck_pending_goes_green_once_gate_timeout_elapses():
     assert r.watch(6, GATE_TIMEOUT="2") == [f"GREEN head={r.head} pending_gates=codex-review"]
 
 
-def stuck(age=2000, before=(), **case):
+def stuck(age=2000, before=(), rereview_goes_pending=True, **case):
     pending = {"context": "codex-review", "state": "pending", "age": age, "description": "Waiting for Codex (#4242)"}
-    return Run(issue_comments=coderabbit("{HEAD}"), statuses=[*before, pending], **{"rereview_goes_pending": True, **case})
+    return Run(issue_comments=coderabbit("{HEAD}"), statuses=[*before, pending],
+               rereview_goes_pending=rereview_goes_pending, **case)
 
 
 def dispatches(r):

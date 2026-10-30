@@ -29,10 +29,9 @@ tally in the description as **challenge findings weighed** and **held** — no r
 a head briefed again replaces its own earlier count rather than adding to it — and it is
 what the paths below read.
 
-**`cleared=<gates>`** — the gates an earlier `GREEN` on this head left in `pending_gates` have
-reported, so the hold that briefing recommended no longer stands. Brief the head again and
-carry on as for any `GREEN`: with no `pending_gates`, it reaches the hand-off and the merge
-question.
+**`cleared=<gates>`** — the gates this head's earlier `GREEN` was waiting on have reported, so
+any hold that briefing recommended for them no longer stands. Brief the head again and carry
+on as for any `GREEN`: with no `pending_gates`, it reaches the hand-off and the merge question.
 
 **`HELD`** — a challenge finding held, and nothing was written. It opens a round rather
 than a question, the same work a reviewer thread would open: under `--subagent` as
@@ -53,8 +52,9 @@ merge question asked as usual.
 write failed twice, and on any repo a challenge round that declined every held finding.
 No briefing stands behind this head — and with `REQUIRED=yes` the check refuses the
 merge — so ask this in place of the merge question, saying which and recommending hold.
-Options: **Brief this head again** · **Not yet — keep watching** (nothing brings this
-question back on its own: the user asks for the re-brief, or a push moves the head) ·
+Options: **Brief this head again** · **Not yet — keep watching** (past a `cleared=` line,
+nothing brings this question back on its own: the user asks for the re-brief, or a push moves
+the head) ·
 **Stop monitoring, I'll take it from here**. *Brief this head again* re-runs
 `merge-briefing` on this head with the challenge — never skipped, and with any round's
 declines among the judgement rows — and carries on from the top of this file with what
