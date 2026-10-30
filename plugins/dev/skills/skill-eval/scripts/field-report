@@ -22,7 +22,8 @@ or prints `error:`/`fatal:`); redos (a failed call run again in the same span); 
 turn ended: interrupted, or a human prompt that reads as a correction.
 
 Left out: a session's use of a skill whose files that session edits, anything under a
-review-gate probe (`/tmp/review-gate.*`), and sessions run from skill-eval's fixtures.
+review-gate probe (a gate dir, `~/.cache/review-gate/review-gate.*` or
+`/tmp/review-gate.*`), and sessions run from skill-eval's fixtures.
 
 Per-skill signals add rows of their own beside the generic ones (`SIGNALS` below).
 """
@@ -33,7 +34,7 @@ ROOT = pathlib.Path.home() / ".claude" / "projects"
 EVAL_HOME = pathlib.Path(os.environ.get("SKILL_EVAL_HOME") or
                          pathlib.Path(os.environ.get("XDG_CACHE_HOME") or pathlib.Path.home() / ".cache")
                          / "skill-evals")
-PROBE = "/tmp/review-gate."
+PROBE = re.compile(r"/tmp/review-gate\.|/review-gate/review-gate\.")
 # A skill that was renamed keeps one row across the rename.
 ALIASES = {"new-worktree": "create-worktree"}
 
@@ -247,14 +248,14 @@ def route_start(call, pos, ts, uses, edits):
         return
     if call.name == "Read":
         path = str(inp.get("file_path") or "")
-        if not path.startswith(PROBE):
+        if not PROBE.search(path):
             for name in SKILL_MD.findall(path):
                 uses.append((pos, ts, skill_name(name), "read"))
         return
     if call.name == "Bash":
         cmd = call.cmd
         edits.update(skill_name(n) for n in SHELL_WRITE.findall(cmd))
-        if PROBE in cmd and target_dir(cmd, call.cwd).startswith(PROBE):
+        if PROBE.search(cmd) and PROBE.search(target_dir(cmd, call.cwd)):
             return
         seen = []
         for name in SKILL_MD.findall(cmd):
@@ -331,13 +332,13 @@ def session(job):
     if not trs:
         return None
     cwd = (main or trs[0])["cwd"]
-    if cwd.startswith(PROBE) or (cwd and pathlib.Path(cwd).is_relative_to(EVAL_HOME)):
+    if PROBE.search(cwd or "") or (cwd and pathlib.Path(cwd).is_relative_to(EVAL_HOME)):
         return None
     edits = set().union(*(t["edits"] for t in trs))
     all_spans = []
     owner = {}   # Agent tool_use id -> the span it was dispatched from
     for tr in trs:
-        if tr["cwd"].startswith(PROBE):
+        if PROBE.search(tr["cwd"] or ""):
             continue
         sp = spans_of(tr)
         tr["spans"] = sp
@@ -413,7 +414,7 @@ def worktree_target(cmd, cwd):
             # `.worktrees/$(…)` still names its repo.
             unresolved = "$" in w and "/.worktrees/" not in path
             root = find_repo(path)
-            return None if unresolved or path.startswith(PROBE) or not root or "$" in root else path
+            return None if unresolved or PROBE.search(path) or not root or "$" in root else path
         return None
     m = WT_SCRIPT.search(cmd)   # anchored to a command word, so `cat …/create-worktree.sh` is no run
     if m:
@@ -453,7 +454,7 @@ def create_worktree_signals(calls):
     for c in bash:
         where = target_dir(code_of(c.cmd), c.cwd)
         root = find_repo(where)
-        if (c.ts or "") < (first or "") or not root or where.startswith(PROBE):
+        if (c.ts or "") < (first or "") or not root or PROBE.search(where):
             continue
         if CHECKED.search(c.cmd) and UNGENERATED.search(c.result):
             out[os.path.basename(root)]["ungenerated push"] += 1

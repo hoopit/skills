@@ -2,33 +2,40 @@
 # The lifecycle of a review-gate pass's scratch directory — its findings files and every probe
 # worktree a reviewer builds inside it — kept out of the agent's hands, because a pass that
 # aborts, is interrupted or hands back early never reaches a prose teardown step. Probe worktrees
-# run to ~60k files apiece once `node_modules` is in, and on a tmpfs `/tmp` a handful of leaked
-# ones exhaust its inodes for the whole machine.
+# run to ~65k files apiece once `.venv` or `node_modules` is in.
 #
 # Usage:  gate_dir.sh open            create a gate dir owned by this Claude session; prints its path
 #         gate_dir.sh close <dir>     remove one gate dir and deregister the worktrees inside it
 #         gate_dir.sh sweep [--session <id>] [--background]
-#                                     remove every gate dir whose owning session is <id>, or whose
-#                                     owner process is gone
+#                                     remove every gate dir whose owning session is <id>, whose
+#                                     owner process is gone, or that has sat idle for 6 hours
+#
+# Gate dirs live in the user's cache dir (`$XDG_CACHE_HOME`, else `~/.cache`) on Linux, macOS and
+# Windows alike, never in `$TMPDIR`: a tmpfs `/tmp` caps its inodes, and a few passes running at
+# once exhaust them for the whole machine. The cache dir also shares a filesystem with uv's cache,
+# so uv hardlinks or clones a probe's venv in rather than copying it file by file.
 #
 # `open` stamps the dir with `.owner`: the session id, and the pid and start time of the Claude
 # process the caller runs under (CLAUDE_CODE_SESSION_ID, CLAUDE_PID). The start time is what
 # tells a live owner from a recycled pid; where it cannot be read, the dir waits for its session's
-# end or the age rule. The plugin's SessionEnd hook sweeps the ending session's
-# dirs and its SessionStart hook sweeps dead owners', so a session that crashed is cleaned up by
-# the next one to start. A `review-gate*` path with no `.owner` — made outside `open` — is swept
-# once it is a day old, since nothing says whether its maker is still reading it.
+# end or the idle rule. The plugin's SessionEnd hook sweeps the ending session's dirs, and its
+# SessionStart hook and every `open` sweep dead owners' and idle ones, so a session that crashed is
+# cleaned up by the next one to start. The idle rule is what reaches a pass that stopped without
+# closing inside a session still running, and a `review-gate*` path with no `.owner`: nothing in
+# the dir written for 6 hours. A live pass writes its findings and probes far more often than that.
 #
-# Only paths matching `review-gate*` directly under `$TMPDIR` or `/tmp`, owned by this user, are
-# ever touched. Removing a worktree's directory leaves its registration in the repo it came from,
-# so each one is traced back through its `.git` file and that repo's `git worktree prune` runs
-# after the delete.
+# Only paths matching `review-gate*` directly under the cache root, `$TMPDIR` or `/tmp`, owned by
+# this user, are ever touched; the temp roots hold the gate dirs that copies of this plugin
+# installed at an older version still open there. Removing a worktree's directory leaves its
+# registration in the repo it came from, so each one is traced back through its `.git` file and
+# that repo's `git worktree prune` runs after the delete.
 
 set -u
 
-ROOTS=("${TMPDIR:-/tmp}")
+GATE_ROOT="${XDG_CACHE_HOME:-${HOME:-${TMPDIR:-/tmp}}/.cache}/review-gate"
+ROOTS=("$GATE_ROOT" "${TMPDIR:-/tmp}")
 [ "${TMPDIR:-/tmp}" != /tmp ] && ROOTS+=(/tmp)
-STALE_MINUTES=1440
+IDLE_MINUTES=360
 
 proc_start() {  # <pid> — empty when the process does not exist
   ps -o lstart= -p "$1" 2>/dev/null | sed 's/^ *//'
@@ -81,6 +88,10 @@ in_root() {  # <dir> — true when it is a review-gate path directly under a swe
   return 1
 }
 
+idle() {  # <dir> — true when nothing in it was written within IDLE_MINUTES
+  [ -z "$(find "$1" -mmin -"$IDLE_MINUTES" -print 2>/dev/null | head -n 1)" ]
+}
+
 sweep() {  # [session id]
   local session="${1:-}" root d pid started
   for root in "${ROOTS[@]}"; do
@@ -91,28 +102,38 @@ sweep() {  # [session id]
           remove_dir "$d"; continue
         fi
         # An empty `started` means `open` could not read the owner's start time (Git Bash's `ps`
-        # has no `-o`), so liveness is unknown: only the session's end or the age rule removes it.
+        # has no `-o`), so liveness is unknown: only the session's end or the idle rule removes it.
         pid="$(owner_field "$d" pid)"; started="$(owner_field "$d" started)"
-        if [ -n "$started" ]; then
-          [ "$(proc_start "$pid")" != "$started" ] && remove_dir "$d"
-        elif [ -n "$(find "$d" -maxdepth 0 -mmin +"$STALE_MINUTES" 2>/dev/null)" ]; then
-          remove_dir "$d"
+        if [ -n "$started" ] && [ "$(proc_start "$pid")" != "$started" ]; then
+          remove_dir "$d"; continue
         fi
-      elif [ -n "$(find "$d" -maxdepth 0 -mmin +"$STALE_MINUTES" 2>/dev/null)" ]; then
-        remove_dir "$d"
       fi
+      idle "$d" && remove_dir "$d"
     done
   done
 }
 
+sweep_in_background() {  # [session id]
+  # Hooks are given seconds, and a probe's `.venv` or `node_modules` takes longer than that to
+  # delete, so the sweep leaves the caller's process group rather than dying with it.
+  local args=(sweep); [ -n "${1:-}" ] && args+=(--session "$1")
+  if command -v setsid >/dev/null; then
+    setsid bash "$0" "${args[@]}" </dev/null >/dev/null 2>&1 &
+  else
+    nohup bash "$0" "${args[@]}" </dev/null >/dev/null 2>&1 &
+  fi
+}
+
 case "${1:-}" in
   open)
-    d="$(mktemp -d "${TMPDIR:-/tmp}/review-gate.XXXXXX")" || exit 1
+    mkdir -p "$GATE_ROOT" || exit 1
+    d="$(mktemp -d "$GATE_ROOT/review-gate.XXXXXX")" || exit 1
     if [ -n "${CLAUDE_PID:-}" ]; then
       printf 'session=%s\npid=%s\nstarted=%s\n' \
         "${CLAUDE_CODE_SESSION_ID:-}" "$CLAUDE_PID" "$(proc_start "$CLAUDE_PID")" >"$d/.owner"
     fi
     printf '%s\n' "$d"
+    sweep_in_background
     ;;
   close)
     [ -n "${2:-}" ] || { echo "gate_dir.sh close: no dir given" >&2; exit 2; }
@@ -131,14 +152,7 @@ case "${1:-}" in
       esac
     done
     if [ -n "$background" ]; then
-      # Hooks are given seconds, and a probe's node_modules takes longer than that to delete, so
-      # the sweep leaves the hook's process group rather than dying with it.
-      args=(sweep); [ -n "$session" ] && args+=(--session "$session")
-      if command -v setsid >/dev/null; then
-        setsid bash "$0" "${args[@]}" </dev/null >/dev/null 2>&1 &
-      else
-        nohup bash "$0" "${args[@]}" </dev/null >/dev/null 2>&1 &
-      fi
+      sweep_in_background "$session"
     else
       sweep "$session"
     fi

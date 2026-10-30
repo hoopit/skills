@@ -115,7 +115,7 @@ else:
         f"{len(review)} `codex exec review` call(s), none at {model}/{effort}" if review else "codex review never ran")
 
 # Every gate dir the pass opened is closed again by the time it returns.
-opened = set(re.findall(r"(/(?:tmp|run/user/\d+)/[\w./-]*?review-gate\.\w{6})", pathlib.Path(env["EVAL_LOG"]).read_text(errors="replace")))
+opened = set(re.findall(r"(/[\w./-]*?review-gate\.\w{6})", pathlib.Path(env["EVAL_LOG"]).read_text(errors="replace")))
 left = sorted(d for d in opened if os.path.isdir(d))
 say("FAIL" if left else "PASS", "gate_dir_closed", f"still open: {', '.join(left)}")
 

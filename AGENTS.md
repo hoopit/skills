@@ -49,6 +49,18 @@ Skills here are distributed across **all** Hoopit projects (the `api` / backend,
 This refines `create-hoopit-skill`'s Rule 1: the test is "true for one Hoopit
 **project** but not another," not "mentions Hoopit at all."
 
+## Every skill runs on Linux, macOS and Windows
+
+Skills and their scripts ship to developers on all three, Windows through Git Bash, so each
+one works on each of them. Write scripts for bash 3.2 and for both the GNU and BSD versions of
+every tool they call. Where a platform lacks something, branch: `gate_dir.sh` falls back to
+`nohup` where Git Bash has no `setsid`, and treats a `ps` with no `-o` as unknown liveness.
+Take paths from the environment (`$HOME`, `$XDG_CACHE_HOME`, `$TMPDIR`), never a literal
+`/tmp` or `/home`. Anything large or long-lived, such as a worktree or a dependency install,
+goes under the user's cache dir: on Linux, `$TMPDIR` is often a tmpfs with a cap on size and
+inodes. Before landing a script change, check every command it adds on all three platforms,
+reading a platform's man page where you cannot run it there.
+
 ## Third-party skills
 
 Skills our skills reference but don't ship — Matt Pocock's, for instance — are

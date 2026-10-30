@@ -87,7 +87,7 @@ def build(tmp):
     a.prompt("Work hoopit/api#1 end to end")
     a.skill("hoopit-dev:ship")
     a.bash("cat .claude/skills/create-worktree/SKILL.md", "# create-worktree")
-    a.call("Read", {"file_path": "/tmp/review-gate.Ab12/spec-probe/.claude/skills/create-worktree/SKILL.md"})
+    a.call("Read", {"file_path": "/home/u/.cache/review-gate/review-gate.Ab12/spec-probe/.claude/skills/create-worktree/SKILL.md"})
     a.bash("git fetch -q; .claude/skills/create-worktree/create-worktree.sh --fetch GH-1/x 2>&1 | tail -3",
            "Worktree ready")
     a.bash(f"cd {api}/.worktrees/GH-1-x && git branch -m GH-1/fix/x")
@@ -131,7 +131,7 @@ def build(tmp):
     d.prompt("eval prompt")
     d.skill("create-worktree")
     d.write()
-    e = Transcript(root / "-probe" / "eeee.jsonl", "/tmp/review-gate.Qq/standards-probe")
+    e = Transcript(root / "-probe" / "eeee.jsonl", "/home/u/.cache/review-gate/review-gate.Qq/standards-probe")
     e.prompt("probe")
     e.skill("create-worktree")
     e.write()
