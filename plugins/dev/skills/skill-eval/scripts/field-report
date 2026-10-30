@@ -254,7 +254,7 @@ def route_start(call, pos, ts, uses, edits):
     if call.name == "Bash":
         cmd = call.cmd
         edits.update(skill_name(n) for n in SHELL_WRITE.findall(cmd))
-        if PROBE.search(cmd) and PROBE.search(target_dir(cmd, call.cwd)):
+        if "review-gate." in cmd and PROBE.search(target_dir(cmd, call.cwd)):
             return
         seen = []
         for name in SKILL_MD.findall(cmd):

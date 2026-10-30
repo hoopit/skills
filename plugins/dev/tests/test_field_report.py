@@ -87,6 +87,7 @@ def build(tmp):
     a.prompt("Work hoopit/api#1 end to end")
     a.skill("hoopit-dev:ship")
     a.bash("cat .claude/skills/create-worktree/SKILL.md", "# create-worktree")
+    a.bash("cd /tmp/review-gate.Ab12Cd && cat spec-probe/.claude/skills/create-worktree/SKILL.md", "# create-worktree")
     a.call("Read", {"file_path": "C:\\Users\\u\\.cache\\review-gate-dirs\\review-gate.Ab12Cd\\spec-probe\\.claude/skills/create-worktree/SKILL.md"})
     a.bash("git fetch -q; .claude/skills/create-worktree/create-worktree.sh --fetch GH-1/x 2>&1 | tail -3",
            "Worktree ready")
