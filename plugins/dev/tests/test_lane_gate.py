@@ -4,13 +4,13 @@ editing the gate:
 
     python3 plugins/dev/tests/test_lane_gate.py
 
-No network: a `gh` shim on PATH answers the three reads the gate makes — the PR, its files a
-page at a time, and its closing issues — from a PR described in the test, and runs `--jq`
+No network: a `gh` shim on PATH answers the four reads the gate makes — the PR, its files a
+page at a time, the base's review-judgement.json, and its closing issues — from a PR described in the test, and runs `--jq`
 through `jq` as `gh` does. A `--paginate` read fails: the gate pages by hand.
 
 What it guards is that every changed path, past the first page and under both names of a
-rename, is read against the guarded paths, and that a gate which cannot read them all passes
-nothing.
+rename, is read against the guarded paths, that the base's review-judgement.json outranks the
+AGENTS.md list, and that a gate which cannot read them all passes nothing.
 """
 import json, os, pathlib, shutil, subprocess, sys, tempfile
 
@@ -43,6 +43,12 @@ elif m := re.fullmatch(rf"repos/{re.escape(repo)}/pulls/{pr['number']}/files\?pe
                        endpoint or ""):
     size, page = int(m[1]), int(m[2])
     out = pr["files"][:pr["cap"]][(page - 1) * size:page * size]
+elif endpoint == f"repos/{repo}/contents/.github/review-judgement.json?ref=c":
+    if pr["config"] is None:
+        sys.stderr.write("gh: Not Found (HTTP 404)\n"); sys.exit(1)
+    if pr["config"] == "fails":
+        sys.stderr.write("gh: Bad Gateway (HTTP 502)\n"); sys.exit(1)
+    print(pr["config"]); sys.exit(0)
 elif endpoint == f"repos/{repo}/pulls/{pr['number']}":
     reads = os.environ["LANE_TEST_PR"] + ".reads"
     n = int(open(reads).read()) if os.path.exists(reads) else 0
@@ -67,19 +73,26 @@ def file(name, lines, previous=None):
     return f
 
 
-def gate(files, guarded="", closing=1, author_type="User", cap=None, moves=False):
+def judgement(*guarded):
+    return json.dumps({"guarded": list(guarded)})
+
+
+def gate(files, guarded="", closing=1, author_type="User", cap=None, moves=False, config=None):
     """The gate's one line for a PR with these files. GitHub lists
     only the first `cap` files, when one is given; `moves` pushes a new head after the first read
-    of the PR, or, as "fails", makes every later read of it fail."""
+    of the PR, or, as "fails", makes every later read of it fail. `guarded=None` leaves the
+    argument off; `config` is the base's review-judgement.json, "fails" making its read fail."""
     d = pathlib.Path(tempfile.mkdtemp(prefix="lane-gate-"))
     try:
         (d / "pr.json").write_text(json.dumps({"number": PR, "files": files, "closing": closing,
-                                               "author_type": author_type, "cap": cap, "moves": moves}))
+                                               "author_type": author_type, "cap": cap, "moves": moves,
+                                               "config": config}))
         gh = d / "gh"
         gh.write_text(SHIM.replace("PYTHON", sys.executable, 1))
         gh.chmod(0o755)
         e = dict(os.environ, PATH=f"{d}:{os.environ['PATH']}", LANE_TEST_PR=str(d / "pr.json"), LANE_TEST_REPO=REPO)
-        p = subprocess.run(["bash", str(GATE), REPO, str(PR), guarded], env=e, capture_output=True, text=True)
+        argv = ["bash", str(GATE), REPO, str(PR)] + ([] if guarded is None else [guarded])
+        p = subprocess.run(argv, env=e, capture_output=True, text=True)
         assert p.returncode == 0, p.stderr
         return p.stdout.strip()
     finally:
@@ -137,6 +150,50 @@ def test_every_reason_is_named():
                author_type="Bot")
     assert out == ("gate=human reason=a bot opened it; "
                    "`sql/grant.sql` is a guarded path (`^sql/`); it closes no issue in this repository"), out
+
+
+def test_the_base_judgement_list_guards_a_repo_with_no_agents_md_line():
+    out = gate([file("sql/grant.sql", 1)], guarded=None, config=judgement("^sql/"))
+    assert out == "gate=human reason=`sql/grant.sql` is a guarded path (`^sql/`)", out
+    assert gate([file("models/clubs.sql", 1)], guarded=None, config=judgement("^sql/")) == "gate=pass"
+
+
+def test_the_base_judgement_list_outranks_the_agents_md_list():
+    assert gate([file("sql/grant.sql", 1)], guarded="^sql/", config=judgement("^models/")) == "gate=pass"
+
+
+def test_markdown_is_guarded_only_where_the_judgement_runs():
+    out = gate([file("docs/a.md", 1)], config=judgement(r"\.md$", "^sql/"))
+    assert out == r"gate=human reason=`docs/a.md` is a guarded path (`\.md$`)", out
+    assert gate([file("docs/a.md", 1)]) == "gate=pass"
+
+
+def test_a_list_is_matched_as_python_regexes():
+    out = gate([file("Sql/a.py", 1)], config=judgement("(?i)^sql/", r"^\d+$"))
+    assert out == "gate=human reason=`Sql/a.py` is a guarded path (`(?i)^sql/`)", out
+    assert gate([file("models/a.py", 1)], config=judgement(r"^(?!models/).*\.py$")) == "gate=pass"
+
+
+def test_a_path_with_a_space_is_read_whole():
+    out = gate([file("my docs/a.py", 1)], guarded="^my docs/")
+    assert out == "gate=human reason=`my docs/a.py` is a guarded path (`^my docs/`)", out
+
+
+def test_a_list_the_gate_cannot_use_passes_nothing():
+    expected = "gate=human reason=could not read the guarded list in review-judgement.json"
+    assert gate([file("a.py", 1)], config="{}") == expected
+    assert gate([file("a.py", 1)], config="not json") == expected
+    out = gate([file("a.py", 1)], config=judgement("("))
+    assert out == "gate=human reason=`(` is not a regex the gate can read", out
+
+
+def test_a_failed_read_of_the_judgement_passes_nothing():
+    out = gate([file("a.py", 1)], guarded="^sql/", config="fails")
+    assert out == "gate=human reason=could not read review-judgement.json", out
+
+
+def test_a_repo_with_no_list_anywhere_takes_a_human():
+    assert gate([file("a.py", 1)], guarded=None) == "gate=human reason=no guarded paths configured"
 
 
 if __name__ == "__main__":

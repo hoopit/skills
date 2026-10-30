@@ -3,7 +3,14 @@
 # before anyone weighs its risk. Prints one line —
 #   gate=pass
 #   gate=human reason=<a>; <b>; ...
-# Usage: lane-gate.sh <owner/repo> <pr> [<guarded-path regexes, comma-separated>]
+# Usage: lane-gate.sh <owner/repo> <pr> [<AGENTS.md guarded-path regexes, comma-separated>]
+#
+# The guarded paths are the `guarded` list of the base's `.github/review-judgement.json`, the
+# list the team-review gate holds a PR by, matched as that gate matches them: Python regexes,
+# searched against each path. Like that gate it reads the base's copy, so a PR cannot edit its
+# own list, and it adds Markdown whatever the list says. The argument counts only in a repo
+# without that file; leave it off when the repo names no list at all, and pass '' for an empty
+# one.
 #
 # Every failing check is named, not only the first, so the briefing says everything a
 # human is being asked to look at. `.github/` is guarded in every repo: workflow and CI
@@ -17,7 +24,7 @@
 set -u
 export MISE_QUIET=1
 export REPO=$1
-PR=$2; GUARDED=${3:-}
+PR=$2; GUARDED=${3-}
 REVISION='"\(.head.sha)..\(.base.sha)"'
 reasons=()
 
@@ -47,14 +54,39 @@ now=$(gh api "repos/$REPO/pulls/$PR" --jq "$REVISION") \
 [[ $author_type == Bot ]] && reasons+=("a bot opened it")
 [[ -n $asked ]] && reasons+=("a review is still requested of $asked")
 
-IFS=, read -ra patterns <<<"^\\.github/${GUARDED:+,$GUARDED}"
-for p in "${patterns[@]}"; do
-  p=${p#"${p%%[![:space:]]*}"}; p=${p%"${p##*[![:space:]]}"}
-  [[ -n $p ]] || continue
-  if hit=$(grep -E -m1 -- "$p" <<<"$paths"); then
-    reasons+=("\`$hit\` is a guarded path (\`$p\`)")
-  fi
-done
+patterns=('^\.github/')
+config=$(gh api -H 'Accept: application/vnd.github.raw+json' \
+  "repos/$REPO/contents/.github/review-judgement.json?ref=${revision#*..}" 2>&1)
+if (( $? == 0 )); then
+  listed=$(jq -r '.guarded | if type == "array" and all(type == "string")
+    then "\\.md$", (. - ["\\.md$"])[] else error end' <<<"$config") \
+    || { echo "gate=human reason=could not read the guarded list in review-judgement.json"; exit 0; }
+  mapfile -t -O 1 patterns <<<"$listed"
+elif [[ $config == *"HTTP 404"* ]]; then
+  (( $# >= 3 )) || reasons+=("no guarded paths configured")
+  IFS=, read -ra listed <<<"$GUARDED"
+  patterns+=("${listed[@]}")
+else
+  echo "gate=human reason=could not read review-judgement.json"; exit 0
+fi
+
+guarded=$(python3 -c '
+import re, sys
+paths = sys.stdin.read().splitlines()
+for p in map(str.strip, sys.argv[1:]):
+    if not p:
+        continue
+    try:
+        hit = next(filter(re.compile(p).search, paths), None)
+    except re.error:
+        print(f"`{p}` is not a regex the gate can read")
+        continue
+    if hit:
+        print(f"`{hit}` is a guarded path (`{p}`)")
+' "${patterns[@]}" <<<"$paths") || { echo "gate=human reason=could not match the guarded paths"; exit 0; }
+while IFS= read -r reason; do
+  [[ -n $reason ]] && reasons+=("$reason")
+done <<<"$guarded"
 
 # Without an issue there is nothing to weigh the diff against but the author's own
 # description of it. Same-repository only: that is what the board automation reads.

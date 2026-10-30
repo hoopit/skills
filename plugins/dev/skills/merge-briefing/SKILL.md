@@ -122,8 +122,10 @@ The gate settles the mechanical half. Read two lines from the repo's *Workflow s
 config* (`AGENTS.md`):
 
 - **Guarded paths** — the regexes naming what always takes a human there: migrations,
-  payment code, permission classes. A line whose value is `none`, prose after it or not, is
-  an empty list: hand the gate `''`, never the word.
+  payment code, permission classes. A repo with `.github/review-judgement.json` on its base
+  branch has its list there, and the gate reads that file instead of this argument. A line
+  whose value is `none`, prose after it or not, is an empty list: hand the gate `''`, never
+  the word. With no line, leave the argument off.
 - **Auto lane risk ceiling** *(optional)* — `low` or `moderate`, the highest **Merge
   risk** that can still be `auto`. Without the line, or with any other value, it is `low`.
 
@@ -132,9 +134,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/skills/merge-briefing/scripts/lane-gate.sh" <OWNER_R
 ```
 
 **auto** needs all four: `gate=pass`, **Warranted: yes**, a **Merge risk** no higher than
-the ceiling, and a recommendation to merge. Otherwise **human**. A config with no
-**Guarded paths** line is `human — no guarded paths configured`: a repo opts in by naming
-them, or by naming `none`.
+the ceiling, and a recommendation to merge. Otherwise **human**.
 
 Done when the line reads `auto`, or `human` with every reason that put it there — the
 gate's, then the briefing's own.
