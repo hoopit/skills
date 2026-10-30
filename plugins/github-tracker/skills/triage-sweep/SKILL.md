@@ -22,8 +22,7 @@ ranked first, and leave the rest for the next run. Each entry's `reason` is `new
 or `expired`; an `expired` item takes step 4 and the stamp alone.
 
 Read code on the default branch, fetched first, in the checkout `hoopit-board config`
-prints. Each repo's production data and Sentry stay out of this run: a read that waits on
-a permission prompt waits for nobody.
+prints.
 
 **Done when** the batch is chosen.
 
@@ -54,12 +53,19 @@ gh api -X PATCH repos/<repo>/issues/<n> -F body=@<file>
 
 ## 4. Collapse
 
-For a `Needs decision` item, your contract is `## 3. Collapse` in
-`${CLAUDE_PLUGIN_ROOT}/skills/gh-triage/SKILL.md`: the four retirements, the comment and
-the `## The decision` section. Skip its fan-out. A retirement that rests on a measurement
-stays a survivor, and its comment names the measurement for an attended run to take.
+Run this step over the batch's `Needs decision` items together. Your contract is
+`## 3. Collapse` in `${CLAUDE_PLUGIN_ROOT}/skills/gh-triage/SKILL.md`, fan-out, production and
+Sentry reads, and closing the sessions included. With nobody present, three things differ:
 
-**Done when** the item has its comment and is either `Unattended` or names its decision.
+- Start each repo's session with `--permission-mode bypassPermissions`, so a read never
+  waits on a prompt. The contract's prompt keeps it read-only on GitHub and the repo.
+- Give the sessions 30 minutes. A repo with no `summary.txt` by then is untested: its
+  session stays open and its items stay unstamped, so the next run takes them.
+- Where a production or Sentry read fails, the item survives, and its comment names the
+  measurement an attended run owes.
+
+**Done when** each item has its comment and is either `Unattended` or names its decision, or
+sits in a repo named untested.
 
 ## 5. Stamp
 
