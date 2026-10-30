@@ -17,10 +17,10 @@
 # definitions decide what every later PR is checked by. A read that fails is `human` with
 # the failure as its reason — a gate that cannot see the PR passes nothing.
 #
-# REST for everything but the closing issues, which only GraphQL exposes. The files are read
-# page by page, as many pages as the PR's own file count. A listing short of that count is a
-# read that failed — GitHub serves at most 3,000 of a PR's files — and so is one the PR's head
-# or base moved under, since a push between pages can swap a file without changing the count.
+# The files are read page by page, as many pages as the PR's own file count. A listing short of
+# that count is a read that failed — GitHub serves at most 3,000 of a PR's files — and so is one
+# the PR's head or base moved under, since a push between pages can swap a file without changing
+# the count.
 set -u
 export MISE_QUIET=1
 export REPO=$1
@@ -87,16 +87,6 @@ for p in map(str.strip, sys.argv[1:]):
 while IFS= read -r reason; do
   [[ -n $reason ]] && reasons+=("$reason")
 done <<<"$guarded"
-
-# Without an issue there is nothing to weigh the diff against but the author's own
-# description of it. Same-repository only: that is what the board automation reads.
-closing=$(gh api graphql -F p="$PR" -f o="${REPO%/*}" -f n="${REPO#*/}" -f query='
-  query($o:String!,$n:String!,$p:Int!){ repository(owner:$o,name:$n){ pullRequest(number:$p){
-    closingIssuesReferences(first:10){ nodes{ repository{ nameWithOwner } } } } } }' \
-  --jq '[.data.repository.pullRequest.closingIssuesReferences.nodes[]
-         | select(.repository.nameWithOwner == env.REPO)] | length') \
-  || { echo "gate=human reason=could not read the closing issues"; exit 0; }
-(( closing == 0 )) && reasons+=("it closes no issue in this repository")
 
 if (( ${#reasons[@]} )); then
   out="gate=human reason="

@@ -4,9 +4,9 @@ editing the gate:
 
     python3 plugins/dev/tests/test_lane_gate.py
 
-No network: a `gh` shim on PATH answers the four reads the gate makes — the PR, its files a
-page at a time, the base's review-judgement.json, and its closing issues — from a PR described in the test, and runs `--jq`
-through `jq` as `gh` does. A `--paginate` read fails: the gate pages by hand.
+No network: a `gh` shim on PATH answers the three reads the gate makes — the PR, its files a
+page at a time, and the base's review-judgement.json — from a PR described in the test, and runs
+`--jq` through `jq` as `gh` does. A `--paginate` read fails: the gate pages by hand.
 
 What it guards is that every changed path, past the first page and under both names of a
 rename, is read against the guarded paths, that the base's review-judgement.json outranks the
@@ -36,10 +36,7 @@ while i < len(args):
     else:
         endpoint = endpoint or a; i += 1
 repo = os.environ["LANE_TEST_REPO"]
-if endpoint == "graphql":
-    nodes = [{"repository": {"nameWithOwner": repo}}] * pr["closing"]
-    out = {"data": {"repository": {"pullRequest": {"closingIssuesReferences": {"nodes": nodes}}}}}
-elif m := re.fullmatch(rf"repos/{re.escape(repo)}/pulls/{pr['number']}/files\?per_page=(\d+)&page=(\d+)",
+if m := re.fullmatch(rf"repos/{re.escape(repo)}/pulls/{pr['number']}/files\?per_page=(\d+)&page=(\d+)",
                        endpoint or ""):
     size, page = int(m[1]), int(m[2])
     out = pr["files"][:pr["cap"]][(page - 1) * size:page * size]
@@ -77,14 +74,14 @@ def judgement(*guarded):
     return json.dumps({"guarded": list(guarded)})
 
 
-def gate(files, guarded="", closing=1, author_type="User", cap=None, moves=False, config=None):
+def gate(files, guarded="", author_type="User", cap=None, moves=False, config=None):
     """The gate's one line for a PR with these files. GitHub lists
     only the first `cap` files, when one is given; `moves` pushes a new head after the first read
     of the PR, or, as "fails", makes every later read of it fail. `guarded=None` leaves the
     argument off; `config` is the base's review-judgement.json, "fails" making its read fail."""
     d = pathlib.Path(tempfile.mkdtemp(prefix="lane-gate-"))
     try:
-        (d / "pr.json").write_text(json.dumps({"number": PR, "files": files, "closing": closing,
+        (d / "pr.json").write_text(json.dumps({"number": PR, "files": files,
                                                "author_type": author_type, "cap": cap, "moves": moves,
                                                "config": config}))
         gh = d / "gh"
@@ -146,10 +143,10 @@ def test_a_pr_that_moved_while_its_files_were_read_passes_nothing():
 
 
 def test_every_reason_is_named():
-    out = gate([file("models/clubs.sql", 500), file("sql/grant.sql", 1)], guarded="^sql/", closing=0,
+    out = gate([file("models/clubs.sql", 500), file("sql/grant.sql", 1)], guarded="^sql/",
                author_type="Bot")
     assert out == ("gate=human reason=a bot opened it; "
-                   "`sql/grant.sql` is a guarded path (`^sql/`); it closes no issue in this repository"), out
+                   "`sql/grant.sql` is a guarded path (`^sql/`)"), out
 
 
 def test_the_base_judgement_list_guards_a_repo_with_no_agents_md_line():
