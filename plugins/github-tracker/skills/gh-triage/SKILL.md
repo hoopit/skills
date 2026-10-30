@@ -220,9 +220,20 @@ run start past them.
 A finding of your own that falls out of this pass gets its own issue through
 `create-gh-issue`, naming the decision that turned it up.
 
+**Close each repo's session** once every comment and field from its `summary.txt` is on the
+board; the files you may still open sit in `<dir>`. Name the rest in the report:
+
+| Launcher | Close |
+| --- | --- |
+| Herdr | Send the agent `/exit`, wait until `herdr pane list` shows it gone, then `herdr pane close <pane>`, or `herdr tab close <tab>` where that pane is the tab's last |
+| `claude --bg` | Read its id from `claude agents --json`, then `claude stop <id>` |
+
+A session with no `summary.txt` may be waiting on a permission prompt: it stays open and is
+named **untested** with the others.
+
 **Done when** every item in both listings has been tested against all four retirements
-with each verdict stated, or sits in a repo named untested, and every survivor names its
-decision.
+with each verdict stated, or sits in a repo named untested, every survivor names its
+decision, and every session that wrote its `summary.txt` is closed.
 
 ## 4. Report the triage
 
