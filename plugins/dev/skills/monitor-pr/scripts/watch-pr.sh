@@ -23,7 +23,8 @@
 #                          (default 1500 = 25m; the slowest of 735 healthy reviews took 1252 s, and
 #                          20 stalled ones never answered). Also the wait after each re-request.
 #        REREQUEST_MAX   — re-requests per head before GATE_STUCK (default 2).
-#        MAX_FETCH_FAILS — consecutive failed GitHub reads before giving up (default 5).
+#        MAX_FETCH_FAILS — consecutive failed GitHub reads before giving up, or failed re-request
+#                          dispatches before GATE_STUCK (default 5).
 #        REVIEW_MAX_AGE  — seconds a review-thread read is reused while nothing says it changed
 #                          (default 600). The thread read is the watch's only GraphQL call, and
 #                          GraphQL is the bucket every agent on the machine shares, so it is
@@ -57,7 +58,7 @@
 # Fired once per verdict.
 #
 # A codex-review stale at pending gets a REREQUESTED line per re-request, and a GATE_STUCK line once
-# the last one has gone stale too or a dispatch failed. `last_verdict` is the status the pending
+# the last one has gone stale too or dispatching one keeps failing. `last_verdict` is the status the pending
 # row replaced on this head, `none` on a first review. This holds whatever else is open on the
 # head, and after its GREEN. A head reading pass or fail is left alone: the rounds own a verdict's
 # appeal, and the watch, which has the clock, owns a stale pending.
@@ -77,7 +78,7 @@ fired_threads=""; fired_fail=""; fired_conflict=0; fired_head=""; fired_green=""
 gate_wait_start=0
 gate_fail_prev=""; verdict_events=""; stall_start=0; fired_stall=""
 green_held=""; review_requests=0; review_request_at=0; fired_stuck=""
-threads=""; review_key=""; review_read_at=0
+threads=""; review_key=""; review_read_at=0; dispatch_fails=0
 STATE_DIR=${XDG_STATE_HOME:-$HOME/.local/state}/monitor-pr
 STATE=$STATE_DIR/${REPO//\//_}-$PR
 mkdir -p "$STATE_DIR"
@@ -115,11 +116,13 @@ recover_review() {
   [ $((now - since)) -ge "$REREQUEST_AFTER" ] || return 0
   if [ "$asked" -lt "$REREQUEST_MAX" ]; then
     if gh workflow run codex-review-manual.yml -f pr="$PR" --repo "$REPO" >/dev/null 2>&1; then
-      review_requests=$((asked + 1)); review_request_at=$now
+      review_requests=$((asked + 1)); review_request_at=$now; dispatch_fails=0
       echo "REREQUESTED head=$head gate=$REVIEW_GATE request=$review_requests/$REREQUEST_MAX"
       save_state
       return 0
     fi
+    dispatch_fails=$((dispatch_fails + 1))
+    [ "$dispatch_fails" -ge "$MAX_FETCH_FAILS" ] || return 0
     why=" reason=dispatch-failed"
   fi
   echo "GATE_STUCK head=$head gate=$REVIEW_GATE requests=$asked last_verdict=$verdict$why"

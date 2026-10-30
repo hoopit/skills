@@ -135,8 +135,8 @@ run in the PR's worktree.
   `REREQUEST_AFTER`, so the watch re-requested it. The watch owns a stale `pending`: print
   one line and leave it. Its answer comes as a `GREEN` or a `ROUND`.
 - `GATE_STUCK head=… gate=<check> requests=<n> last_verdict=<state|none>
-  [reason=dispatch-failed]` — the re-requests went unanswered, or one could not be
-  dispatched. `last_verdict` is what the `pending` replaced on this head. Step 5 answers it.
+  [reason=dispatch-failed]` — the re-requests went unanswered, or dispatching one kept
+  failing. `last_verdict` is what the `pending` replaced on this head. Step 5 answers it.
 - `STALLED head=… verdicts=<check>:<n>` — a **verdict** is all that holds the head, and has
   for `STALL_AFTER`: nothing else failing or running, no thread, no conflict. `<n>` counts
   the times the watch saw that check turn red on this head. Step 4 answers it.
