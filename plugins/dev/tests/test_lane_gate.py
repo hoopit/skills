@@ -159,10 +159,25 @@ def test_the_base_judgement_list_outranks_the_agents_md_list():
     assert gate([file("sql/grant.sql", 1)], guarded="^sql/", config=judgement("^models/")) == "gate=pass"
 
 
-def test_markdown_is_guarded_only_where_the_judgement_runs():
-    out = gate([file("docs/a.md", 1)], config=judgement(r"\.md$", "^sql/"))
+AGENT_READ = r"(^|/)(AGENTS(\.override)?|CLAUDE(\.local)?)\.md$|(^|/)(\.agents|\.claude|docs/agents)/.*\.md$"
+
+
+def test_agent_read_markdown_is_guarded_only_where_the_judgement_runs():
+    for path in ("AGENTS.md", "AGENTS.override.md", "sub/CLAUDE.md", "CLAUDE.local.md", ".claude/rules/x.md",
+                 ".agents/skills/x/SKILL.md", "docs/agents/x.md"):
+        out = gate([file(path, 1)], config=judgement("^sql/"))
+        assert out == f"gate=human reason=`{path}` is a guarded path (`{AGENT_READ}`)", out
+        assert gate([file(path, 1)]) == "gate=pass"
+
+
+def test_ordinary_markdown_is_not_guarded():
+    for path in ("tests/README.md", "docs/x.md", "docs/agents.md", "NOTAGENTS.md"):
+        assert gate([file(path, 1)], config=judgement("^sql/")) == "gate=pass", path
+
+
+def test_a_list_that_still_names_markdown_holds_it():
+    out = gate([file("docs/a.md", 1)], config=judgement(r"\.md$"))
     assert out == r"gate=human reason=`docs/a.md` is a guarded path (`\.md$`)", out
-    assert gate([file("docs/a.md", 1)]) == "gate=pass"
 
 
 def test_a_list_is_matched_as_python_regexes():

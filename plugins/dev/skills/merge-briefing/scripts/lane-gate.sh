@@ -8,9 +8,9 @@
 # The guarded paths are the `guarded` list of the base's `.github/review-judgement.json`, the
 # list the team-review gate holds a PR by, matched as that gate matches them: Python regexes,
 # searched against each path. Like that gate it reads the base's copy, so a PR cannot edit its
-# own list, and it adds Markdown whatever the list says. The argument counts only in a repo
-# without that file; leave it off when the repo names no list at all, and pass '' for an empty
-# one.
+# own list, and it adds agent-read Markdown whatever the list says. The argument counts only in
+# a repo without that file; leave it off when the repo names no list at all, and pass '' for an
+# empty one.
 #
 # Every failing check is named, not only the first, so the briefing says everything a
 # human is being asked to look at. `.github/` is guarded in every repo: workflow and CI
@@ -26,6 +26,8 @@ export MISE_QUIET=1
 export REPO=$1
 PR=$2; GUARDED=${3-}
 REVISION='"\(.head.sha)..\(.base.sha)"'
+# ALWAYS_GUARDED in hoopit/workflows' judgement.py, past its `^\.github/`: change them together.
+AGENT_READ='(^|/)(AGENTS(\.override)?|CLAUDE(\.local)?)\.md$|(^|/)(\.agents|\.claude|docs/agents)/.*\.md$'
 reasons=()
 
 pr=$(gh api "repos/$REPO/pulls/$PR" --jq "[.changed_files, $REVISION, .user.type,
@@ -58,8 +60,8 @@ patterns=('^\.github/')
 config=$(gh api -H 'Accept: application/vnd.github.raw+json' \
   "repos/$REPO/contents/.github/review-judgement.json?ref=${revision#*..}" 2>&1)
 if (( $? == 0 )); then
-  listed=$(jq -r '.guarded | if type == "array" and all(type == "string")
-    then "\\.md$", (. - ["\\.md$"])[] else error end' <<<"$config") \
+  listed=$(jq -r --arg agent_read "$AGENT_READ" '.guarded | if type == "array" and all(type == "string")
+    then $agent_read, .[] else error end' <<<"$config") \
     || { echo "gate=human reason=could not read the guarded list in review-judgement.json"; exit 0; }
   mapfile -t -O 1 patterns <<<"$listed"
 elif [[ $config == *"HTTP 404"* ]]; then
