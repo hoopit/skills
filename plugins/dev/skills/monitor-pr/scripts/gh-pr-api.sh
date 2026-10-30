@@ -74,7 +74,7 @@ pr_checks() {
 # pr_gate_wait <owner/repo> <pr> <head_sha> <context> — prints how a status check's wait on the
 # head stands, as "<pending_rows> <newest_pending_epoch> <verdict>", or nothing when its latest
 # row is no pending one. pending_rows counts the requests since the last verdict, and verdict is
-# the state of the row before them, or `none`.
+# the row before them: `reviewed` for a pass Codex gave, otherwise its state, or `none`.
 # The statuses history, not `commits/{sha}/status`: that collapses to the latest row per context.
 # A commit status is shared by every PR with that head, so only rows ending ` (#<pr>)` count.
 pr_gate_wait() {
@@ -84,7 +84,9 @@ pr_gate_wait() {
     [.[][] | select(.context == $ctx and ((.description // "") | endswith($suffix)))] as $rows
     | (($rows | map(.state != "pending") | index(true)) // ($rows | length)) as $n
     | select($n > 0)
-    | "\($n) \($rows[0].created_at | fromdateiso8601) \($rows[$n].state // "none")"' <<<"$statuses"
+    | ($rows[$n] // {state: "none"}) as $prior
+    | (if ($prior.description // "" | startswith("Codex reviewed ")) then "reviewed" else $prior.state end) as $verdict
+    | "\($n) \($rows[0].created_at | fromdateiso8601) \($verdict)"' <<<"$statuses"
 }
 
 # pr_coderabbit <owner/repo> <pr> <head_sha> — prints CodeRabbit's standing on the head:

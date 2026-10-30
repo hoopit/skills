@@ -134,9 +134,10 @@ run in the PR's worktree.
 - `REREQUESTED head=… gate=<check> request=<k>/<max>` — the review read `pending` for
   `REREQUEST_AFTER`, so the watch re-requested it. The watch owns a stale `pending`: print
   one line and leave it. Its answer comes as a `GREEN` or a `ROUND`.
-- `GATE_STUCK head=… gate=<check> requests=<n> last_verdict=<state|none>
+- `GATE_STUCK head=… gate=<check> requests=<n> last_verdict=<reviewed|state|none>
   [reason=dispatch-failed]` — the re-requests went unanswered, or dispatching one kept
-  failing. `last_verdict` is what the `pending` replaced on this head. Step 5 answers it.
+  failing. `last_verdict` is what the `pending` replaced on this head:
+  `reviewed` for a pass Codex gave, otherwise that status's state, `none` on a first review. Step 5 answers it.
 - `STALLED head=… verdicts=<check>:<n>` — a **verdict** is all that holds the head, and has
   for `STALL_AFTER`: nothing else failing or running, no thread, no conflict. `<n>` counts
   the times the watch saw that check turn red on this head. Step 4 answers it.
@@ -287,7 +288,7 @@ worth a round` with its evidence where that was the reason — so the user can t
 them back; a decline taken back rides into the next round as `ANSWERED`.
 
 **Gate stuck** — a `GATE_STUCK` line, once any round in flight has finished. Name the gate,
-how long it has read `pending`, and `requests`. `last_verdict=success` means Codex passed this
+how long it has read `pending`, and `requests`. `last_verdict=reviewed` means Codex passed this
 head and a later request overwrote the status: recover it by re-running the `Codex review
 mirror` run that posted the pass, which spends no review. Otherwise recover it with
 `gh workflow run codex-review-manual.yml -f pr=<PR> --repo <OWNER_REPO>`. The bypass the repo

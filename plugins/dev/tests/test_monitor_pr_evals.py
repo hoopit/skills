@@ -198,11 +198,12 @@ def test_a_gate_clearing_after_green_survives_a_resume_and_fires_once():
 
 
 def test_a_failed_dispatch_stops_asking_and_names_the_pass_the_pending_replaced():
-    passed = {"context": "codex-review", "state": "success", "age": 3000, "description": "Codex reviewed it (#4242)"}
-    r = stuck(before=[passed], rereview_fails=True)
-    assert r.watch(4, REREQUEST_AFTER="1", GATE_TIMEOUT="60", MAX_FETCH_FAILS="2") == [
-        f"GATE_STUCK head={r.head} gate=codex-review requests=0 last_verdict=success reason=dispatch-failed"]
-    assert len(dispatches(r)) == 2
+    for said, verdict in (("Codex reviewed it", "reviewed"), ("Bypassed via skip-codex-gate", "success")):
+        prior = {"context": "codex-review", "state": "success", "age": 3000, "description": f"{said} (#4242)"}
+        r = stuck(before=[prior], rereview_fails=True)
+        assert r.watch(4, REREQUEST_AFTER="1", GATE_TIMEOUT="60", MAX_FETCH_FAILS="2") == [
+            f"GATE_STUCK head={r.head} gate=codex-review requests=0 last_verdict={verdict} reason=dispatch-failed"]
+        assert len(dispatches(r)) == 2
 
 
 def test_only_this_prs_pending_is_re_requested():

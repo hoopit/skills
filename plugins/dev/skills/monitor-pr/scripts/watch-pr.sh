@@ -58,8 +58,9 @@
 # Fired once per verdict.
 #
 # A codex-review stale at pending gets a REREQUESTED line per re-request, and a GATE_STUCK line once
-# the last one has gone stale too or dispatching one keeps failing. `last_verdict` is the status the pending
-# row replaced on this head, `none` on a first review. This holds whatever else is open on the
+# the last one has gone stale too or dispatching one keeps failing. `last_verdict` is what the
+# pending row replaced on this head: `reviewed` for a pass Codex gave, otherwise that status's
+# state, and `none` on a first review. This holds whatever else is open on the
 # head, and after its GREEN. A head reading pass or fail is left alone: the rounds own a verdict's
 # appeal, and the watch, which has the clock, owns a stale pending.
 set -u
