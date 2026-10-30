@@ -202,7 +202,7 @@ def test_a_re_request_after_a_clean_green_reports_its_answer():
     r = Run(issue_comments=coderabbit("{HEAD}"), rereview_statuses=[{"context": "codex-review", "state": "success"}])
     assert r.watch(3) == [f"GREEN head={r.head}"]
     r.set_statuses([{"context": "codex-review", "state": "pending", "age": 2000, "description": "Waiting (#4242)"}])
-    assert r.watch(4, REREQUEST_AFTER="1", WATCH_RESUME="1") == [
+    assert r.watch(7, REREQUEST_AFTER="1", WATCH_RESUME="1") == [
         f"REREQUESTED head={r.head} gate=codex-review request=1/2", f"GREEN head={r.head} cleared=codex-review"]
 
 
@@ -210,7 +210,7 @@ def test_a_failed_dispatch_stops_asking_and_names_the_pass_the_pending_replaced(
     for said, verdict in (("Codex reviewed it", "reviewed"), ("Bypassed via skip-codex-gate", "success")):
         prior = {"context": "codex-review", "state": "success", "age": 3000, "description": f"{said} (#4242)"}
         r = stuck(before=[prior], rereview_fails=True)
-        assert r.watch(4, REREQUEST_AFTER="1", GATE_TIMEOUT="60", MAX_FETCH_FAILS="2") == [
+        assert r.watch(7, REREQUEST_AFTER="1", GATE_TIMEOUT="60", MAX_FETCH_FAILS="2") == [
             f"GATE_STUCK head={r.head} gate=codex-review requests=0 last_verdict={verdict} reason=dispatch-failed"]
         assert len(dispatches(r)) == 2
 

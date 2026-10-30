@@ -292,9 +292,9 @@ them back; a decline taken back rides into the next round as `ANSWERED`.
 **Gate stuck** — a `GATE_STUCK` line, once any round in flight has finished. Name the gate,
 how long it has read `pending`, and `requests`. `last_verdict=reviewed` means Codex passed this
 head and a later request overwrote the status: recover it by re-running the `Codex review
-mirror` run that posted the pass, which spends no review. Otherwise recover it with
-`gh workflow run codex-review-manual.yml -f pr=<PR> --repo <OWNER_REPO>`; after
-`reason=dispatch-failed`, run that first and name what it says. The bypass the repo documents
+mirror` run that posted the pass, which spends no review, whatever `reason` says. Any other
+`last_verdict` recovers with `gh workflow run codex-review-manual.yml -f pr=<PR> --repo
+<OWNER_REPO>`; after `reason=dispatch-failed`, run that once now and name what it says. The bypass the repo documents
 stays the user's call, `--unattended` included.
 
 **Closed or checkpointed** — a close holding a verdict, or a checkpoint that stopped.

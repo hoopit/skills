@@ -124,7 +124,8 @@ recover_review() {
   if [ "$asked" -lt "$REREQUEST_MAX" ]; then
     if gh workflow run codex-review-manual.yml -f pr="$PR" --repo "$REPO" >/dev/null 2>&1; then
       review_requests=$((asked + 1)); review_request_at=$now; dispatch_fails=0
-      [ "$fired_green" = "$head" ] && green_held=${green_held:-$REVIEW_GATE}
+      [ "$fired_green" = "$head" ] && [[ ",$green_held," != *",$REVIEW_GATE,"* ]] \
+        && green_held=${green_held:+$green_held,}$REVIEW_GATE
       echo "REREQUESTED head=$head gate=$REVIEW_GATE request=$review_requests/$REREQUEST_MAX"
       save_state
       return 0
@@ -152,7 +153,7 @@ while true; do
   if [ "$head" != "$fired_head" ]; then
     fired_fail=""; fired_conflict=0; fired_head=$head; gate_wait_start=0
     gate_fail_prev=""; verdict_events=""; stall_start=0
-    green_held=""; review_requests=0; review_request_at=0; fired_stuck=""
+    green_held=""; review_requests=0; review_request_at=0; fired_stuck=""; dispatch_fails=0
   fi
 
   # An empty read here reads as "no failing checks, none running", which is half of what
