@@ -123,7 +123,8 @@ config* (`AGENTS.md`):
 
 - **Guarded paths** — the regexes naming what always takes a human there: migrations,
   payment code, permission classes. A repo with `.github/review-judgement.json` on its base
-  branch has its list there, and the gate reads that file instead of this argument. A line
+  branch has its list there, and the gate reads that file instead of this argument; the list
+  does not reach a file that file's `non_runtime` matches. A line
   whose value is `none`, prose after it or not, is an empty list: hand the gate `''`, never
   the word. With no line, leave the argument off.
 - **Auto lane risk ceiling** *(optional)* — `low` or `moderate`, the highest **Merge

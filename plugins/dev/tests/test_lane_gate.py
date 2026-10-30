@@ -10,7 +10,8 @@ page at a time, and the base's review-judgement.json — from a PR described in 
 
 What it guards is that every changed path, past the first page and under both names of a
 rename, is read against the guarded paths, that the base's review-judgement.json outranks the
-AGENTS.md list, and that a gate which cannot read them all passes nothing.
+AGENTS.md list and exempts non-runtime files from its own guards, and that a gate which cannot
+read them all passes nothing.
 """
 import json, os, pathlib, shutil, subprocess, sys, tempfile
 
@@ -70,8 +71,8 @@ def file(name, lines, previous=None):
     return f
 
 
-def judgement(*guarded):
-    return json.dumps({"guarded": list(guarded)})
+def judgement(*guarded, **rest):
+    return json.dumps({"guarded": list(guarded)} | rest)
 
 
 def gate(files, guarded="", author_type="User", cap=None, moves=False, config=None):
@@ -176,8 +177,36 @@ def test_ordinary_markdown_is_not_guarded():
 
 
 def test_a_list_that_still_names_markdown_holds_it():
-    out = gate([file("docs/a.md", 1)], config=judgement(r"\.md$"))
+    out = gate([file("docs/a.md", 1)], config=judgement(r"\.md$", non_runtime="^tests/"))
     assert out == r"gate=human reason=`docs/a.md` is a guarded path (`\.md$`)", out
+
+
+def test_a_non_runtime_file_trips_no_guard_of_the_list():
+    for path in ("payments/tests/test_x.py", "payments/conftest.py", "payments/tests/README.md", "payments/x.md"):
+        assert gate([file(path, 1)], config=judgement("^payments/")) == "gate=pass", path
+
+
+def test_a_config_non_runtime_replaces_the_default():
+    config = judgement("^payments/", non_runtime=r"\.spec\.ts$")
+    assert gate([file("payments/x.spec.ts", 1)], config=config) == "gate=pass"
+    out = gate([file("payments/tests/x.py", 1)], config=config)
+    assert out == "gate=human reason=`payments/tests/x.py` is a guarded path (`^payments/`)", out
+
+
+def test_a_file_with_one_runtime_name_is_runtime():
+    out = gate([file("payments/tests/x.py", 1, previous="payments/x.py")], config=judgement("^payments/"))
+    assert out == "gate=human reason=`payments/tests/x.py` is a guarded path (`^payments/`)", out
+    out = gate([file("payments/x.py", 1, previous="payments/tests/x.py")], config=judgement("^payments/"))
+    assert out == "gate=human reason=`payments/x.py` is a guarded path (`^payments/`)", out
+    out = gate([file("tests/x.py", 1, previous="payments/x.py")], config=judgement("^payments/"))
+    assert out == "gate=human reason=`payments/x.py` is a guarded path (`^payments/`)", out
+
+
+def test_the_always_guards_reach_non_runtime_files():
+    out = gate([file(".github/tests/x.py", 1)], config=judgement("^sql/"))
+    assert out == "gate=human reason=`.github/tests/x.py` is a guarded path (`^\\.github/`)", out
+    out = gate([file("payments/tests/AGENTS.md", 1)], config=judgement("^payments/"))
+    assert out == f"gate=human reason=`payments/tests/AGENTS.md` is a guarded path (`{AGENT_READ}`)", out
 
 
 def test_a_list_is_matched_as_python_regexes():
@@ -197,6 +226,11 @@ def test_a_list_the_gate_cannot_use_passes_nothing():
     assert gate([file("a.py", 1)], config="not json") == expected
     out = gate([file("a.py", 1)], config=judgement("("))
     assert out == "gate=human reason=`(` is not a regex the gate can read", out
+    expected = "gate=human reason=could not read non_runtime in review-judgement.json"
+    assert gate([file("a.py", 1)], config=judgement("^sql/", non_runtime=None)) == expected
+    out = gate([file("tests/x.py", 1)], config=judgement("^tests/", non_runtime="("))
+    assert out == ("gate=human reason=`(` is not a regex the gate can read; "
+                   "`tests/x.py` is a guarded path (`^tests/`)"), out
 
 
 def test_a_failed_read_of_the_judgement_passes_nothing():

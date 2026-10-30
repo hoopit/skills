@@ -8,9 +8,11 @@
 # The guarded paths are the `guarded` list of the base's `.github/review-judgement.json`, the
 # list the team-review gate holds a PR by, matched as that gate matches them: Python regexes,
 # searched against each path. Like that gate it reads the base's copy, so a PR cannot edit its
-# own list, and it adds agent-read Markdown whatever the list says. The argument counts only in
-# a repo without that file; leave it off when the repo names no list at all, and pass '' for an
-# empty one.
+# own list, it adds agent-read Markdown whatever the list says, and the list does not reach a
+# file the config's `non_runtime` matches under all of its paths: `^\.github/` and agent-read
+# Markdown are the only guards on those. The argument counts only in a repo without that file,
+# where every path is read against every guard; leave it off when the repo names no list at all,
+# and pass '' for an empty one.
 #
 # Every failing check is named, not only the first, so the briefing says everything a
 # human is being asked to look at. `.github/` is guarded in every repo: workflow and CI
@@ -28,6 +30,8 @@ PR=$2; GUARDED=${3-}
 REVISION='"\(.head.sha)..\(.base.sha)"'
 # ALWAYS_GUARDED in hoopit/workflows' judgement.py, past its `^\.github/`: change them together.
 AGENT_READ='(^|/)(AGENTS(\.override)?|CLAUDE(\.local)?)\.md$|(^|/)(\.agents|\.claude|docs/agents)/.*\.md$'
+# DEFAULTS["non_runtime"] in the same file: change them together.
+DEFAULT_NON_RUNTIME='(^|/)(tests?/|conftest\.py$)|\.md$'
 reasons=()
 
 pr=$(gh api "repos/$REPO/pulls/$PR" --jq "[.changed_files, $REVISION, .user.type,
@@ -35,8 +39,8 @@ pr=$(gh api "repos/$REPO/pulls/$PR" --jq "[.changed_files, $REVISION, .user.type
   || { echo "gate=human reason=could not read the PR"; exit 0; }
 IFS=$'\t' read -r changed revision author_type asked <<<"$pr"
 
-# A rename is judged under both names: moving a file out of a guarded path touches it.
-paths="" seen=0
+# A rename is judged under both names, a tab apart: moving a file out of a guarded path touches it.
+files="" seen=0
 for (( page = 1; page <= (changed + 99) / 100; page++ )); do
   rows=$(gh api "repos/$REPO/pulls/$PR/files?per_page=100&page=$page" \
     --jq '.[] | [.filename, (.previous_filename // "")] | @tsv') \
@@ -44,8 +48,7 @@ for (( page = 1; page <= (changed + 99) / 100; page++ )); do
   while IFS=$'\t' read -r name previous; do
     [[ -n $name ]] || continue
     (( seen += 1 ))
-    paths+=$name$'\n'
-    [[ -n $previous ]] && paths+=$previous$'\n'
+    files+=$name${previous:+$'\t'$previous}$'\n'
   done <<<"$rows"
 done
 (( seen == changed )) \
@@ -56,14 +59,20 @@ now=$(gh api "repos/$REPO/pulls/$PR" --jq "$REVISION") \
 [[ $author_type == Bot ]] && reasons+=("a bot opened it")
 [[ -n $asked ]] && reasons+=("a review is still requested of $asked")
 
-patterns=('^\.github/')
+# The first `always` of the patterns reach every file, the rest only runtime ones. `(?!)` matches
+# nothing, so with no config every file is runtime.
+patterns=('^\.github/') always=1 non_runtime='(?!)'
 config=$(gh api -H 'Accept: application/vnd.github.raw+json' \
   "repos/$REPO/contents/.github/review-judgement.json?ref=${revision#*..}" 2>&1)
 if (( $? == 0 )); then
   listed=$(jq -r --arg agent_read "$AGENT_READ" '.guarded | if type == "array" and all(type == "string")
     then $agent_read, .[] else error end' <<<"$config") \
     || { echo "gate=human reason=could not read the guarded list in review-judgement.json"; exit 0; }
+  non_runtime=$(jq -r --arg default "$DEFAULT_NON_RUNTIME" 'if has("non_runtime") then .non_runtime else $default end
+    | if type == "string" then . else error end' <<<"$config") \
+    || { echo "gate=human reason=could not read non_runtime in review-judgement.json"; exit 0; }
   mapfile -t -O 1 patterns <<<"$listed"
+  always=2
 elif [[ $config == *"HTTP 404"* ]]; then
   (( $# >= 3 )) || reasons+=("no guarded paths configured")
   IFS=, read -ra listed <<<"$GUARDED"
@@ -74,18 +83,27 @@ fi
 
 guarded=$(python3 -c '
 import re, sys
-paths = sys.stdin.read().splitlines()
-for p in map(str.strip, sys.argv[1:]):
+files = [row.split("\t") for row in sys.stdin.read().splitlines()]
+always, patterns = int(sys.argv[2]), sys.argv[3:]
+try:
+    non_runtime = re.compile(sys.argv[1])
+except re.error:
+    print(f"`{sys.argv[1]}` is not a regex the gate can read")
+    non_runtime = re.compile("(?!)")
+# A file is runtime when any of its paths is, so a guarded file moved into the tests still trips.
+runtime = [p for f in files if not all(map(non_runtime.search, f)) for p in f]
+every = [p for f in files for p in f]
+for i, p in enumerate(map(str.strip, patterns)):
     if not p:
         continue
     try:
-        hit = next(filter(re.compile(p).search, paths), None)
+        hit = next(filter(re.compile(p).search, every if i < always else runtime), None)
     except re.error:
         print(f"`{p}` is not a regex the gate can read")
         continue
     if hit:
         print(f"`{hit}` is a guarded path (`{p}`)")
-' "${patterns[@]}" <<<"$paths") || { echo "gate=human reason=could not match the guarded paths"; exit 0; }
+' "$non_runtime" "$always" "${patterns[@]}" <<<"$files") || { echo "gate=human reason=could not match the guarded paths"; exit 0; }
 while IFS= read -r reason; do
   [[ -n $reason ]] && reasons+=("$reason")
 done <<<"$guarded"
