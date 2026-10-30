@@ -144,20 +144,44 @@ Four things retire an item:
   act is an unresolved fork. The default plus the condition removes the hold and leaves
   the judgement where it can be exercised.
 
-**Fan the reading out.** Testing the four retirements is code paths, prod and Sentry per
-item, and the context that later grills has no use for any of it. Batch the pile by
-domain and dispatch one subagent per batch, in parallel, read-only on GitHub and the
-repos. Each gets this section as its contract, its issues, and the clues you already hold
-— the merged PR an issue follows, the ADR that bears on it. For each issue it writes one
-file under a fresh scratchpad directory:
+**Fan the reading out, one session per repo.** Testing the four retirements is code paths,
+prod and Sentry per item, and the context that later grills has no use for any of it. It
+also needs the repo's own `AGENTS.md`, rules and project skills, which load for a session
+started at that repo's checkout and for no other: a production read made without the repo's
+schema traps can retire a decision on a wrong number. A pile small enough to read yourself,
+in the repo this session started in, stays here. For the rest, make a fresh scratchpad
+directory, group the pile by repo, and start one session at each checkout
+`hoopit-board config` prints, with the launcher in the first row that matches:
+
+| Where you are running | Launcher |
+| --- | --- |
+| Inside Herdr (`HERDR_ENV=1`) | Load the `herdr` skill. Start a Claude agent named `triage-<repo>` in a pane at the checkout, with `--add-dir "<dir>"`, then prompt it |
+| Anywhere else | `cd "<checkout>" && claude --bg -n "triage-<repo>" --add-dir "<dir>" "<the prompt>"` |
+
+Permissions stay at the default, so a prompt waits for the user in that session. The prompt:
+
+> Run the collapse pass on `<the repo's issues>`. Your contract is `## 3. Collapse` in
+> `${CLAUDE_PLUGIN_ROOT}/skills/gh-triage/SKILL.md`; this session does that pass and nothing
+> else, and starts no other session. Batch by domain and dispatch one subagent per batch, in
+> parallel, naming in each brief the rules and traps its issues touch, since a subagent may
+> not load this repo's context. Stay read-only on GitHub and the repo. `git fetch` first and
+> read the default branch as fetched: this clone may sit behind it. Start from `<the clues
+> you hold — the merged PR an issue follows, the ADR that bears on it>`. Write the files the
+> contract names under `<dir>/<repo>/`, and write `summary.txt` there last.
+
+For each issue the session writes one file:
 
 - the verdict, the retirement it rests on, and a one-line reason;
 - the exact comment to post — the evidence for a retirement; for a survivor, each
   retirement tested and what ruled it out;
 - for a survivor whose body lacks one, the `## The decision` section to add.
 
-It returns one line per issue: `<repo>#<n> RETIRE|SURVIVE <retirement> — <reason>`. The
-verdict and the writes stay yours. Post each comment from its file, and open a file only
+`summary.txt` holds one line per issue, `<repo>#<n> RETIRE|SURVIVE <retirement> — <reason>`,
+then any finding of its own to file. Wait for every repo's `summary.txt`. A repo with no
+checkout, or whose session fails to start, is named **untested** in the report, and its
+items stay as they are.
+
+The verdict and the writes stay yours. Post each comment from its file, and open a file only
 where the one line leaves you doubting the verdict.
 
 Write the evidence as a comment on the issue, then move the field:
@@ -191,7 +215,8 @@ A finding of your own that falls out of this pass gets its own issue through
 `create-gh-issue`, naming the decision that turned it up.
 
 **Done when** every item in both listings has been tested against all four retirements
-with each verdict stated, and every survivor names its decision.
+with each verdict stated, or sits in a repo named untested, and every survivor names its
+decision.
 
 ## 4. Report the triage
 
