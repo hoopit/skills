@@ -217,7 +217,7 @@ round, like a `ROUND`, and is then read against live state:
 
 - **`<n>` is 1** — no re-review has run on this head, so its one appeal is still owed.
   Kick it as the briefing's step 5 does — the same live read of `codex-review`, the same
-  dispatch unless it reads `pending` — and print one line saying the session re-requested
+  dispatch unless it reads `pending` or `pass` — and print one line saying the session re-requested
   the review. This completes the appeal; the head gets no second.
 - **`<n>` is 2 or more** — the appeal ran and the verdict held: take the `CLOSED verdict
   held` path above.

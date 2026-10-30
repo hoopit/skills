@@ -180,9 +180,18 @@ After processing all comments:
 ### 5a. Trigger a fresh Codex review if nothing was pushed
 If the run produced **no push** (no code changed), the reviewers have nothing new to look
 at — start another review round yourself. A thread you left `open` is no reason to hold
-it back; the reviewers work on the head, and the head is unchanged either way:
+it back; the reviewers work on the head, and the head is unchanged either way. Read
+`codex-review` on the head first: skip when it reads `pending` (a review is running) or
+`pass` (the head is already reviewed, and the kick would overwrite a settled gate), and
+say which in the summary. A `fail`, or a head it has not reported on, gets the request:
 ```bash
-gh workflow run codex-review-manual.yml -f pr=<pr_number> --repo <owner>/<repo>
+source "${CLAUDE_PLUGIN_ROOT}/skills/monitor-pr/scripts/gh-pr-api.sh"
+HEAD_SHA=$(gh api repos/<owner>/<repo>/pulls/<pr_number> --jq .head.sha)
+GATE=$(pr_checks <owner>/<repo> "$HEAD_SHA" | awk -F'\t' '$2=="codex-review"{print $1}')
+case "$GATE" in
+  pending|pass) ;;
+  *) gh workflow run codex-review-manual.yml -f pr=<pr_number> --repo <owner>/<repo> ;;
+esac
 ```
 
 ### 5b. Clear a stale CodeRabbit "changes requested" review
