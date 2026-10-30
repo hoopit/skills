@@ -10,6 +10,7 @@
 #   expect_reviewers      `none` when the pass must end before any reviewer starts, or how many
 #                         code-reviewer subagents the scope runs
 #   expect_challenge      1 or 0: whether the scope runs Codex's challenge
+#   expect_test_economy   1 or 0: whether the pass starts the test-economy reviewer
 #   expect_codex_calls    `none` when the pass must end before Codex runs
 #   expect_codex_model    the model the scope pins for Codex's review (default gpt-6.1-sol)
 #   expect_codex_effort   and its effort (default high)
@@ -89,6 +90,13 @@ elif verdict == "PASS" or expect("defect"):
     # A full pass with a SPEC runs both axes, each as a hoopit-dev:code-reviewer.
     say("PASS" if len(reviewers) >= 2 else "FAIL", "both_axes_ran",
         f"{len(reviewers)} code-reviewer subagent(s), of {len(agents)} subagent(s)")
+
+if expect("test_economy") is not None:
+    # The diff's test paths decide it, on either scope.
+    cutters = [u for u in agents if str((u.get("input") or {}).get("subagent_type", "")).endswith("test-economy-reviewer")]
+    want = int(expect("test_economy"))
+    say("PASS" if len(cutters) == want else "FAIL", "test_economy_for_diff",
+        f"want {want} test-economy-reviewer subagent(s), got {len(cutters)}")
 
 if expect("challenge") is not None:
     challenged = [a for a in codex if "--output-schema" in a]

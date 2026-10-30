@@ -11,7 +11,8 @@ Reviews the branch's committed changes against a fixed point — the repo's defa
 **independent** review is the **`mattpocock-skills:code-review` skill** (a two-axis Standards + Spec
 reviewer that spawns its own cold sub-agents — genuinely independent eyes). **Codex** is a second,
 separate engine: engine diversity is the point, so a pass that cannot run it blocks rather than
-passing on one engine's word.
+passing on one engine's word. Every one of them hunts for what is missing, so when the diff adds
+test lines a third reviewer, **test economy**, argues them away (step 3).
 
 ## Contract
 
@@ -190,6 +191,19 @@ that policy.
      findings there and returns a `FINDINGS <path> · <n> findings` receipt; you read the file.
      That is what makes a lost report survivable (Notes), so pass the path even when you expect
      the report to arrive normally.
+   - **Test economy, when the diff adds test lines.** A *test path* is one under a `test/`,
+     `tests/`, `__tests__/` or `spec/` directory, or named `test_*`, `*_test.*`, `*.test.*` or
+     `*.spec.*`, plus `conftest.py`. When `git diff "$REVIEW_BASE"...HEAD` adds a line to one,
+     spawn `subagent_type: "hoopit-dev:test-economy-reviewer"` (pinned like the axes) beside
+     them, on both scopes. Its brief is `REVIEW_BASE`, `FINDINGS_FILE=$GATE_DIR/test-economy.md`
+     and `PROBE_DIR=$GATE_DIR/test-economy-probe`, and nothing else: the agent definition carries
+     the job, and it finds the repo's own test rule itself. When the agent type isn't found,
+     brief a `general-purpose` agent on `model: "opus"` with the body of
+     `${CLAUDE_PLUGIN_ROOT}/agents/test-economy-reviewer.md`. Because `REVIEW_BASE` is the fixed
+     point, a `light` pass hands it exactly the tests the previous pass's fix commits added —
+     where the tests written in answer to an "add a test" finding land. Which of the added lines
+     it judges is the reviewer's call: a diff with none under review comes back with a tally of
+     zero, which the notes report.
    A subagent sitting at `idle` with no result has **not** failed, and a result that never
    arrives is recoverable — see Notes. Work that ladder rather than reviewing the diff yourself.
    Note in the PR at which scope the axes ran.
@@ -229,6 +243,18 @@ that policy.
      (*Classifying an item* in [`../monitor-pr/LEDGER.md`](../monitor-pr/LEDGER.md)). One
      that holds is fixed; the rest are recorded as *challenged, not reached: <evidence>*.
      A `BLOCK` needs a disputed Critical/High of the standard kind.
+   - **A test-economy cut never blocks.** Each `fold` and `delete` is a finding at the severity
+     its line carries. Valid, make the cut. A fold first carries its case into the test it
+     names. Then the cut removes what the verdict covers: a test the diff adds is deleted; on an
+     entry marked `(edit)`, the test is reverted to how it stood at
+     `git merge-base "$REVIEW_BASE" HEAD`, so the lines the diff replaced come back. Decline a
+     cut on its merits alone, never as *not worth a round* — a cut is what the reviewer exists
+     to land — and only with the evidence a `keep` needs (*Verdicts* in
+     `${CLAUDE_PLUGIN_ROOT}/agents/test-economy-reviewer.md`), run in its `PROBE_DIR`. A
+     `keep` is no finding.
+   - **The `probe` finding goes to the notes.** When the reviewer's probe did not run, its
+     `probe` finding names why and lists the `unproven` tests. The pass carries it into the
+     notes as it stands, so the PR's reader sees which tests no mutation backs, and goes on.
    - **Invalid Low/Medium → skip**, recording a one-line reason (collected for the PR). A
      skip on judgement — the finding reads the code right and asks for a change deliberately
      not made — carries its reason in the code, and a finding raised again is that
@@ -250,9 +276,10 @@ that policy.
    - `PASS` + the scope and its fixed point + whether this pass made fix commits + a notes block
      for the PR: which reviewers ran (and which were skipped/unavailable), the challenge focus
      when one ran, findings fixed, findings skipped (with reasons), findings challenged and how
-     they hold. Carry `CHALLENGE_AT` in the verdict — this pass's `REVIEWED_AT` when the
-     challenge ran, the sha the caller gave when it did not — because a caller that loses it
-     re-challenges a settled shape.
+     they hold, and test economy's tally when it ran, with its
+     `probe` finding as it stands. Carry `CHALLENGE_AT` in the verdict — this pass's
+     `REVIEWED_AT` when the challenge ran, the sha the caller gave when it did not — because a
+     caller that loses it re-challenges a settled shape.
    - `BLOCK: <one-line reason>` + the blocking findings and your reasoning.
 
 ## Fix commit convention

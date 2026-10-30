@@ -9,6 +9,7 @@ expect_codex_model: gpt-6-luna
 expect_codex_effort: medium
 expect_reviewers: 1
 expect_challenge: 0
+expect_test_economy: 0
 ---
 
 You are shipping a change in this repo with the `ship` skill and are in its Step 6, the review gate. The change is on the branch checked out here, `BAC-4412-org-admin-check`. Nothing is pushed and no PR exists.
