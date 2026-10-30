@@ -14,15 +14,22 @@ Never expand existing frontmatter descriptions without approval.
 
 ## Workflow
 
-- **Commit straight to `main`.** Every skill/plugin change goes directly on `main` — no
-  feature branch, no PR. Skip the usual "branch first on the default branch" step here.
+- **Always work in a worktree.** Sessions share the main clone, so each change gets its own
+  detached worktree, from the clone's root: `git worktree add --detach .worktrees/<name>
+  origin/main`. Edit, test and commit there; the main clone stays clean, on `main`.
+- **Land straight on `main`.** Every skill/plugin change goes directly on `main` — no feature
+  branch, no PR. Skip the usual "branch first on the default branch" step here. From the
+  worktree, `git rebase origin/main` and `git push origin HEAD:main`, then in the main clone
+  `git merge --ff-only origin/main` and `git worktree remove .worktrees/<name>`. Done when
+  the main clone reads `## main...origin/main` with no ahead or behind.
 - **Edit skills in a working clone of `hoopit/skills`.** Before the first edit, read
   `git rev-parse --show-toplevel`: under `~/.claude/plugins/`, switch to the working clone.
-- **`hoopit-board` and `linear-board` run from this clone.** `~/.local/bin` symlinks them to
-  `plugins/github-tracker/bin/hoopit-board` and `personal/linear-dispatch/scripts/linear-board`,
-  so every edit is live for every session at once, and a truncated or stubbed copy makes each
-  bare call silently do nothing. Point tests, probes and edit scripts at a copy, and after
-  touching either file, `git diff --stat` it.
+- **`hoopit-board` and `linear-board` run from the main clone.** `~/.local/bin` symlinks them
+  to `plugins/github-tracker/bin/hoopit-board` and
+  `personal/linear-dispatch/scripts/linear-board` there, so a change goes live for every
+  session at once when the main clone fast-forwards, and a truncated or stubbed copy makes
+  each bare call silently do nothing. Point tests, probes and edit scripts at a worktree's
+  copy, and after touching either file, `git diff --stat` it.
 
 ## Skill scope — Hoopit-specific is fine, single-project is not
 
