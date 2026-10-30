@@ -35,6 +35,9 @@ TMP = pathlib.Path(SCRATCH.name)
 # The Agent field's session files resolve against this; a test must never touch the
 # developer's own sessions.
 os.environ["XDG_STATE_HOME"] = str(TMP / "state")
+# A git hook runs this suite with GIT_DIR set, which sends every `git` here to the real repo.
+for name in [k for k in os.environ if k.startswith("GIT_")]:
+    del os.environ[name]
 
 
 def write_config(name="config.json", **over):
@@ -931,11 +934,14 @@ SCAN_ISSUES = {1: ("ci: cache CocoaPods between deploys", PODS),
                    "number. Read the money object the endpoint serves.")}
 
 
-def scan(m, ask, no_judge=False, issues=SCAN_ISSUES):
+def scan(m, ask, no_judge=False, issues=SCAN_ISSUES, cache=None, real_paths=False):
     """cmd_scan over `issues` ({number: (title, body)}). Returns (stdout, stderr)."""
     rows = [{**item(n, title=t), "body": b} for n, (t, b) in issues.items()]
     m.board = lambda bodies=False: rows if bodies else [{**r, "body": ""} for r in rows]
     m.judge_pairs.ask = ask
+    m.PAIR_CACHE = cache
+    if not real_paths:
+        m.gone_paths = lambda repo, body: {}
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
         m.cmd_scan(argparse.Namespace(no_judge=no_judge))
@@ -1008,7 +1014,7 @@ def test_a_judgement_that_cannot_run_prints_the_overlap_list_and_says_so():
 
 def test_a_stray_failure_is_asked_once_more():
     m = load()
-    m.DUP_RETRY_PAUSE = 0
+    m.DUP_RETRY_PAUSES = (0,)
     calls = []
     def ask(state, questions):
         calls.append(1)
@@ -1021,7 +1027,7 @@ def test_a_stray_failure_is_asked_once_more():
 
 def test_an_overlap_pair_whose_request_failed_is_still_listed():
     m = load()
-    m.DUP_RETRY_PAUSE = 0
+    m.DUP_RETRY_PAUSES = (0,)
     def ask(state, questions):
         if state["a"]["title"].startswith("ci:") and state["b"]["title"].startswith("ci:"):
             return None, "HTTP 429"
@@ -1029,6 +1035,89 @@ def test_an_overlap_pair_whose_request_failed_is_still_listed():
     out, err = scan(m, ask)
     assert "shortlisted but not judged" in out and "hoopit/api#1\thoopit/api#2" in out, out
     assert "1 of" in err and "HTTP 429" in err, err
+
+
+def test_a_kept_verdict_spends_no_request_until_a_body_changes():
+    m = load()
+    calls = []
+    def ask(state, questions):
+        calls.append(1)
+        return relation(0.02, unrelated=1.0), None
+    with tempfile.TemporaryDirectory() as d:
+        cache = f"{d}/verdicts.json"
+        scan(m, ask, cache=cache)
+        first = len(calls)
+        out, _ = scan(m, ask, cache=cache)
+        assert first and len(calls) == first and f"{first} of them on an earlier run" in out, out
+        edited = {**SCAN_ISSUES, 1: (SCAN_ISSUES[1][0], PODS + " Keep the key per Xcode.")}
+        scan(m, ask, issues=edited, cache=cache)
+        assert len(calls) > first, "an edited body is a new pair"
+
+
+def test_past_the_budget_a_pair_waits_for_the_next_run():
+    m = load()
+    m.DUP_MAX_PAIRS = 1
+    calls = []
+    def ask(state, questions):
+        calls.append(1)
+        return relation(0.02, unrelated=1.0), None
+    with tempfile.TemporaryDirectory() as d:
+        _, err = scan(m, ask, cache=f"{d}/verdicts.json")
+        assert len(calls) == 1 and "left for the next run" in err, err
+        scan(m, ask, cache=f"{d}/verdicts.json")
+        assert len(calls) == 2, calls
+
+
+def test_a_failure_that_outlasts_the_first_retry_gets_another():
+    m = load()
+    m.DUP_RETRY_PAUSES = (0, 0)
+    tries = {}
+    def ask(state, questions):
+        ci = state["a"]["title"].startswith("ci:") and state["b"]["title"].startswith("ci:")
+        tries[ci] = tries.get(ci, 0) + 1
+        if ci and tries[ci] < 3:
+            return None, "HTTP 529"
+        return relation(0.02, unrelated=1.0), None
+    out, err = scan(m, ask)
+    assert tries[True] == 3 and "529" not in err and "not judged" not in out, (out, err)
+
+
+def git_repo(d):
+    """A clone at `d`/clone of an origin whose history deletes one file and renames another."""
+    def git(*args, cwd=f"{d}/origin"):
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t",
+                        "-c", "commit.gpgsign=false", *args],
+                       cwd=cwd, check=True, capture_output=True)
+    os.makedirs(f"{d}/origin/lib")
+    git("init", "-q", "-b", "main")
+    for name in ("lib/old_cubit.dart", "lib/kept.dart", "lib/before.dart"):
+        with open(f"{d}/origin/{name}", "w") as fh:
+            fh.write(f"{name}\n" * 20)
+    git("add", "."); git("commit", "-qm", "start")
+    git("rm", "-q", "lib/old_cubit.dart"); git("commit", "-qm", "delete")
+    git("mv", "lib/before.dart", "lib/after.dart"); git("commit", "-qm", "rename")
+    git("clone", "-q", f"{d}/origin", f"{d}/clone", cwd=d)
+    return f"{d}/clone"
+
+
+def test_path_gone_names_only_a_file_the_default_branch_deleted():
+    m = load()
+    body = ("`lib/old_cubit.dart:12` is the bug. `lib/kept.dart`, `lib/before.dart`, the "
+            "unwritten `lib/new_page.dart` and `flutter-app/lib/other.dart` are not.")
+    with tempfile.TemporaryDirectory() as d:
+        m.checkout = lambda repo: git_repo(d) if not os.path.isdir(f"{d}/clone") else f"{d}/clone"
+        out, err = scan(m, lambda s, q: (relation(0.02, unrelated=1.0), None), real_paths=True,
+                        issues={1: ("attendance: the old cubit", body)}, no_judge=True)
+    assert "path-gone:lib/old_cubit.dart@" in out and not err, (out, err)
+    assert out.count("path-gone") == 1, out
+
+
+def test_a_repo_with_no_clone_says_its_path_signal_did_not_run():
+    m = load()
+    m.checkout = lambda repo: "/nonexistent/clone"
+    out, err = scan(m, lambda s, q: (None, "unused"), real_paths=True, no_judge=True,
+                    issues={1: ("title", "`lib/old_cubit.dart`")})
+    assert "path-gone" not in out and err.count("path-gone signal did not run") == 1, err
 
 
 def test_scan_no_judge_asks_nothing():

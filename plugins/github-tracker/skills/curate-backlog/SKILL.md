@@ -9,10 +9,11 @@ disable-model-invocation: true
 Board: the board in your `hoopit-board` config — `hoopit-board config` prints it.
 
 Every open item leaves this run **settled** — closed, absorbed, retriaged — or
-**surfaced** as a doubt. Act on the evidence in front of you; reserve the doubt
-list for the calls that genuinely turn on judgement. A backlog curated into a
-second backlog of approvals has moved the work, not done it. Done items get a
-sweep of their own at the end.
+**surfaced** as a doubt. An item with no signal and no pair stays Live by default,
+unread, and the report counts it as unexamined. Act on the evidence in front of you;
+reserve the doubt list for the calls that genuinely turn on judgement. A backlog
+curated into a second backlog of approvals has moved the work, not done it. Done
+items get a sweep of their own at the end.
 
 Items that are **In progress** or **In review** are never closed or absorbed
 here — an agent may be inside one right now. They can be retriaged, and
@@ -20,26 +21,38 @@ anything that looks abandoned goes on the doubt list. An item started by
 `hoopit-dispatcher` or `gh-triage` carries a comment naming its agent; that is how you
 tell abandoned from busy, and a later `Handed back to the backlog` comment
 cancels it — an assessment gave that slot up, and the item is ordinary again.
+`hoopit-board stale` lists the in-flight items that may have lost their agent; run it
+before calling one abandoned, and read the issue before asking about it.
 
 ## 1. Scan the board
 
 ```bash
-hoopit-board scan
+hoopit-board scan > scan.txt 2>&1
 ```
+
+Capture stderr with it: every `!!` line is a gap in coverage the report owes.
 
 `hoopit-board` is the board's mechanical half; `--help` lists it. It ships as the
 plugin's `bin/hoopit-board`, on `PATH` as a bare command. `scan` prints every open item
 with the signals that nominate it, then the pairs of issues it judged to be one piece of
 work. Code shortlists the pairs — title overlap, plus each issue's nearest neighbours by
-title and body — and TypeSafe's Jev reads both bodies of each:
+title and body — and TypeSafe's Jev reads both bodies of each. A verdict is kept until
+either body changes, so rerunning spends requests only on pairs still unjudged.
 
 - **DUPLICATE / ABSORB** — a nomination, with the bucket it leans to.
 - **DUPLICATE DOUBT** — the judgement landed between its thresholds. These go on the
   doubt list unless the bodies settle it for you.
+- **TITLE OVERLAP** — pairs sharing three title words that nobody judged: a request
+  failed, or there was no judgement to ask (no key, an outage, `--no-judge`). Read these
+  yourself.
 - Everything else on the shortlist was judged separate work and is only counted.
 
-With no judgement to ask — no key, an outage, `--no-judge` — the section is
-**TITLE OVERLAP** instead: pairs sharing three title words, judged by nobody.
+Jev is strict about the same kind of fix in different places, so a pair it separated can
+still be one sweep: the same rule over the same files. These lists are a floor. A pair
+whose titles match when you read the open list earns a read of both bodies.
+
+`path-gone:<path>@<sha>` marks an issue naming a file that commit deleted, and `pr-merged`
+one whose linked PR merged. Each nominates a bucket; neither proves it.
 
 Bodies stay out of your context deliberately — they run to thousands of tokens each. Pull
 them a cluster at a time, for the listed pairs and the flagged items only:
@@ -68,10 +81,10 @@ run is done when each one sits in exactly one, and the report names which.
 | **Not an issue** | A `PullRequest` item on the board — its issue already tracks it. |
 | **Doubt** | Anything above that you cannot show. |
 
-`scan`'s signals nominate most of these on their own. Duplicate and Absorbed come
-nominated off the issue text alone, so read both bodies of a nominated pair before
-settling it — which one survives is yours to pick either way. A pair `scan` did not
-list needs no second look for duplication.
+`scan`'s signals nominate Shipped, Stale and the pairs. Invalid, and code rewritten in
+place, surface only when you read the item. Duplicate and Absorbed come nominated off the
+issue text alone, so read both bodies of a nominated pair before
+settling it — which one survives is yours to pick either way.
 
 ## 3. Verify the flagged ones against the code
 
@@ -87,7 +100,9 @@ issue, not on your signal, so ask for the falsifier with it: what would show
 this issue is still live, and is that there in the code? A subagent asked to
 confirm a signal confirms it.
 
-A subagent that comes back uncertain has found a doubt, not a close.
+A subagent that comes back uncertain has found a doubt, not a close. One that names a
+gap small enough to read in a few commands has left you that read: close the gap
+yourself, then settle it.
 
 ## 4. Settle what you can show
 
@@ -103,7 +118,13 @@ Closing an issue carries its board item to Done on its own.
 **Absorbing** is two moves: edit the survivor's body so it covers the whole
 scope — `gh issue edit <survivor> --repo <repo> --body-file <path>` — then
 close the other with `--duplicate-of <survivor>` and a comment naming what
-moved. The survivor is the one with the better write-up, not the lower number.
+moved. The survivor is the one with the better write-up, not the lower number, and it
+takes the higher priority of the two. Where the two disagree on the fix, the
+disagreement goes on the doubt list.
+
+**A close meets the acceptance.** When the code refused a line of it, or a shipped change
+covers only part, the issue is a doubt with the unmet line named, however good the
+reason in the code reads.
 
 **Retriage** every Live item `scan` marked `untriaged`, with
 `hoopit-board triage <repo> <n> --priority P2 --effort M --autonomy Unattended`.
@@ -114,11 +135,10 @@ Sweeping more than a handful, pipe them into `hoopit-board batch` instead —
 `<repo>#<n>` and tab-separated `Field=Value` a line — which spends a few
 GraphQL points on the lot rather than two an item.
 
-Autonomy is the axis this run backfills — most of the backlog predates the
-field, and a blank one keeps an item out of every `--unattended` run however
-well it is ranked. Read it off the body like the other two. An item you would
-have to ask about to judge is `Needs decision` by that fact, and it belongs on
-the doubt list with the decision named.
+A blank Autonomy keeps an item out of every `--unattended` run however well it is
+ranked. Read it off the body like the other two. An item you would have to ask about
+to judge is `Needs decision` by that fact, and it belongs on the doubt list with the
+decision named.
 
 ## 5. Sweep the Done items
 
@@ -131,6 +151,13 @@ hoopit-board archive-done --apply  # takes it
 
 ## 6. Report
 
-One table of what changed — item, bucket, action — then the doubts, each with
-the specific question you want answered. Close with the board's open count
-before and after.
+One table of what changed — item, bucket, action — then coverage, then the doubts,
+each with the specific question you want answered. Close with the board's open count
+before and after, from `hoopit-board open | wc -l`.
+
+**Coverage** says what this run did not look at:
+
+- how many items were read, and how many stayed Live unread;
+- every `!!` line from `scan`: pairs left for the next run, failed requests, repos
+  whose `path-gone` did not run;
+- that `path-gone` finds deleted files only, so code rewritten in place still reads Live.

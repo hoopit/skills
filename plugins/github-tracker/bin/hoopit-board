@@ -31,8 +31,13 @@ caps and walk over candidates it brings itself, so the footprint rules live here
 
 `scan` asks it which pairs of open issues are one piece of work. Code draws the
 shortlist — title overlap plus BM25 neighbours over title and body — and the model judges
-each pair off both bodies. It fails open to the title-overlap list, and it only nominates:
-closing a duplicate stays with whoever reads the pair.
+each pair off both bodies. A verdict is kept until either body changes, so a run spends its
+budget on pairs nobody has judged yet. It fails open to the title-overlap list, and it only
+nominates: closing a duplicate stays with whoever reads the pair.
+
+`scan` also marks an issue `path-gone` when a path its body names was deleted from the
+default branch, which only ever nominates Stale: the deleted file says nothing about
+whether the defect moved.
 
 `decisions` asks the same model whether a `Needs decision` body names its decision, and
 in which block. It is additive in the same way — a decision heading the regex finds stays
@@ -107,7 +112,9 @@ session, tie it to the items it works.
   decisions [N] [--unnamed] [--manual] [--waiting] [--no-judge]   the top N decisions to answer (default 5)
   stale [--older-than H]         flight that may have lost its agent: no-pr | pr-quiet\n  dispatches [--since D] [--repo R]... [--no-judge]  merged PRs by the rung that wrote them
   open [--type TYPE]...          every open item, one line each
-  scan [--no-judge]              every open item, with curation signals and judged duplicate pairs
+  scan [--no-judge]              every open item, with curation signals and judged duplicate
+                                 pairs: stale-path leads from each repo's checkout, verdicts
+                                 kept until a body changes
   check <repo> <n>               is this issue startable?  exit 0 yes / 1 no
   claim <repo> <n> --agent A [--tab T]    status -> In progress, then comment; binds
                                  herdr agent A's session once it has one
@@ -417,12 +424,20 @@ DUP_NEIGHBOURS = 2
 # BM25 similarity, each direction scaled by the issue's score against itself. Under this
 # the nearest neighbour is only the least distant issue on the board.
 DUP_MIN_SIM = 0.15
-# A guard, not a budget: 217 open issues shortlist about 260 pairs, judged in under half a
-# minute. `scan` says when it bites.
+# The requests one run may spend: PAIR_CACHE answers every pair judged before, so a pair
+# past this waits for the next run instead of going unasked for good. 545 open issues
+# shortlist 786 pairs. `scan` says when it bites.
 DUP_MAX_PAIRS = 400
 DUP_MAX_BODY = 6000
 DUP_WORKERS = 8
-DUP_RETRY_PAUSE = 2
+# The pause before each retry pass. The passes run one request at a time, because a 529 is
+# the service shedding load: one pass after 2 seconds left 43 of 400 pairs failed.
+DUP_RETRY_PAUSES = (2, 15)
+# Keyed on the model, the questions and both bodies, so an edit to any of them asks again.
+PAIR_CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME") or "~/.cache",
+                          "hoopit-board", "pair-verdicts.json")
+# A path as `create-gh-issue` writes one: a directory, and a file with an extension.
+PATH_LIKE = re.compile(r"[\w.@+-]+(?:/[\w.@+-]+)+\.\w{1,5}")
 # The Choice's options are `curate-backlog`'s buckets, and two of them — duplicate and
 # absorb — are one action: close an issue into another. A pair the model is sure should
 # merge still splits its probability between the two, which the Choice's own `confidence`
@@ -999,6 +1014,9 @@ def cmd_scan(a):
             sig.append(f'not-before:{i["not_before"]}')
         for u in i["prs"]:
             sig.append(f'pr-{i["pr_state"][u].lower()}:#{u.rsplit("/", 1)[-1]}')
+        if i["type"] == "Issue":
+            for path, sha in gone_paths(i["repo"], i["body"]).items():
+                sig.append(f"path-gone:{path}@{sha}")
         ts = i["updated"]
         if ts:
             days = (now - datetime.fromisoformat(ts.replace("Z", "+00:00"))).days
@@ -1006,7 +1024,8 @@ def cmd_scan(a):
         print(row(i, i["status"], ",".join(sig) or "-"))
     issues = [i for i in openi if i["type"] == "Issue"]
     overlap, pairs = shortlist(issues)
-    judged, failed = ({}, ["--no-judge"]) if a.no_judge or not pairs else judge_pairs(issues, pairs)
+    judged, failed, cached = (({}, ["--no-judge"], 0) if a.no_judge or not pairs
+                              else judge_pairs(issues, pairs))
     if not judged:
         # Failing open is the list this printed before there was a judgement to ask.
         if not a.no_judge and pairs:
@@ -1051,7 +1070,8 @@ def cmd_scan(a):
         print("\n## TITLE OVERLAP — shortlisted but not judged, so judge them yourself")
         for x, y in unjudged:
             print(f'{x}\t{y}\t{",".join(sorted(overlap[(x, y)]))}')
-    print(f"\n{len(judged)} pairs judged · {dropped} dropped as separate work")
+    print(f"\n{len(judged)} pairs judged, {cached} of them on an earlier run · "
+          f"{dropped} dropped as separate work")
 
 
 def item_key(i):
@@ -1062,8 +1082,7 @@ def shortlist(issues):
     """`(title-overlap pairs -> their shared words, every pair worth a judgement)`.
 
     Nothing here decides what a duplicate is. It only bounds what is asked: the overlap
-    pairs first, then each issue's nearest BM25 neighbours, nearest pairs first, up to
-    DUP_MAX_PAIRS."""
+    pairs first, then each issue's nearest BM25 neighbours, nearest pairs first."""
     words = {item_key(i): {w for w in re.findall(r"[a-z_]{4,}", i["title"].lower())
                            if w not in STOPWORDS} for i in issues}
     keys = sorted(words, key=lambda k: (k.split("#")[0], int(k.split("#")[1])))
@@ -1110,10 +1129,7 @@ def shortlist(issues):
             ranked[tuple(sorted((q, d), key=order.get))] = sim
     pairs = list(overlap)
     pairs += [p for p in sorted(ranked, key=ranked.get, reverse=True) if p not in overlap]
-    if len(pairs) > DUP_MAX_PAIRS:
-        print(f"!! {len(pairs)} pairs shortlisted, the nearest {DUP_MAX_PAIRS} judged",
-              file=sys.stderr)
-    return overlap, pairs[:DUP_MAX_PAIRS]
+    return overlap, pairs
 
 
 def pair_questions():
@@ -1155,17 +1171,45 @@ def pair_questions():
     }
 
 
+def pair_cache_load():
+    try:
+        with open(os.path.expanduser(PAIR_CACHE)) as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def pair_cache_save(cache):
+    """Best effort: an unwritable cache costs the next run its requests, nothing else."""
+    try:
+        path = os.path.expanduser(PAIR_CACHE)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path + ".tmp", "w") as fh:
+            json.dump(cache, fh)
+        os.replace(path + ".tmp", path)
+    except Exception:
+        pass
+
+
 def judge_pairs(issues, pairs):
-    """`({pair: (P(same change), the relation's probabilities)}, why each other pair went
-    unjudged)`. A pair that fails is only missing: the caller lists what it still has."""
+    """`({pair: (P(same change), the relation's probabilities)}, why each pair asked this
+    run went unjudged, how many verdicts came from an earlier run)`. A pair that fails is
+    only missing: the caller lists what it still has."""
     by_key = {item_key(i): i for i in issues}
     questions = pair_questions()
 
+    def state_of(pair):
+        return {side: {"repo": by_key[k]["repo"], "title": by_key[k]["title"],
+                       "body": by_key[k]["body"][:DUP_MAX_BODY]}
+                for side, k in zip("ab", pair)}
+
+    def cache_key(pair):
+        text = json.dumps([TYPESAFE_MODEL, questions, state_of(pair)], sort_keys=True)
+        return hashlib.sha256(text.encode()).hexdigest()
+
     def ask(pair):
-        state = {side: {"repo": by_key[k]["repo"], "title": by_key[k]["title"],
-                        "body": by_key[k]["body"][:DUP_MAX_BODY]}
-                 for side, k in zip("ab", pair)}
-        answers, why = judge_pairs.ask(state, questions)
+        answers, why = judge_pairs.ask(state_of(pair), questions)
         if why:
             return pair, None, why
         same = (answers.get("same_change") or {}).get("noul")
@@ -1174,20 +1218,37 @@ def judge_pairs(issues, pairs):
             return pair, None, "the response carried no answer for the pair"
         return pair, (float(same), probs), None
 
-    # One more pass over what failed, after a pause and one at a time: a few hundred
-    # requests meet a stray 429 or 503 most runs, and somebody is waiting on this one.
-    # The pass is skipped when nothing got through — that is an outage, not a stray.
-    judged, failed = {}, []
-    for attempt, workers in enumerate((DUP_WORKERS, 1)):
-        with ThreadPoolExecutor(workers) as pool:
-            results = list(pool.map(ask, pairs))
-        judged.update({pair: verdict for pair, verdict, why in results if not why})
-        failed = [why for _, _, why in results if why]
-        pairs = [pair for pair, _, why in results if why]
-        if not pairs or not judged or attempt:
+    cache = pair_cache_load() if PAIR_CACHE else {}
+    keys = {pair: cache_key(pair) for pair in pairs}
+    judged = {pair: tuple(cache[keys[pair]]) for pair in pairs if keys[pair] in cache}
+    cached = len(judged)
+    todo = [pair for pair in pairs if pair not in judged]
+    if len(todo) > DUP_MAX_PAIRS:
+        print(f"!! {len(pairs)} pairs shortlisted, {cached} judged on an earlier run, "
+              f"{DUP_MAX_PAIRS} asked now, {len(todo) - DUP_MAX_PAIRS} left for the next run",
+              file=sys.stderr)
+        todo = todo[:DUP_MAX_PAIRS]
+
+    # Later passes go over what failed, one at a time: a few hundred requests meet a stray
+    # 429 or 503 most runs, and somebody is waiting on this one. They are skipped when the
+    # first pass got nothing through — that is an outage, not a stray.
+    failed = []
+    passes = zip((0, *DUP_RETRY_PAUSES), (DUP_WORKERS, *[1] * len(DUP_RETRY_PAUSES)))
+    for pause, workers in passes:
+        if not todo:
             break
-        time.sleep(DUP_RETRY_PAUSE)
-    return judged, failed
+        time.sleep(pause)
+        with ThreadPoolExecutor(workers) as pool:
+            results = list(pool.map(ask, todo))
+        got = {pair: verdict for pair, verdict, why in results if not why}
+        judged.update(got)
+        failed = [why for _, _, why in results if why]
+        todo = [pair for pair, _, why in results if why]
+        if PAIR_CACHE:
+            pair_cache_save({keys[pair]: list(verdict) for pair, verdict in judged.items()})
+        if not got and workers > 1:
+            break
+    return judged, failed, cached
 
 
 GATES_QUERY = """query($url:URI!){ resource(url:$url){ ... on Issue{
@@ -2160,6 +2221,62 @@ def repo_files(repo, _cache={}):
                 basenames[os.path.basename(path)].append(path)
             _cache[repo] = (paths, basenames, bool(paths))
     return _cache[repo]
+
+
+def default_tree(repo, _cache={}):
+    """`(every path on origin/HEAD, their basenames)`, or None with no clone to read. The
+    fetched default branch rather than `repo_files`' working copy: a checkout sitting on
+    another branch reads whatever that branch lacks as deleted."""
+    if repo not in _cache:
+        d = checkout(repo)
+        def git(*args):
+            return subprocess.run(["git", "-C", d, *args], capture_output=True, text=True)
+        tree = None
+        if os.path.isdir(d):
+            git("fetch", "-q", "origin")
+            r = git("ls-tree", "-r", "-z", "--name-only", "origin/HEAD")
+            if r.returncode == 0:
+                paths = set(filter(None, r.stdout.split("\0")))
+                tree = paths, {os.path.basename(p) for p in paths}
+        if tree is None:
+            print(f"!! no origin/HEAD for {repo} under {d}: its path-gone signal did not run",
+                  file=sys.stderr)
+        _cache[repo] = tree
+    return _cache[repo]
+
+
+def renamed_by(repo, sha, _cache={}):
+    """The paths commit `sha` renamed away. With a pathspec, `git log` reads a rename as a
+    delete, so only the whole commit can tell them apart."""
+    if (repo, sha) not in _cache:
+        r = subprocess.run(["git", "-C", checkout(repo), "-c", "core.quotePath=false", "show",
+                            "--format=", "--name-status", "-M", sha],
+                           capture_output=True, text=True)
+        rows = [line.split("\t") for line in r.stdout.splitlines()]
+        _cache[repo, sha] = {row[1] for row in rows if len(row) == 3 and row[0].startswith("R")}
+    return _cache[repo, sha]
+
+
+def gone_paths(repo, body):
+    """`{path: the commit that deleted it}` for each path a body names. A path with no
+    deletion in its history is a file still to be written or one in another repo, and a
+    basename still on the branch or a rename has a successor: none of those are gone."""
+    tree = default_tree(repo)
+    if tree is None:
+        return {}
+    paths, basenames = tree
+    gone = {}
+    for span in BACKTICK.findall(body or ""):
+        cand = LINEREF.sub("", span.strip().strip(",.;:()"))
+        if (not PATH_LIKE.fullmatch(cand) or cand in paths or cand in gone
+                or os.path.basename(cand) in basenames):
+            continue
+        r = subprocess.run(["git", "-C", checkout(repo), "log", "origin/HEAD", "-1", "--format=%h",
+                            "--diff-filter=D", "--", cand], capture_output=True, text=True)
+        sha = r.stdout.strip()
+        if sha and cand not in renamed_by(repo, sha):
+            gone[cand] = sha
+    return gone
 
 
 def body_footprint(repo, body, judged=True):
