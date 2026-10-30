@@ -225,11 +225,10 @@ acli jira auth login            # follow the prompts
 
 ### 1g. Windows only — git symlinks
 
-`flutter-app` commits symlinks that bridge agent config (`.claude/skills` and
-`.claude/rules` → `../.agents/...`). Git for Windows writes
-`core.symlinks=false` into each clone, so those links check out as text files
-holding the target path, and Claude Code / Codex load no project skills
-natively. macOS/Linux need nothing — skip to Step 2.
+`flutter-app` commits a symlink that bridges agent config (`.agents/skills` →
+`../.claude/skills`). Git for Windows writes
+`core.symlinks=false` into each clone, so that link checks out as a text file
+holding the target path, and Codex loads no project skills natively. macOS/Linux need nothing — skip to Step 2.
 
 ▶ **Prompt:**
 > I'm on Windows. Check that Developer Mode is on (Settings > For developers) or
@@ -253,8 +252,7 @@ Repeat inside every worktree under `.claude/worktrees` and `.worktrees`.
 
 - [ ] `git config --get core.symlinks` prints `true` inside the clone and each
   worktree (Windows only, after Step 2a)
-- [ ] `.claude/skills` and `.claude/rules` are directories, not files, in the clone and
-  each worktree (after Step 2a)
+- [ ] `.agents/skills` is a directory, not a file, in the clone and each worktree (after Step 2a)
 
 ---
 
@@ -505,7 +503,7 @@ fvm flutter run -d web-server --web-port 3000 --web-hostname localhost \
 - [ ] `claude` runs and is authenticated
 - [ ] `gh auth status` ✓ · `acli --version` ✓
 - [ ] `flutter-app` cloned as a sibling of `skills` (`../flutter-app`)
-- [ ] *(Windows)* `git config --get core.symlinks` prints `true` inside the clone and `.claude/skills` / `.claude/rules` are directories
+- [ ] *(Windows)* `git config --get core.symlinks` prints `true` inside the clone and `.agents/skills` is a directory
 - [ ] `fvm flutter doctor` clean (Android licenses accepted)
 - [ ] `dcm --version` ✓ and license activated
 - [ ] `sentry --version` ✓ (issues/API — primary) · `sentry-cli --version` ✓ (symbol uploads)

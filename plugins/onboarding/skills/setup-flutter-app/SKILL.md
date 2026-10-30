@@ -23,11 +23,11 @@ follow it step by step. This file is the orchestration contract.
 
 ## Windows only: git symlinks (before cloning)
 
-`flutter-app` commits symlinks that bridge agent config (`.claude/skills` and
-`.claude/rules` → `../.agents/...`). Git for Windows writes
-`core.symlinks=false` into each clone, so those links check out as text files
-holding the target path, and Claude Code / Codex load no project skills natively
-— they reach them only through the skill names in `AGENTS.md`. macOS/Linux need
+`flutter-app` commits a symlink that bridges agent config (`.agents/skills` →
+`../.claude/skills`). Git for Windows writes
+`core.symlinks=false` into each clone, so that link checks out as a text file
+holding the target path, and Codex loads no project skills natively
+— it reaches them only through the skill names in `AGENTS.md`. macOS/Linux need
 nothing.
 
 1. Enable Windows Developer Mode (Settings > For developers), or run git elevated.
