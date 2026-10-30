@@ -49,17 +49,18 @@ Skills here are distributed across **all** Hoopit projects (the `api` / backend,
 This refines `create-hoopit-skill`'s Rule 1: the test is "true for one Hoopit
 **project** but not another," not "mentions Hoopit at all."
 
-## Every skill runs on Linux, macOS and Windows
+## Every skill and script runs on Linux, macOS and Windows
 
-Skills and their scripts ship to developers on all three, Windows through Git Bash, so each
-one works on each of them. Write scripts for bash 3.2 and for both the GNU and BSD versions of
-every tool they call. Where a platform lacks a command, branch on `command -v`. Paths, both
-the ones a script writes to and the ones it matches, come from the environment (`$HOME`,
-`$XDG_CACHE_HOME`, `$TMPDIR`), with `/tmp` at most as the last fallback, and accept `\` as a
-separator wherever a Windows path can arrive. Anything large or long-lived, such as a worktree
-or a dependency install, goes under the user's cache dir: on Linux, `/tmp` is often a tmpfs
-with a cap on size and inodes. Before landing a script change, check every command it adds on
-all three platforms, reading a platform's man page where you cannot run it there.
+Skills and every script in this repo, its tooling included, run for developers on all three,
+Windows through Git Bash, so each one works on each of them. Write scripts for bash 3.2 and
+for both the GNU and BSD versions of every tool they call. Where a platform lacks a command,
+branch on `command -v`. Paths, both the ones a script writes to and the ones it matches, come
+from the environment (`$HOME`, `$XDG_CACHE_HOME`, `$TMPDIR`), with `/tmp` at most as the last
+fallback, and accept `\` as a separator wherever a Windows path can arrive. Anything large or
+long-lived, such as a worktree or a dependency install, goes under the user's cache dir: on
+Linux, `/tmp` is often a tmpfs with a cap on size and inodes. Before landing a script change,
+check every command it adds on all three platforms, reading a platform's man page where you
+cannot run it there.
 
 ## Third-party skills
 

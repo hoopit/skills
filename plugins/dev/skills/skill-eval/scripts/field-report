@@ -22,7 +22,8 @@ or prints `error:`/`fatal:`); redos (a failed call run again in the same span); 
 turn ended: interrupted, or a human prompt that reads as a correction.
 
 Left out: a session's use of a skill whose files that session edits, anything under a
-review-gate probe (a gate dir, `review-gate.XXXXXX`, under whatever root), and sessions run from skill-eval's fixtures.
+review-gate probe (a gate dir, `review-gate.XXXXXX`, under whatever root), and sessions
+run from skill-eval's fixtures.
 
 Per-skill signals add rows of their own beside the generic ones (`SIGNALS` below).
 """
