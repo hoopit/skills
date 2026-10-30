@@ -47,9 +47,9 @@
 # A head goes GREEN once it has nothing left at all — no unresolved thread, no failing check, none
 # still pending but a gate, no conflict — and every gate check has reported on it (or GATE_TIMEOUT
 # elapsed waiting for one that never did). Fired once per head, so a quiet PR asks to be merged
-# exactly once, unless that GREEN named pending_gates: once they have all reported on a head that is
-# still settled, a second GREEN names them in `cleared`, so the merge question held for them goes
-# out. Requiring zero unresolved threads (not merely zero *new* ones) is what keeps a GREEN from
+# exactly once, unless that GREEN named pending_gates or a review was re-requested after it: once
+# they have all reported on a head that is still settled, a second GREEN names them in `cleared`, so
+# the merge question held for them goes out. Requiring zero unresolved threads (not merely zero *new* ones) is what keeps a GREEN from
 # firing mid-round, while the session is still working threads it has seen.
 #
 # A head goes STALLED when its only failing checks are gate checks and it has no unresolved
@@ -118,6 +118,7 @@ recover_review() {
   if [ "$asked" -lt "$REREQUEST_MAX" ]; then
     if gh workflow run codex-review-manual.yml -f pr="$PR" --repo "$REPO" >/dev/null 2>&1; then
       review_requests=$((asked + 1)); review_request_at=$now; dispatch_fails=0
+      [ "$fired_green" = "$head" ] && green_held=${green_held:-$REVIEW_GATE}
       echo "REREQUESTED head=$head gate=$REVIEW_GATE request=$review_requests/$REREQUEST_MAX"
       save_state
       return 0

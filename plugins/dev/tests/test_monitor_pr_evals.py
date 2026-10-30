@@ -76,6 +76,11 @@ class Run:
     def state(self):
         return json.loads((self.dir / "github" / "state.json").read_text())
 
+    def set_statuses(self, rows):
+        state = self.state()
+        state["statuses"] = rows
+        (self.dir / "github" / "state.json").write_text(json.dumps(state))
+
     def watch(self, seconds=6, **env):
         """The watch's lines over a few polls one second apart."""
         p = subprocess.run(["timeout", str(seconds), "bash", str(SCRIPTS / "watch-pr.sh"), "hoopit/api", str(PR), "1"],
@@ -191,10 +196,16 @@ def test_a_gate_clearing_after_green_survives_a_resume_and_fires_once():
     r = Run(issue_comments=coderabbit("{HEAD}"), statuses=[{"context": "codex-review", "state": "pending"}])
     assert r.watch(2, GATE_TIMEOUT="0") == [f"GREEN head={r.head} pending_gates=codex-review"]
     assert r.watch(2, GATE_TIMEOUT="0", WATCH_RESUME="1") == []
-    state = r.state()
-    state["statuses"] = [{"context": "codex-review", "state": "success"}]
-    (r.dir / "github" / "state.json").write_text(json.dumps(state))
+    r.set_statuses([{"context": "codex-review", "state": "success"}])
     assert r.watch(3, GATE_TIMEOUT="0", WATCH_RESUME="1") == [f"GREEN head={r.head} cleared=codex-review"]
+
+
+def test_a_re_request_after_a_clean_green_reports_its_answer():
+    r = Run(issue_comments=coderabbit("{HEAD}"), rereview_statuses=[{"context": "codex-review", "state": "success"}])
+    assert r.watch(3) == [f"GREEN head={r.head}"]
+    r.set_statuses([{"context": "codex-review", "state": "pending", "age": 2000, "description": "Waiting (#4242)"}])
+    assert r.watch(4, REREQUEST_AFTER="1", WATCH_RESUME="1") == [
+        f"REREQUESTED head={r.head} gate=codex-review request=1/2", f"GREEN head={r.head} cleared=codex-review"]
 
 
 def test_a_failed_dispatch_stops_asking_and_names_the_pass_the_pending_replaced():
