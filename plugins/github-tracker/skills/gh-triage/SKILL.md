@@ -45,8 +45,11 @@ until they have fields, however small they look.
 Read each issue and set all three from the rubrics in `create-gh-issue`:
 
 ```bash
-hoopit-board triage <repo> <n> --priority P2 --effort M --autonomy Unattended
+hoopit-board triage <repo> <n> --priority P2 --effort M --autonomy Unattended --tested
 ```
+
+`--tested` stamps the item as triaged, so `triage-sweep` passes over it. Leave it off a
+`Needs decision`: step 3 stamps those.
 
 Set them from the issue in front of you — the rubric is written down, so this pass asks
 the user nothing. State each value and a one-clause reason, then move on.
@@ -111,11 +114,13 @@ it waits on, and every `needs_judgement` entry has a footprint or a gate in its 
 ## 3. Collapse
 
 ```bash
-hoopit-board decisions 40 --lines 1
-hoopit-board decisions --unnamed
+hoopit-board decisions 40 --lines 1 --due
+hoopit-board decisions --unnamed --due
 ```
 
-Walk the whole `Needs decision` pile, highest priority first, and find the ones that need
+`--due` leaves out what an earlier pass settled: an item stamped `Triage tested` drops out
+until the issue changes, or for 30 days. Walk the whole listed pile, highest priority first,
+and find the ones that need
 no decision at all. This is the pass with the most leverage in the run: it takes items off
 the user's queue without spending a question, and more of them go than the pile suggests.
 
@@ -188,10 +193,11 @@ Write the evidence as a comment on the issue, then move the field:
 
 ```bash
 gh api -X POST repos/<repo>/issues/<n>/comments -F body=@<file>
-hoopit-board triage <repo> <n> --autonomy Unattended
+hoopit-board triage <repo> <n> --autonomy Unattended --tested
 ```
 
-The comment is the durable half — it stops the next pass re-deriving the same thing, and
+A survivor takes `--tested` alone, once its comment and `## The decision` section are on the
+issue. The comment is the durable half — it stops the next pass re-deriving the same thing, and
 it is what lets the user overturn a wrong call in one click.
 
 Retire an item on evidence alone. Descoping, abandoning and closing are *answers* to a

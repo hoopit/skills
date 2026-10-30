@@ -2,7 +2,7 @@
 """Pins `hoopit-board batch`'s write loop, `next`'s collision judgement, the claims
 registry and `collide`, `decisions`' naming judgement, `scan`'s duplicate judgement, the
 deploy gate, the per-user config (`init`, `config`, and the refusal without one), what
-`provision` writes to a board, and the Agent field: the hook's state machine, `start` and
+`provision` writes to a board, the `Triage tested` stamp, and the Agent field: the hook's state machine, `start` and
 `bind`, and the sync that writes the board.
 Run it by hand after editing any of them:
 
@@ -840,7 +840,7 @@ def decisions(m, bodies, ask, **flags):
     m.gh = lambda *args, **kw: bodies[int(args[1].rsplit("/", 1)[1])]
     m.judge_decision.ask = ask
     a = argparse.Namespace(**{"n": 5, "lines": 8, "unnamed": False, "manual": False, "waiting": False,
-                              "no_judge": False, **flags})
+                              "due": False, "no_judge": False, **flags})
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
         m.cmd_decisions(a)
@@ -1492,7 +1492,7 @@ AGENT_STATES = ["Working", "Needs you", "Idle", "Gone"]
 
 
 def board_answer(statuses=None, board_fields=None, org_fields=None, items=3, disabled=(),
-                 own_fields=(), agent=AGENT_STATES, note=True):
+                 own_fields=(), agent=AGENT_STATES, note=True, tested=True):
     """A VERIFY_QUERY answer. The defaults are a board carrying everything. `statuses`
     are names or `status()` dicts; `own_fields` are board fields of the project's own;
     `agent` the Agent field's options (None: no field), `note` whether Agent note exists."""
@@ -1519,7 +1519,9 @@ def board_answer(statuses=None, board_fields=None, org_fields=None, items=3, dis
                     "options": [status(o, f"agent-{o}") for o in agent]}]
                   if agent is not None else []),
                 *([{"id": "F_note", "name": "Agent note", "isIssueField": False,
-                    "dataType": "TEXT"}] if note else [])]}},
+                    "dataType": "TEXT"}] if note else []),
+                *([{"id": "F_tested", "name": "Triage tested", "isIssueField": False,
+                    "dataType": "DATE"}] if tested else [])]}},
         "issueFields": {"nodes": [
             {"id": f"IF_{f}", "name": f,
              **({"options": [{"name": o} for o in opts]} if opts else {})}
@@ -2327,6 +2329,79 @@ def test_provision_adds_the_agent_fields():
                                                         agent=AGENT_STATES), "--apply")
     assert code == 0 and writes == [] and "OK\tfield 'Agent'" in lines, lines
     print("  both created on a bare board; missing options appended on their ids; a full one is OK")
+
+
+# --- `Triage tested` ----------------------------------------------------------------------
+
+def stamped(tested="", updated="2026-10-01T09:00:00Z", autonomy="Unattended", status="Ready",
+            n=1, kind="Issue"):
+    return item(n, status=status) | {"triage_tested": tested, "updated": updated,
+                                     "autonomy": autonomy, "type": kind}
+
+
+def test_triage_due_reads_the_stamp():
+    m, day = load(), "2026-10-30"
+    due = lambda **kw: m.triage_due(stamped(**kw), day)
+    assert due() == "new"
+    assert due(tested="2026-10-30", updated="2026-10-30T23:00:00Z") is None
+    assert due(tested="2026-10-02") is None
+    assert due(tested="2026-10-02", updated="2026-10-03T00:00:00Z") == "changed"
+    # Only a decision goes stale from outside: its blocker can ship elsewhere.
+    assert due(tested="2026-09-30", updated="2026-09-01T00:00:00Z",
+               autonomy="Needs decision") == "expired"
+    assert due(tested="2026-10-01", updated="2026-09-01T00:00:00Z",
+               autonomy="Needs decision") is None
+    assert due(tested="2026-09-01", updated="2026-08-01T00:00:00Z") is None
+    print("  new, changed, and a decision past 30 days are due; the rest are not")
+
+
+def test_triage_due_lists_only_unstarted_issues_and_exits_1_when_empty():
+    m = load()
+    today = m.utc_day()
+    m.board = lambda: [stamped(n=1), stamped(n=2, status="In progress"),
+                       stamped(n=3, kind="PullRequest"), stamped(n=4, status="Backlog"),
+                       stamped(n=5, tested=today, updated=f"{today}T00:00:00Z")]
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        code = m.cmd_triage_due(argparse.Namespace())
+    assert code == 0 and [(i["n"], i["reason"]) for i in json.loads(out.getvalue())] == [
+        (1, "new"), (4, "new")], out.getvalue()
+    m.board = lambda: []
+    with contextlib.redirect_stdout(io.StringIO()):
+        assert m.cmd_triage_due(argparse.Namespace()) == 1
+    print("  flight, PRs and stamped items stay out; nothing due exits 1")
+
+
+def test_the_stamp_lands_after_the_fields_and_needs_the_field():
+    m = load()
+    res = {"id": "I_1", "projectItems": {"nodes": []}}
+    fields = {"Status": {"id": "F_status"}, "Triage tested": {"id": "F_tested"}}
+    m.locate = lambda r, n: ("PVT_7", fields, res, "PVTI_1")
+    order = []
+    m.set_axes = lambda _id, assigns: order.append("axes")
+    m.axis_assign = lambda f, v: f
+    m.gql = lambda q, **kw: order.append(q)
+    a = argparse.Namespace(repo="hoopit/api", number=1, priority="P2", effort=None, autonomy=None,
+                           not_before=None, ready=False, tested=True)
+    with contextlib.redirect_stdout(io.StringIO()):
+        m.cmd_triage(a)
+    assert order[0] == "axes" and 'fieldId:"F_tested"' in order[1] \
+        and f'value:{{date:"{m.utc_day()}"}}' in order[1], order
+    del fields["Triage tested"]
+    try:
+        m.cmd_triage(a)
+    except SystemExit as e:
+        assert "provision" in str(e), e
+    else:
+        raise AssertionError("no field, no stamp: this must refuse")
+    print("  written last, on the project item; refused where the board lacks the field")
+
+
+def test_provision_adds_the_tested_field():
+    lines, _, code, writes = run_provision(board_answer(tested=False), "--apply")
+    assert code == 0 and len(writes) == 1 and "dataType:DATE" in writes[0] \
+        and 'name:"Triage tested"' in writes[0], writes
+    print("  a date field of the board's own")
 
 
 if __name__ == "__main__":

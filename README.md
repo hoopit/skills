@@ -111,6 +111,7 @@ An agent work tracker on a GitHub project board: file triaged issues, triage and
 | `gh-followup` | Manual | Works the board's Manual and Waiting buckets — re-tests each blocker, converts what the board can hold itself, walks what only the user can do, and summarises what the rest waits for. |
 | `gh-triage` | Manual | Triage the backlog with the user — fill missing fields, collapse the false decisions, grill the real ones, until every item is Unattended. |
 | `setup-gh-tracker` | Manual | Sets up the GitHub tracker board and config. |
+| `triage-sweep` | Auto | Triage new board issues unattended. |
 <!-- END generated skills -->
 
 The onboarding skills clone their project repo as a **sibling** of wherever you run

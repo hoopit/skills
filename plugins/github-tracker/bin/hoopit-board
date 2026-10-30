@@ -90,6 +90,12 @@ is exact: `blockedBy`, where the blocker is an issue someone closes, and a decla
 proxy date where it is not. A rollout is the second kind — nothing on GitHub represents
 a release, and the issue that ships the code closes at merge, days before promotion.
 
+`Triage tested` is the board's own date field, in UTC days: the day a triage pass finished
+with an item. `triage-due` reads it, and so does `decisions --due`: an item is due while it
+has no stamp, or the issue has moved since, or it is a `Needs decision` item stamped
+TRIAGE_TTL_DAYS ago or more, since what retires a decision can land anywhere else on the
+board. Only `triage --tested` writes it, so a pass that dies midway leaves its item due.
+
 Status says where the work is; the board's own `Agent` field says what the Claude Code
 session working it is doing right now — Working, Needs you, Idle or Gone — with the open
 question in `Agent note`. Nothing asks the agent to report it: the plugin's hooks call
@@ -109,7 +115,11 @@ session, tie it to the items it works.
   claims put|pr <source> <key> <url>|drop <source> <key>|list
                                  the registry of work another dispatcher started; put reads
                                  one claim as JSON on stdin. Needs no config
-  decisions [N] [--unnamed] [--manual] [--waiting] [--no-judge]   the top N decisions to answer (default 5)
+  decisions [N] [--unnamed] [--manual] [--waiting] [--due] [--no-judge]
+                                 the top N decisions to answer (default 5); --due keeps the
+                                 ones a triage pass still owes
+  triage-due                     Ready and Backlog issues a triage pass owes, ranked, as JSON,
+                                 each with why: new, changed, expired; exit 1 = none
   stale [--older-than H]         flight that may have lost its agent: no-pr | pr-quiet\n  dispatches [--since D] [--repo R]... [--no-judge]  merged PRs by the rung that wrote them
   open [--type TYPE]...          every open item, one line each
   scan [--no-judge]              every open item, with curation signals and judged duplicate
@@ -132,7 +142,8 @@ session, tie it to the items it works.
   footprint <repo>...            paths the open PRs of each repo are touching
   drop <repo> <n> [--apply]      take a PullRequest item off the board
   triage <repo> <n> [--priority P2] [--effort M] [--autonomy Unattended]
-         [--not-before YYYY-MM-DD|none] [--ready]   (--ready is refused on a P3)
+         [--not-before YYYY-MM-DD|none] [--ready] [--tested]   (--ready is refused on a P3;
+                                 --tested stamps `Triage tested` with today)
   batch                          the same, for many items, from stdin
   add <repo> <n>                 put an issue on the board; prints its item id
   settle [--apply]               closed issues in review -> Done
@@ -303,6 +314,8 @@ def dispatch_model():
 
 # GitHub's built-in date field, read as "not before": see the module docstring.
 DATE_FIELD = "Start date"
+TESTED_FIELD = "Triage tested"
+TRIAGE_TTL_DAYS = 30
 IN_REVIEW = "In review"
 IN_FLIGHT = ("In progress", IN_REVIEW)
 # Where dispatch picks from. `Ready` is work already committed to; anything whose
@@ -574,6 +587,8 @@ BOARD_QUERY = """query($login:String!,$number:Int!,$after:String){
         effort: fieldValueByName(name:"Effort"){ ...axis }
         autonomy: fieldValueByName(name:"Autonomy"){ ...axis }
         not_before: fieldValueByName(name:"Start date"){ ...day }
+        triage_tested: fieldValueByName(name:"Triage tested"){
+          ... on ProjectV2ItemFieldDateValue{ date } }
         prs: fieldValueByName(name:"Linked pull requests"){
           ... on ProjectV2ItemFieldPullRequestValue{ pullRequests(first:10){ totalCount
             nodes{ url state isDraft updatedAt } } } }
@@ -631,6 +646,7 @@ def board(bodies=False):
                 "effort": axis(i.get("effort")),
                 "autonomy": axis(i.get("autonomy")),
                 "not_before": day(i.get("not_before")),
+                "triage_tested": (i.get("triage_tested") or {}).get("date") or "",
                 "blockers": open_blockers(c["repository"]["nameWithOwner"], c.get("blockedBy")),
                 "content_id": c.get("id"), "body": c.get("body") or "",
                 "prs": [p["url"] for p in prs],
@@ -929,6 +945,25 @@ def triaged(it):
     False for every PullRequest item, which carries no axes at all — those are board
     noise for `scan` to flag and `drop` to remove, never work waiting on triage."""
     return bool(it["priority"] and it["effort"] and it["autonomy"])
+
+
+def utc_day():
+    """Today in UTC, the calendar `updatedAt` is in, so a stamp and the edits made before
+    it on the same run compare as the same day wherever the run happens."""
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def triage_due(it, today_utc):
+    """Why a triage pass owes this item: "new", "changed" or "expired", or None."""
+    tested = it.get("triage_tested")
+    if not tested:
+        return "new"
+    if (it.get("updated") or "")[:10] > tested:
+        return "changed"
+    age = date.fromisoformat(today_utc) - date.fromisoformat(tested)
+    if it["autonomy"] == "Needs decision" and age.days >= TRIAGE_TTL_DAYS:
+        return "expired"
+    return None
 
 
 def rank_key(it):
@@ -3023,6 +3058,8 @@ def cmd_decisions(a):
     manual = sorted([i for i in items if i["autonomy"] == "Manual"], key=rank_key)
     waiting = sorted([i for i in items if i["autonomy"] == "Waiting"], key=rank_key)
     pending = sorted([i for i in items if i["autonomy"] == "Needs decision"], key=rank_key)
+    if a.due:
+        pending = [i for i in pending if triage_due(i, utc_day())]
 
     def line(i, *extra):
         return "\t".join([f'{i["priority"]}/{i["effort"]}', f'{i["repo"]}#{i["n"]}',
@@ -3096,7 +3133,8 @@ def cmd_decisions(a):
             print(f"    {text}".rstrip())
         print()
     if not show:
-        print("(none — every Needs decision item needs a re-read first; see --unnamed)")
+        print("(none — every Needs decision item needs a re-read first; see --unnamed)"
+              if unnamed else "(none)")
     print(f"\n{len(named) - len(show)} more named · {len(unnamed)} name no decision (--unnamed) "
           f"· {len(manual)} manual (--manual) · {len(waiting)} waiting (--waiting)")
 
@@ -3492,10 +3530,31 @@ def cmd_drop(a):
     return 0
 
 
+def cmd_triage_due(a):
+    """The Ready and Backlog issues a triage pass owes, ranked. Exit 1 means none, so a
+    loop can spend a board read to learn that and start nothing."""
+    day_utc = utc_day()
+    due = [i | {"reason": why} for i in sorted(board(), key=rank_key)
+           if i["type"] == "Issue" and i["status"] in (POOL, PARKED)
+           and (why := triage_due(i, day_utc))]
+    print(json.dumps([brief(i, "status", "autonomy", "reason") for i in due], indent=2))
+    return 0 if due else 1
+
+
+def stamp_tested(project_id, fields, item_id):
+    """The stamp is the project's own field, so it is written on the project item."""
+    if TESTED_FIELD not in fields:
+        sys.exit(f"the board has no {TESTED_FIELD!r} field: "
+                 "run `hoopit-board provision --apply`")
+    gql(f'mutation{{ updateProjectV2ItemFieldValue(input:{{projectId:"{project_id}", '
+        f'itemId:"{item_id}", fieldId:"{fields[TESTED_FIELD]["id"]}", '
+        f'value:{{date:"{utc_day()}"}}}}){{ clientMutationId }} }}')
+
+
 def cmd_triage(a):
     values = [(f, v) for f, v in (("Priority", a.priority), ("Effort", a.effort),
                                   ("Autonomy", a.autonomy)) if v]
-    if not values and not a.not_before and not a.ready:
+    if not values and not a.not_before and not a.ready and not a.tested:
         return 0
     # Locate before ensure_item: a rejected target must not be put on the board on its
     # way to the error.
@@ -3530,6 +3589,9 @@ def cmd_triage(a):
                   file=sys.stderr)
         else:
             make_ready(a.repo, a.number, project_id, fields, item_id, added)
+    if a.tested:
+        stamp_tested(project_id, fields, item_id)
+        print(f"SET\t{a.repo}#{a.number}\t{TESTED_FIELD}={utc_day()}")
 
 
 # None is the date field: any YYYY-MM-DD, or `none` to clear it.
@@ -3754,6 +3816,8 @@ def verify_board(owner, number):
             missing += [f"{field} has no option {o!r}" for o in options if o not in have]
     missing += [f"{what}: {how}" if how else f"the board lacks {what}"
                 for kind, what, how, _ in agent_field_plan(proj["id"], on_board) if kind != "OK"]
+    missing += [f"{what}: {how}" if how else f"the board lacks {what}"
+                for kind, what, how, _ in tested_field_plan(proj["id"], on_board) if kind != "OK"]
     enabled = {w["name"] for w in proj["workflows"]["nodes"] if w["enabled"]}
     missing += [f"workflow {name!r} is not enabled (it must set Status to {status!r})"
                 for name, status in REQUIRED_WORKFLOWS if name not in enabled]
@@ -3854,6 +3918,20 @@ def agent_field_plan(project_id, on_board):
     return out
 
 
+def tested_field_plan(project_id, on_board):
+    """The same lines as `agent_field_plan`, for `Triage tested`, a date of the project's
+    own."""
+    field, what = on_board.get(TESTED_FIELD), f"field {TESTED_FIELD!r}"
+    if field is None:
+        return [("FIX", f"{what}, as a date", "",
+                 f'mutation{{ createProjectV2Field(input:{{projectId:{json.dumps(project_id)}, '
+                 f'dataType:DATE, name:{json.dumps(TESTED_FIELD)}}}){{ clientMutationId }} }}')]
+    if field.get("isIssueField") or field.get("dataType", "DATE") != "DATE":
+        return [("MANUAL", what, f"the board has a field named {TESTED_FIELD!r} that is not its "
+                 "own date field: rename or delete it, then run this again", None)]
+    return [("OK", what, "", None)]
+
+
 def option_literal(o):
     """One `ProjectV2SingleSelectFieldOptionInput` literal. Strings go through
     `json.dumps`, whose escapes GraphQL's string syntax shares."""
@@ -3922,7 +4000,8 @@ def cmd_provision(a):
         else:
             entries.append(("OK", what, "", None))
 
-    for kind, what, how, write in agent_field_plan(proj["id"], on_board):
+    for kind, what, how, write in (agent_field_plan(proj["id"], on_board)
+                                   + tested_field_plan(proj["id"], on_board)):
         if write:
             writes[what] = write
         entries.append((kind, what, how, what if write else None))
@@ -4142,9 +4221,12 @@ def main():
     s.add_argument("--unnamed", action="store_true")
     s.add_argument("--manual", action="store_true")
     s.add_argument("--waiting", action="store_true")
+    s.add_argument("--due", action="store_true",
+                   help="only the Needs decision items a triage pass still owes")
     s.add_argument("--no-judge", action="store_true",
                    help="skip the System One judgement; the DECISION_NAMED regex only")
     s.set_defaults(fn=cmd_decisions)
+    s = sub.add_parser("triage-due"); s.set_defaults(fn=cmd_triage_due)
     s = sub.add_parser("stale"); s.add_argument("--older-than", type=float, default=6)
     s.set_defaults(fn=cmd_stale)
     s = sub.add_parser("settle", description=cmd_settle.__doc__,
@@ -4168,6 +4250,8 @@ def main():
                    help="earliest day to pick this up; `none` clears it")
     s.add_argument("--ready", action="store_true",
                    help="then move it to Ready: work already decided on. Refused on a P3")
+    s.add_argument("--tested", action="store_true",
+                   help="stamp `Triage tested` with today, once a triage pass is done with it")
     s.set_defaults(fn=cmd_triage)
     s = sub.add_parser("batch"); s.set_defaults(fn=cmd_batch)
     s = sub.add_parser("add"); s.add_argument("repo"); s.add_argument("number", type=int); s.set_defaults(fn=cmd_add)
