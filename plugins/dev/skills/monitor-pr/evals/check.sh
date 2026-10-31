@@ -93,7 +93,7 @@ comments = [c.get("body", "") for c in state["issue_comments"]]
 # this one" is a faithful report that stricter matching fails, and not_merged grades what the run did.
 if expect("verdict"):
     ending = "\n".join([last_text, *comments])
-    word = "no.verdict|none" if expect("verdict") == "no.verdict" else expect("verdict")
+    word = r"no\b[^.]*verdict|none" if expect("verdict") == "no.verdict" else expect("verdict")
     named = any(re.search(r"jev|verdict", line, re.I) and re.search(rf"\b(?:{word})\b", line, re.I)
                 and (expect("merge") != "delegated" or re.search(r"\blane\b", line, re.I))
                 for line in ending.splitlines())

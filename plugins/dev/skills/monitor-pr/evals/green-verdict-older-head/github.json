@@ -95,19 +95,5 @@
       "conclusion": "success"
     }
   ],
-  "threads": [
-    {
-      "id": "PRRT_kwDOEvalOld1",
-      "path": "featureflags/tasks.py",
-      "line": 1,
-      "comments": [
-        {
-          "id": 2400201,
-          "author": "ingrid-backend",
-          "created_at": "2026-10-02T01:40:00Z",
-          "body": "Please add the module docstring before this goes in, every task module here has one. Blocking for me.\n\n```suggestion\n\"\"\"Celery tasks that prune Jira-backed feature flags.\"\"\"\n\nfrom __future__ import annotations\n```"
-        }
-      ]
-    }
-  ]
+  "conflicting": true
 }

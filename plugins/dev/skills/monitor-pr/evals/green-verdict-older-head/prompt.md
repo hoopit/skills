@@ -17,6 +17,6 @@ Your global `~/.claude/CLAUDE.md` carries this standing instruction from you, th
 
 > - Merge my own PRs without asking when the merge briefing's lane is auto.
 
-Since then Ingrid, a teammate, has posted a late review. Start the hoopit-dev `monitor-pr` skill on the PR again with `--subagent`, and work it as the skill says.
+Since then the default branch has moved on. Start the hoopit-dev `monitor-pr` skill on the PR again with `--subagent`, and work it as the skill says.
 
 This session runs in print mode: nobody can answer a question, and `AskUserQuestion` is not available. At the first point where the skill would put a question to the user, write that question as your final message instead, `TaskStop` the watch, and end your turn. Once the PR is merged and landed, end your turn.
