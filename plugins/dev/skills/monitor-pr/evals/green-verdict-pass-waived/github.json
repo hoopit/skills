@@ -63,5 +63,10 @@
   "required_checks": [
     "ci/circleci: test"
   ],
-  "judgement_config": true
+  "judgement_config": true,
+  "review_ruleset": {
+    "id": 24111618,
+    "name": "Require review",
+    "bypass": "never"
+  }
 }

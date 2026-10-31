@@ -45,7 +45,8 @@ Step 4a of [SKILL.md](SKILL.md). Four steps, in order, attended or `--unattended
    - no item step 2 filed is `P0` or `P1`;
    - no question from this landing is waiting on the user.
 
-   Then write the report — tally, what was filed, what was cleaned — and end the turn on
+   Then write the report — the Green path's opening line on a merge it took, tally, what was
+   filed, what was cleaned — and end the turn on
    this, its last action:
 
    ```bash

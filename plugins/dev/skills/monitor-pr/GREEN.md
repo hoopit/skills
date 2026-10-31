@@ -87,8 +87,8 @@ skip the question and merge as *Merge it* does below when all of these hold for 
 Anything short of that asks as usual. A merge taken this way says so: the landing's report
 opens with it, the Lane line and the verdict beside it. It sends no notification.
 
-**Jev's verdict.** `team-review` judges a head once its `merge-briefing` status passes, so a
-verdict exists only after the hand-off; a head left a draft has none, and its question says
+**Jev's verdict.** `team-review` has Jev, TypeSafe's model, judge a head once its
+`merge-briefing` status passes, so a verdict exists only after the hand-off; a head left a draft has none, and its question says
 so. After the hand-off, ask whether the repo has a judgement. A read that fails any other way
 answers `yes`, the side that holds:
 
@@ -112,8 +112,8 @@ done; echo "verdict=${v:-none}"
 The status's state is always `success`, so read only the description, `<outcome>: <reason>`:
 the outcome is the text before the first colon, and the run at the status's `target_url` holds
 the reason in full. Only `pass` is a pass. `hold`, `no-verdict`, any other outcome, and `none`
-at the end of the wait are all a **hold**. A hold changes no recommendation: it says a person
-should read the PR, and the merge question is that read. Name the verdict beside the Lane in
+at the end of the wait are all a **verdict hold**. It changes no recommendation: it says a
+person should read the PR, and the merge question is that read. Name the verdict beside the Lane in
 the merge question, then:
 
 - **The author is an approver**: the `<team>-approval` status reads `Author is on @…`, or the
@@ -140,7 +140,9 @@ done
 ```
 
 A status that is not `success`, or a review ruleset whose bypass reads anything but
-`exempt`, is an approval still owed. `reviewDecision` is no stand-in: it reads
+`exempt`, is an approval still owed. A `<team>-approval` at `success` that reads anything but
+`Author is on @…` carries an approving review, a team member's or the waiver's, which meets
+the ruleset too. `reviewDecision` is no stand-in: it reads
 `REVIEW_REQUIRED` for a user the ruleset exempts, whose merge GitHub allows. Name what is
 owed in the merge question — the status with its description, or the ruleset — and say
 GitHub refuses the merge until it is given. It does not turn the recommendation to
@@ -199,18 +201,21 @@ fails, and `--match-head-commit` makes it refuse a head that moved past the one 
 refusal, or a status that never reached `success`, goes to the user with the status's
 description; a bypass is theirs.
 
-A merge on the standing instruction with `JUDGED=yes` takes its verdict here, once, in the
-same command as the merge. Every briefing success judges again and samples the model afresh,
-and a description edit brings one, so the same head's verdict can change and only this read
-counts. Anything but `pass` here is a hold: leave the PR unmerged and take the path above.
+```bash
+gh pr merge <PR> --repo <OWNER_REPO> --<squash|merge|rebase> --match-head-commit <head sha>
+```
+
+A merge on the standing instruction with `JUDGED=yes` runs it behind one more read of the
+verdict, in the same command. Every briefing success judges again and samples the model
+afresh, and a description edit brings one, so the same head's verdict can change and only this
+read counts. Anything but `pass` here leaves the PR unmerged, a verdict hold as under **Jev's
+verdict**. A user's *Merge it* takes no such read: the answer is theirs.
 
 ```bash
 v=$(gh api repos/<OWNER_REPO>/commits/<head sha>/status --jq '[.statuses[] | select(.context | endswith("-review-verdict")) | .description][0] // empty')
 echo "verdict=${v:-none}"
 [ "${v%%:*}" = pass ] && gh pr merge <PR> --repo <OWNER_REPO> --<squash|merge|rebase> --match-head-commit <head sha>
 ```
-
-Every other merge runs the last line alone, without the test.
 
 Leave the monitor running either way: on a merge it sees `PR_CLOSED state=MERGED` next
 poll and Step 4a lands it, and on *keep watching* a PR that moves again still has a watch.

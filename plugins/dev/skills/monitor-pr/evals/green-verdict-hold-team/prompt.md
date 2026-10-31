@@ -7,7 +7,7 @@ expect_branch: GH-90880-flag-prune-dead-import
 expect_pr: 90914
 expect_codex: ran
 expect_green: handled
-expect_verdict: '\bhold'
+expect_verdict: hold
 ---
 
 Kari, a contractor outside @hoopit/backend, shipped GitHub issue #90880 in this repo with the hoopit-dev `ship` skill, and you are the session that took over at its Step 8, the hand-off. The branch `GH-90880-flag-prune-dead-import`, checked out here, is pushed, and its draft PR is open: https://github.com/hoopit/api/pull/90914

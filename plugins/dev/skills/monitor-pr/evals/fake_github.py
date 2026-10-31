@@ -12,8 +12,9 @@ This keeps the PR in `$EVAL_RUN_DIR/github/state.json` and answers from it:
   dispatched, or with `rereview_goes_pending` a fresh pending row as the real dispatch writes; a
   status's `age` dates it that many seconds before its first read, and it is otherwise dated then;
 - review threads resolve, labels come and go, the body and draft change, a merge closes it;
-- `.github/review-judgement.json` exists only with the case's `judgement_config`, and a merge
-  with `--match-head-commit` is refused on any other head.
+- `.github/review-judgement.json` exists only with the case's `judgement_config`, the base's
+  rules hold only the case's `review_ruleset`, and a merge with `--match-head-commit` is refused
+  on any other head.
 
 Every call is appended to `EVAL_CALLS` like the runner's shims do, with the head and draft as
 they stood when the call was answered, and `"fake": "unhandled"` for a call it cannot answer.
@@ -383,10 +384,16 @@ def rest(s, method, path, body, accept):
                 "protection": {"enabled": name == s["base"],
                                "required_status_checks": {"contexts": s.get("required_checks", []) if name == s["base"] else []}}}
     if parts[:2] == ["rules", "branches"]:
-        return []
+        rs = s.get("review_ruleset")
+        return [{"type": "pull_request", "ruleset_id": rs["id"],
+                 "parameters": {"required_approving_review_count": 1}}] if rs else []
+    if parts[:1] == ["rulesets"] and len(parts) == 2 and s.get("review_ruleset"):
+        rs = s["review_ruleset"]
+        return {"name": rs["name"], "current_user_can_bypass": rs["bypass"]}
     if parts[:1] == ["contents"]:
         if "/".join(parts[1:]) == ".github/review-judgement.json" and s.get("judgement_config"):
-            return {"path": ".github/review-judgement.json", "type": "file"}
+            config = {"guarded": ["^payments/"], "non_runtime": r"(^|/)tests?/|\.md$"}
+            return Raw(json.dumps(config)) if "raw" in (accept or "") else {"path": ".github/review-judgement.json"}
         raise Fail("gh: no such file (HTTP 404)")
     if parts[:1] == ["labels"]:
         if method == "POST":

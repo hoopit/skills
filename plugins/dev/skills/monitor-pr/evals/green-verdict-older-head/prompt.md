@@ -8,7 +8,7 @@ expect_pr: 90919
 expect_codex: ran
 expect_round: worked
 expect_green: handled
-expect_verdict: 'no.verdict'
+expect_verdict: no.verdict
 ---
 
 You shipped GitHub issue #90880 in this repo with the hoopit-dev `ship` skill. Its PR went green, was briefed and marked ready, and the watch was stopped when the session ended. The branch `GH-90880-flag-prune-dead-import`, checked out here, is pushed: https://github.com/hoopit/api/pull/90919

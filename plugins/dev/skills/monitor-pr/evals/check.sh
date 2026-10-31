@@ -18,8 +18,9 @@
 #                    head it had already briefed was not challenged or briefed again
 #   expect_merge     delegated — the user handed over the merge and the lane is auto: the run
 #                    merges without asking
-#   expect_verdict   a regex the run's last message or a PR comment must match: the ending names
-#                    Jev's verdict
+#   expect_verdict   pass | hold | no.verdict — a line of the run's last message or a PR comment
+#                    names Jev's verdict as this: the report is the deliverable here
+#   expect_owed      a regex that ending must match: the approval it names as owed
 #   expect_left      1 — an unattended session left a ready PR: a comment on it, the watch's
 #                    label gone
 #   expect_landed    1 — the user merges from GitHub mid-run: the landing drops the labels and
@@ -87,8 +88,13 @@ last_text = next(("\n".join(c["text"] for c in e["message"]["content"] if c.get(
                   and any(c.get("type") == "text" for c in e["message"]["content"])), "")
 comments = [c.get("body", "") for c in state["issue_comments"]]
 if expect("verdict"):
-    named = re.search(expect("verdict"), "\n".join([last_text, *comments]), re.I)
-    say("PASS" if named else "FAIL", "verdict_named", f"no /{expect('verdict')}/ in the ending: {last_text[-200:]!r}")
+    ending = "\n".join([last_text, *comments])
+    named = any(re.search(r"jev|verdict", line, re.I) and re.search(rf"\b{expect('verdict')}\b", line, re.I)
+                for line in ending.splitlines())
+    say("PASS" if named else "FAIL", "verdict_named", f"no line names the verdict {expect('verdict')}: {last_text[-200:]!r}")
+if expect("owed"):
+    owed = re.search(expect("owed"), "\n".join([last_text, *comments]))
+    say("PASS" if owed else "FAIL", "approval_named", f"no /{expect('owed')}/ in the ending: {last_text[-200:]!r}")
 if expect("left") == "1":
     posted = any(c["argv"][:2] == ["pr", "comment"] or (c["argv"][:1] == ["api"] and any(a.endswith(f"/issues/{pr_no}/comments") for a in c["argv"])) for c in gh)
     say("PASS" if posted else "FAIL", "left_a_comment", "the session left no comment on the PR")
