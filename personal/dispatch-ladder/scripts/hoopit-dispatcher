@@ -778,6 +778,32 @@ if grep -q $'^ladder\tnone$' <<<"$board_config"; then
 fi
 
 log "hoopit-dispatcher: target=${TARGET:-none} max_active=${MAX_ACTIVE:-none} max_review=${MAX_REVIEW:-none} quiet_after=${QUIET_MINUTES}m interval=${INTERVAL}s dry=$DRY aws_check=$AWS_CHECK repos=$REPOS skip_types=${SKIP_TYPES:-none} linear=$LINEAR triage=$TRIAGE_MODEL/$TRIAGE_EFFORT"
+log "counts: x/y is count/cap"
+cat <<EOF
+  in_flight         work under way, ready PRs included, parents not; capped by target
+  active            agents' turn: no PR or a draft, less quiet, Manual and Waiting; capped by max_active
+  quiet             in flight, agent gone or silent; holds no active slot
+  review            ready PRs on a human's turn; at max_review nothing starts
+  deficit           slots free to fill this tick
+  ready             items in Ready, startable or not
+  backlog           items in Backlog, waiting for promotion
+  candidates        Ready items left after the filters; each then goes through the walk
+  startable         candidates cleared to start, at most deficit
+  blocked           candidates overlapping files in flight; retried each tick
+  needs_judgement   candidates whose overlap is too close to call; /gh-triage settles them
+  untriaged         Ready or Backlog items lacking Priority, Effort or Autonomy
+  attended          Ready items of a type left for an attended session
+  held              Ready items not Autonomy Unattended; see \`hoopit-board decisions\`
+  scheduled         Ready items whose Start date is still ahead
+  awaiting_deploy   candidates waiting on the deploy their Gate line names
+  cooloff           Ready items dispatched in the last ${COOLOFF_HOURS}h
+  unexamined        candidates the walk did not reach this tick
+  blocked_by_issue  Ready items waiting on an open blocking issue
+  out_of_scope      Ready items in a repo this dispatcher does not fill
+  parents           in flight or Ready, with open sub-issues as the work; never started
+  judgement         overlap check: on, off, or failed: why; off also when nothing was walked
+EOF
+[[ $LINEAR == 1 ]] && echo "  linear: line      the same fields, for Linear candidates"
 while :; do
   # The board's Agent field: a session that died without its SessionEnd hook — a crash, a
   # kill — is noticed here, and reads Gone. Needs neither herdr nor AWS.
