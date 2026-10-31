@@ -18,6 +18,12 @@
 #                    head it had already briefed was not challenged or briefed again
 #   expect_merge     delegated — the user handed over the merge and the lane is auto: the run
 #                    merges without asking
+#   expect_verdict   pass | hold | no.verdict — a line of the run's last message or a PR comment
+#                    names Jev's verdict as this, `none` counting as no.verdict, and beside the
+#                    Lane on a merge: the report is the deliverable here
+#   expect_owed      a regex that ending must match: the approval it names as owed
+#   expect_left      1 — an unattended session left a ready PR: a comment on it, the watch's
+#                    label gone
 #   expect_landed    1 — the user merges from GitHub mid-run: the landing drops the labels and
 #                    removes the PR's worktree
 python3 - <<'EOF'
@@ -69,6 +75,36 @@ if expect("merge") == "delegated":
 else:
     say("FAIL" if merges or (pr.get("merged") and not state.get("merged_by_user")) else "PASS", "not_merged",
         f"merged without an answer: {merges[:1]}")
+
+if merges and expect("merge") == "delegated":
+    pinned = all("--match-head-commit" in " ".join(m) for m in merges)
+    say("PASS" if pinned else "FAIL", "merge_pinned_to_head", f"merged without --match-head-commit: {merges[:1]}")
+
+requested = [c["argv"] for c in gh if any(a.startswith("--add-reviewer") for a in c["argv"])
+             or (c["argv"][:1] == ["api"] and any(a.endswith("/requested_reviewers") for a in c["argv"])
+                 and any("POST" in a or a.startswith(("-f", "-F", "--field", "--raw-field", "--input")) for a in c["argv"]))]
+say("FAIL" if requested else "PASS", "requested_nobody", f"requested a reviewer: {requested[:1]}")
+
+last_text = next(("\n".join(c["text"] for c in e["message"]["content"] if c.get("type") == "text")
+                  for e in reversed(events) if e.get("type") == "assistant"
+                  and any(c.get("type") == "text" for c in e["message"]["content"])), "")
+comments = [c.get("body", "") for c in state["issue_comments"]]
+# verdict_named and approval_named grade a mention, not a parsed value: "pass on the older head, none on
+# this one" is a faithful report that stricter matching fails, and not_merged grades what the run did.
+if expect("verdict"):
+    ending = "\n".join([last_text, *comments])
+    word = r"no\b[^.]*verdict|none" if expect("verdict") == "no.verdict" else expect("verdict")
+    named = any(re.search(r"jev|verdict", line, re.I) and re.search(rf"\b(?:{word})\b", line, re.I)
+                and (expect("merge") != "delegated" or re.search(r"\blane\b", line, re.I))
+                for line in ending.splitlines())
+    say("PASS" if named else "FAIL", "verdict_named", f"no line names the verdict {expect('verdict')}: {last_text[-200:]!r}")
+if expect("owed"):
+    owed = re.search(expect("owed"), "\n".join([last_text, *comments]))
+    say("PASS" if owed else "FAIL", "approval_named", f"no /{expect('owed')}/ in the ending: {last_text[-200:]!r}")
+if expect("left") == "1":
+    posted = any(c["user"]["login"] == "ezet" for c in state["issue_comments"])
+    say("PASS" if posted else "FAIL", "left_a_comment", "the session left no comment on the PR")
+    say("FAIL" if "monitored" in pr["labels"] else "PASS", "monitored_dropped", f"the PR ends with labels {pr['labels']}")
 
 # A force push leaves a head that is not a descendant of the one before it.
 import subprocess

@@ -15,10 +15,11 @@ stay questions, asked as Step 5 says:
 
 ## A `GREEN` with only the merge left
 
-The merge stays the user's call unless they handed it over ([GREEN.md](GREEN.md)), and they
-make it from the PR, so it holds no session open and takes no question. Once
-[GREEN.md](GREEN.md) has run to the hand-off and the Step 4a sweep has run, **leave** when all
-of these hold for this head:
+A standing instruction merges here as it does attended, on Lane `auto` and Jev's verdict, with
+the rest of [GREEN.md](GREEN.md)'s conditions; Step 4a then lands it. Every other merge is the
+user's, made from the PR, so it holds no session open and takes no question. Once
+[GREEN.md](GREEN.md) has run to the hand-off and its verdict, and the Step 4a sweep has run,
+**leave** when all of these hold for this head:
 
 - the PR is ready and its briefing recommends the merge;
 - no approval or run is owed, and the `GREEN` carries no `pending_gates`;
@@ -27,8 +28,8 @@ of these hold for this head:
 
 Anything short of that takes the Green path's question. Leave in this order:
 
-1. Post what the chat would have carried, the verdict, the debrief and each decision taken, as
-   a comment on the PR with `gh pr comment`. Done when closing the tab would lose nothing.
+1. Post what the chat would have carried, Jev's verdict beside the Lane, the debrief and each
+   decision taken, as a comment on the PR with `gh pr comment`. Done when closing the tab would lose nothing.
 2. Stop the watch and drop the labels (`-monitored -agent-working`).
 3. Remove the worktree and local branch where the remote holds all of it, then take absolute
    paths from here on. The push is the only copy of them that stays, and a later round makes a

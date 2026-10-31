@@ -38,14 +38,16 @@ Step 4a of [SKILL.md](SKILL.md). Four steps, in order, attended or `--unattended
    work again. The worktree it removes may be this session's directory, so every command
    after it takes absolute paths.
 
-4. **Close the tab.** Inside herdr (`HERDR_ENV=1`), the tab closes when the landing leaves
+4. **Report, and close the tab.** The report is the tally, what was filed and what was cleaned,
+   opened on a merge taken on the standing instruction by the line [GREEN.md](GREEN.md) sets.
+   Inside herdr (`HERDR_ENV=1`), the tab closes when the landing leaves
    nothing to come back to:
 
    - step 3 removed both the worktree and the branch;
    - no item step 2 filed is `P0` or `P1`;
    - no question from this landing is waiting on the user.
 
-   Then write the report — tally, what was filed, what was cleaned — and end the turn on
+   Then write the report and end the turn on
    this, its last action:
 
    ```bash
@@ -53,5 +55,5 @@ Step 4a of [SKILL.md](SKILL.md). Four steps, in order, attended or `--unattended
    ```
 
    It waits for the turn to end, stops this session and closes the tab. Otherwise the tab
-   stays: say which condition held it open, and hand the user the `cd` to the main worktree
+   stays: write the report, say which condition held it open, and hand the user the `cd` to the main worktree
    that `clean-up-worktree` reports.

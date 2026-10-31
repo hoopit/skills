@@ -16,7 +16,8 @@
 # GitHub once the watch has polled n times; `conflicting: true` makes the head dirty until a
 # push replaces it. `statuses_after_polls: {after, statuses}` swaps those statuses in once the
 # watch has polled `after` times; `rereview_statuses` swaps them in on a codex-review-manual
-# dispatch.
+# dispatch. `judgement_config: true` gives the repo a `.github/review-judgement.json`, and
+# `review_ruleset: {id, name, bypass}` a ruleset on the base requiring an approval.
 set -euo pipefail
 
 PIN=403fda6846761580f20ef569188f1ce7dc6e351c
@@ -82,6 +83,8 @@ json.dump({
     "merge_after_polls": case.get("merge_after_polls"),
     "statuses_after_polls": case.get("statuses_after_polls"),
     "rereview_statuses": case.get("rereview_statuses"),
+    "judgement_config": case.get("judgement_config", False),
+    "review_ruleset": case.get("review_ruleset"),
 }, open(dst, "w"), indent=1)
 EOF
 
