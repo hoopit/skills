@@ -610,6 +610,19 @@ def test_claims_count_toward_every_cap():
     print("  claims fill the target, the active cap and the review gate alike")
 
 
+def test_manual_and_waiting_hold_no_active_slot():
+    """Still flight, so the target counts them and their PRs hold files."""
+    flight = [item(n, status="In progress") for n in (1, 2, 3)]
+    flight[0]["autonomy"], flight[1]["autonomy"] = "Manual", "Waiting"
+    m = next_module(flight + [item(4)], bodies={4: "anything"})
+    d, _ = run_next(m, target=None, max_active=2, no_judge=True)
+    assert (d["in_flight"], d["active"], d["deficit"]) == (3, 1, 1), d
+    assert only(d, "startable") == ["hoopit/api#4"], d
+    d, _ = run_next(m, target=3, no_judge=True)
+    assert d["deficit"] == 0, d
+    print("  only the Unattended item fills --max-active; the target still counts all three")
+
+
 def test_a_finished_claim_holds_nothing_and_is_named():
     merged = "https://github.com/hoopit/api/pull/952"
     with registry_at(claim(body="edit `a.py`", prs=[merged])):

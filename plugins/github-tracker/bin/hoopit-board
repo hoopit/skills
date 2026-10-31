@@ -166,6 +166,8 @@ from datetime import date, datetime, timedelta, timezone
 PRIORITIES = ["P0", "P1", "P2", "P3"]
 EFFORTS = ["XS", "S", "M", "L", "XL"]
 AUTONOMY = ["Unattended", "Needs decision", "Manual", "Waiting"]
+# No agent spends quota on these, whatever their status says.
+NO_AGENT_AUTONOMY = ("Manual", "Waiting")
 # Every Status this script reads or writes. `init` checks the board carries them all, and
 # `provision` adds the ones it lacks with the color and description beside each here.
 STATUSES = ["Backlog", "Ready", "In progress", "In review", "Done"]
@@ -2393,6 +2395,7 @@ def flight_state(items, a):
                 i["agent"] = f'gh{i["n"]}'
         quiet = [i for i in active if i["agent"] != "-" and i["agent"] not in live_agents]
         active = [i for i in active if i not in quiet]
+    active = [i for i in active if i["autonomy"] not in NO_AGENT_AUTONOMY]
     if a.target is None and a.max_active is None:
         if a.max_review is not None:
             sys.exit("--max-review gates starts and bounds none: give a target or --max-active")
@@ -2451,9 +2454,9 @@ def cmd_next(a):
     the dispatcher that wrote them drops them.
 
     Three caps, each optional, and the tightest sets the deficit. The target caps all of
-    flight. `--max-active` caps the agent's turn — flight that `awaits_human` leaves out —
-    so a slot frees when a PR goes ready, and the agents started at once are bounded
-    however empty the board is. `--max-review` is a gate and not a count of slots: nothing
+    flight. `--max-active` caps the agent's turn — flight that `awaits_human` leaves out,
+    less Autonomy `Manual` and `Waiting`, which no agent is working — so a slot frees when
+    a PR goes ready, and the agents started at once are bounded however empty the board is. `--max-review` is a gate and not a count of slots: nothing
     starts while that many items are a human's turn, and below it the other caps decide
     alone. So work already active when the gate closes still lands, and the
     review queue can reach `--max-review` + `--max-active` - 1. It bounds no starts by
