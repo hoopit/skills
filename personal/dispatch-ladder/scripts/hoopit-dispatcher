@@ -71,7 +71,7 @@ set -uo pipefail
 ENV_FILE=${HOOPIT_DISPATCHER_ENV_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/hoopit-dispatcher.env}
 if [[ -r "$ENV_FILE" ]]; then
   while IFS= read -r line; do
-    [[ "$line" =~ ^(HOOPIT_DISPATCHER_[A-Z_]+)=(.*)$ ]] || continue
+    [[ "$line" =~ ^(HOOPIT_DISPATCHER_[A-Z_]+|TYPESAFE_API_KEY)=(.*)$ ]] || continue
     [[ -v "${BASH_REMATCH[1]}" ]] || export "${BASH_REMATCH[1]}=${BASH_REMATCH[2]}"
   done < "$ENV_FILE"
 fi
