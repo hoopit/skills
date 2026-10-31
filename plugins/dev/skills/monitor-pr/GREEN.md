@@ -208,8 +208,9 @@ gh pr merge <PR> --repo <OWNER_REPO> --<squash|merge|rebase> --match-head-commit
 A merge on the standing instruction with `JUDGED=yes` runs it behind one more read of the
 verdict, in the same command. Every briefing success judges again and samples the model
 afresh, and a description edit brings one, so the same head's verdict can change and only this
-read counts. Anything but `pass` here leaves the PR unmerged, a verdict hold as under **Jev's
-verdict**. A user's *Merge it* takes no such read: the answer is theirs.
+read counts. It takes the newest status, as `team-review.yml`'s contract says: an earlier verdict
+left by a running re-judge or a failed post judged this same commit. Anything but `pass` here
+leaves the PR unmerged, a verdict hold as under **Jev's verdict**. A user's *Merge it* takes no such read: the answer is theirs.
 
 ```bash
 v=$(gh api repos/<OWNER_REPO>/commits/<head sha>/status --jq '[.statuses[] | select(.context | endswith("-review-verdict")) | .description][0] // empty')
