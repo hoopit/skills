@@ -42,8 +42,8 @@ Anything short of that takes the Green path's question. Leave in this order:
    ```
 
    A worktree that fails the check stays, and the comment names it.
-4. Send a `PushNotification` naming the PR and its lane, then end the turn on
-   `bash <SKILL_DIR>/scripts/close-own-tab.sh`, as [LANDING.md](LANDING.md)'s last step does.
+4. End the turn on `bash <SKILL_DIR>/scripts/close-own-tab.sh`, as
+   [LANDING.md](LANDING.md)'s last step does, with no notification: the ready PR is the signal.
 
 Nothing watches the PR after this. A review thread or failing check that arrives later waits
 for the user, who starts `monitor-pr` on it to have it worked.
