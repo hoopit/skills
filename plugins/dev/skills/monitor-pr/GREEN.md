@@ -116,10 +116,10 @@ at the end of the wait are all a **verdict hold**. It changes no recommendation:
 person should read the PR, and the merge question is that read. Name the verdict beside the Lane in
 the merge question, then:
 
-- **`<team>-approval` reads `success`, or the repo posts none**: an approver's PR is left for
-  the owner's own review: the merge question attended, a ready PR under `--unattended`
+- **`<team>-approval` reads `success`, or the repo posts none**: the PR is left for the owner's
+  own review: the merge question attended, a ready PR under `--unattended`
   ([UNATTENDED.md](UNATTENDED.md)).
-- **`<team>-approval` is still waiting**: `team-review` has asked the team. Name that in the
+- **`<team>-approval` reads anything else**: `team-review` has asked the team. Name that in the
   merge question, as an approval owed (below), and request nobody.
 
 A pass from an author outside the team merges only where the waiver is on, which reads as
