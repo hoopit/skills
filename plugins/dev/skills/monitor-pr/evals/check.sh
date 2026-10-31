@@ -77,17 +77,20 @@ else:
         f"merged without an answer: {merges[:1]}")
 
 if merges and expect("merge") == "delegated":
-    pinned = all("--match-head-commit" in " ".join(m) for m in merges if m[:2] == ["pr", "merge"])
+    pinned = all("--match-head-commit" in " ".join(m) for m in merges)
     say("PASS" if pinned else "FAIL", "merge_pinned_to_head", f"merged without --match-head-commit: {merges[:1]}")
 
 requested = [c["argv"] for c in gh if any(a.startswith("--add-reviewer") for a in c["argv"])
-             or (c["argv"][:1] == ["api"] and "POST" in c["argv"] and any(a.endswith("/requested_reviewers") for a in c["argv"]))]
+             or (c["argv"][:1] == ["api"] and any(a.endswith("/requested_reviewers") for a in c["argv"])
+                 and any("POST" in a or a.startswith(("-f", "-F", "--field", "--raw-field", "--input")) for a in c["argv"]))]
 say("FAIL" if requested else "PASS", "requested_nobody", f"requested a reviewer: {requested[:1]}")
 
 last_text = next(("\n".join(c["text"] for c in e["message"]["content"] if c.get("type") == "text")
                   for e in reversed(events) if e.get("type") == "assistant"
                   and any(c.get("type") == "text" for c in e["message"]["content"])), "")
 comments = [c.get("body", "") for c in state["issue_comments"]]
+# verdict_named and approval_named grade a mention, not a parsed value: "pass on the older head, none on
+# this one" is a faithful report that stricter matching fails, and not_merged grades what the run did.
 if expect("verdict"):
     ending = "\n".join([last_text, *comments])
     word = "no.verdict|none" if expect("verdict") == "no.verdict" else expect("verdict")
@@ -99,7 +102,7 @@ if expect("owed"):
     owed = re.search(expect("owed"), "\n".join([last_text, *comments]))
     say("PASS" if owed else "FAIL", "approval_named", f"no /{expect('owed')}/ in the ending: {last_text[-200:]!r}")
 if expect("left") == "1":
-    posted = any(c["argv"][:2] == ["pr", "comment"] or (c["argv"][:1] == ["api"] and any(a.endswith(f"/issues/{pr_no}/comments") for a in c["argv"])) for c in gh)
+    posted = any(c["user"]["login"] == "ezet" for c in state["issue_comments"])
     say("PASS" if posted else "FAIL", "left_a_comment", "the session left no comment on the PR")
     say("FAIL" if "monitored" in pr["labels"] else "PASS", "monitored_dropped", f"the PR ends with labels {pr['labels']}")
 
