@@ -7,6 +7,7 @@ expect_branch: GH-90880-flag-prune-dead-import
 expect_pr: 90915
 expect_codex: ran
 expect_green: handled
+expect_owed: '@hoopit/backend|backend-approval|the team'
 expect_verdict: no.verdict
 ---
 

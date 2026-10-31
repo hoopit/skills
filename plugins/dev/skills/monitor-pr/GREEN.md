@@ -116,15 +116,16 @@ at the end of the wait are all a **verdict hold**. It changes no recommendation:
 person should read the PR, and the merge question is that read. Name the verdict beside the Lane in
 the merge question, then:
 
-- **The author is an approver**: the `<team>-approval` status reads `Author is on @…`, or the
-  repo posts none. The PR is left for the owner's own review: the merge question attended, a
-  ready PR under `--unattended` ([UNATTENDED.md](UNATTENDED.md)).
-- **Anyone else**: `team-review` has asked the team. Name that in the merge question, as an
-  approval owed (below), and request nobody.
+- **`<team>-approval` reads `success`, or the repo posts none**: an approver's PR is left for
+  the owner's own review: the merge question attended, a ready PR under `--unattended`
+  ([UNATTENDED.md](UNATTENDED.md)).
+- **`<team>-approval` is still waiting**: `team-review` has asked the team. Name that in the
+  merge question, as an approval owed (below), and request nobody.
 
 A pass from an author outside the team merges only where the waiver is on, which reads as
-`<team>-approval` at `success`. Without the waiver the approval is still owed, and the read
-below stops the merge.
+`<team>-approval` at `success`. Its job runs beside the verdict's, so on a `pass` read that
+status after the wait, and once more a minute later while it is pending. Without the waiver
+the approval is still owed, and the read below stops the merge.
 
 **An approval owed.** A `GREEN` waits on nobody's review, but the merge can, in two ways,
 both of which come only after the hand-off: a repo on the shared team-review gate requires
@@ -140,9 +141,8 @@ done
 ```
 
 A status that is not `success`, or a review ruleset whose bypass reads anything but
-`exempt`, is an approval still owed. A `<team>-approval` at `success` that reads anything but
-`Author is on @…` carries an approving review, a team member's or the waiver's, which meets
-the ruleset too. `reviewDecision` is no stand-in: it reads
+`exempt`, is an approval still owed. A `<team>-approval` at `success` reading `Approved by @…` or
+`Judged low risk; …` carries an approving review, which meets the ruleset too. `reviewDecision` is no stand-in: it reads
 `REVIEW_REQUIRED` for a user the ruleset exempts, whose merge GitHub allows. Name what is
 owed in the merge question — the status with its description, or the ruleset — and say
 GitHub refuses the merge until it is given. It does not turn the recommendation to

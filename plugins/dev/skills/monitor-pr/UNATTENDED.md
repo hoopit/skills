@@ -15,7 +15,7 @@ stay questions, asked as Step 5 says:
 
 ## A `GREEN` with only the merge left
 
-A standing instruction merges here as it does attended, on Lane `auto` and a Jev pass, with
+A standing instruction merges here as it does attended, on Lane `auto` and Jev's verdict, with
 the rest of [GREEN.md](GREEN.md)'s conditions; Step 4a then lands it. Every other merge is the
 user's, made from the PR, so it holds no session open and takes no question. Once
 [GREEN.md](GREEN.md) has run to the hand-off and its verdict, and the Step 4a sweep has run,

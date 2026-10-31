@@ -103,9 +103,9 @@
       "comments": [
         {
           "id": 2400201,
-          "author": "coderabbitai[bot]",
+          "author": "ingrid-backend",
           "created_at": "2026-10-02T01:40:00Z",
-          "body": "_🧹 Nitpick (assertive)_\n\n**The module has no docstring, and its siblings do.**\n\n```suggestion\n\"\"\"Celery tasks that prune Jira-backed feature flags.\"\"\"\n\nfrom __future__ import annotations\n```\n\n<!-- This is an auto-generated reply by CodeRabbit -->"
+          "body": "Please add the module docstring before this goes in, every task module here has one. Blocking for me.\n\n```suggestion\n\"\"\"Celery tasks that prune Jira-backed feature flags.\"\"\"\n\nfrom __future__ import annotations\n```"
         }
       ]
     }

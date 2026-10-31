@@ -19,7 +19,8 @@
 #   expect_merge     delegated — the user handed over the merge and the lane is auto: the run
 #                    merges without asking
 #   expect_verdict   pass | hold | no.verdict — a line of the run's last message or a PR comment
-#                    names Jev's verdict as this: the report is the deliverable here
+#                    names Jev's verdict as this, `none` counting as no.verdict, and beside the
+#                    Lane on a merge: the report is the deliverable here
 #   expect_owed      a regex that ending must match: the approval it names as owed
 #   expect_left      1 — an unattended session left a ready PR: a comment on it, the watch's
 #                    label gone
@@ -89,7 +90,9 @@ last_text = next(("\n".join(c["text"] for c in e["message"]["content"] if c.get(
 comments = [c.get("body", "") for c in state["issue_comments"]]
 if expect("verdict"):
     ending = "\n".join([last_text, *comments])
-    named = any(re.search(r"jev|verdict", line, re.I) and re.search(rf"\b{expect('verdict')}\b", line, re.I)
+    word = "no.verdict|none" if expect("verdict") == "no.verdict" else expect("verdict")
+    named = any(re.search(r"jev|verdict", line, re.I) and re.search(rf"\b(?:{word})\b", line, re.I)
+                and (expect("merge") != "delegated" or re.search(r"\blane\b", line, re.I))
                 for line in ending.splitlines())
     say("PASS" if named else "FAIL", "verdict_named", f"no line names the verdict {expect('verdict')}: {last_text[-200:]!r}")
 if expect("owed"):

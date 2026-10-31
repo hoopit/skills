@@ -384,7 +384,7 @@ def rest(s, method, path, body, accept):
                 "protection": {"enabled": name == s["base"],
                                "required_status_checks": {"contexts": s.get("required_checks", []) if name == s["base"] else []}}}
     if parts[:2] == ["rules", "branches"]:
-        rs = s.get("review_ruleset")
+        rs = s.get("review_ruleset") if parts[2:] == [s["base"]] else None
         return [{"type": "pull_request", "ruleset_id": rs["id"],
                  "parameters": {"required_approving_review_count": 1}}] if rs else []
     if parts[:1] == ["rulesets"] and len(parts) == 2 and s.get("review_ruleset"):
