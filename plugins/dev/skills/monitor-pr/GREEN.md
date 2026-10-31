@@ -84,8 +84,7 @@ it* does below when all of these hold for this head:
 - no approval and no run is owed (below).
 
 Anything short of that asks as usual. A merge taken this way says so: the landing's report
-opens with it and the lane line, and a `PushNotification` names the PR, since no question
-went out.
+opens with it and the lane line. It sends no notification.
 
 **An approval owed.** A `GREEN` waits on nobody's review, but the merge can, in two ways,
 both of which come only after the hand-off: a repo on the shared team-review gate requires
