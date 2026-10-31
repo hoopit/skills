@@ -17,7 +17,7 @@
 #   RESULT <plugin> <repo> <dir> <updated|current|installed|stale|failed> <old> -> <new>
 # A user-scope record reports `user` as both <repo> and <dir>.
 # `stale` means the CLI reported success but this checkout's own record is not at <new>;
-# the records at fault are listed beneath it.
+# the records at fault are listed beneath it. Exits non-zero if any line is stale or failed.
 set -uo pipefail
 
 PLUGINS=(hoopit-dev@hoopit-skills mattpocock-skills@claude-plugins-official)
@@ -25,6 +25,7 @@ WHERE_INSTALLED=(github-tracker@hoopit-skills hoopit-product@hoopit-skills)
 REPOS=(api web-admin flutter-app public-calendar)
 INSTALLED="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/installed_plugins.json"
 export MISE_QUIET=1
+unsettled=0
 
 command -v jq >/dev/null || { echo "jq is required" >&2; exit 2; }
 
@@ -120,12 +121,14 @@ apply() {
        | .[]" "$INSTALLED" 2>&1)
     if [[ "$new" != "-" && -n "$stale" ]]; then
       echo "RESULT $plugin $repo $dir stale $old -> $new"
+      unsettled=1
       sed 's/^/  /' <<<"$stale"
     else
       echo "RESULT $plugin $repo $dir $status $old -> $new"
     fi
   else
     echo "RESULT $plugin $repo $dir failed - -> -"
+    unsettled=1
     sed 's/^/  /' <<<"$out"
   fi
 }
@@ -150,3 +153,5 @@ while IFS= read -r dir; do
     done
   done
 done < <(for d in "${!found[@]}"; do printf '%s\n' "$d"; done | sort)
+
+exit "$unsettled"
