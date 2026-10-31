@@ -341,4 +341,4 @@ background agent reaches nobody.
 ### Unattended
 
 Under `--unattended`, read [UNATTENDED.md](UNATTENDED.md) before the first question: it
-decides which of the paths above still ask.
+decides which of the paths above still ask, and when a `GREEN` leaves with no question.

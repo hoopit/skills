@@ -72,7 +72,8 @@ bash <SKILL_DIR>/scripts/pr-labels.sh <OWNER_REPO> <PR> -agent-working
 gh pr ready <PR> --repo <OWNER_REPO>
 ```
 
-The merge is the user's call: ask, and recommend it. A user can hand that call over for
+The merge is the user's call: ask, and recommend it. Under `--unattended`,
+[UNATTENDED.md](UNATTENDED.md) says when the session leaves instead of asking. A user can hand that call over for
 their own PRs, and only one way: a standing instruction in their global `~/.claude/CLAUDE.md`
 to merge without asking when the lane is `auto`. A caller, `--unattended` or an answer about
 another PR never hands it over. With that instruction, skip the question and merge as *Merge

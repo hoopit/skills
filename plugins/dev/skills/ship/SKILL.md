@@ -225,7 +225,8 @@ Someone has to work the PR's review rounds to the merge. Start the **`monitor-pr
 on the new PR with `--subagent`, so its rounds run in workers rather than this session. It
 works rounds until the PR is green, briefed and ready, or a decision only the user can
 settle turns up — and on the merge it cleans up the worktree
-itself. Pass `--unattended` on when you hold it.
+itself. Pass `--unattended` on when you hold it: with only the merge left, the session then
+closes itself instead of asking, leaving the merge to the user on the PR.
 
 This skill's work ends here. Report the PR url and the watch back to the caller, which
 owns the final result block.
