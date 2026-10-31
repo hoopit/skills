@@ -16,7 +16,7 @@
     {
       "name": "hoopit-dev",
       "source": "./plugins/dev",
-      "description": "Day-to-day dev workflows and CLIs: Jira/Sentry issues, PR review, Atlassian, CircleCI."
+      "description": "Day-to-day dev workflows and CLIs: Jira/Sentry issues, PR review, Atlassian."
     },
     {
       "name": "hoopit-misc",

@@ -124,8 +124,7 @@ Every fix in axes 1 to 3 is held to *Every fix* before it is committed.
    thread. A `declined` row carries what `LEDGER` says a decline carries — the reason in
    the code on a judgement, the challenge on a Critical/High — before it stands.
 3. **Failing checks.** Re-query `pr_checks <OWNER_REPO> <head_sha>` — it prints
-   `bucket<TAB>name<TAB>link` — and act on the `fail` bucket as it stands now: fetch each failure (the `circleci-tests` skill for
-   CircleCI jobs, the `link` otherwise), fix it on the PR branch, run the failing tests
+   `bucket<TAB>name<TAB>link` — and act on the `fail` bucket as it stands now: fetch each failure from its `link`, fix it on the PR branch, run the failing tests
    locally until green, commit. Pending checks are reported as pending, not awaited. A
    check that is red only because it needs the merge from axis 1 needs no separate fix,
    and neither does a **verdict** (*Closing the rounds* in `LEDGER`): its findings are

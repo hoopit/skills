@@ -39,7 +39,7 @@ claude plugin update hoopit-dev@hoopit-skills
 | Plugin | What's in it |
 |--------|--------------|
 | `hoopit-onboarding` | Take a fresh machine to a working `hoopit/api` or `hoopit/flutter-app` checkout, plus the supporting CLIs |
-| `hoopit-dev` | Day-to-day dev workflows and CLIs: Jira/Sentry issues, PR review, Atlassian, CircleCI |
+| `hoopit-dev` | Day-to-day dev workflows and CLIs: Jira/Sentry issues, PR review, Atlassian |
 | `hoopit-misc` | Odds and ends: status line |
 | `hoopit-product` | Product work: stress-test plans and ideas against the domain model, sharpen terminology, and produce a PRD |
 | `github-tracker` | An agent work tracker on your own GitHub project board: file triaged issues, triage and curate the backlog, assess an issue before fixing it |
@@ -62,12 +62,11 @@ Take a fresh machine to a working hoopit/api or hoopit/flutter-app checkout, plu
 
 #### `hoopit-dev`
 
-Day-to-day dev workflows and CLIs: Jira/Sentry issues, PR review, Atlassian, CircleCI.
+Day-to-day dev workflows and CLIs: Jira/Sentry issues, PR review, Atlassian.
 
 | Skill | Invoke | Description |
 |-------|--------|-------------|
 | `atlassian-cli` | Auto | Use when working with Jira or Confluence from command line, including authentication, searching issues with JQL, bulk operations, sprint reports, or creating/updating work items using acli |
-| `circleci-tests` | Auto | Fetch failing tests from a CircleCI job URL. |
 | `clean-up-worktree` | Auto | Delete the branch and worktree this conversation worked in. |
 | `create-pull-request` | Auto | Create GitHub PRs. |
 | `curate-memory` | Manual | Curate agent memory as a short-lived working set. |
