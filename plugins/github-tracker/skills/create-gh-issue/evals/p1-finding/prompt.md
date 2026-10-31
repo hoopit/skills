@@ -1,6 +1,6 @@
 ---
 expect_issues: 1
-expect_status: backlog
+expect_status: bar
 expect_no_parent: 1
 expect_names: 19485
 tags: status

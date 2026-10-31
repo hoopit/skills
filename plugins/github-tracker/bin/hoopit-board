@@ -138,7 +138,7 @@ session, tie it to the items it works.
                                  and writes the board what changed
   agent-hook                     the plugin hooks' entry point: one hook event on stdin
   release <repo> <n> --reason R [--ready]  status -> Backlog (or Ready), so the slot frees up
-  ready <repo> <n>               status -> Ready: the dispatch pool. Committed work, or the user's ask
+  ready <repo> <n>               status -> Ready: the dispatch pool. Committed work, a startable bug, or the user's ask
   footprint <repo>...            paths the open PRs of each repo are touching
   drop <repo> <n> [--apply]      take a PullRequest item off the board
   blocked-by <repo> <n> <ref>... [--remove]
@@ -322,10 +322,9 @@ TESTED_FIELD = "Triage tested"
 TRIAGE_TTL_DAYS = 30
 IN_REVIEW = "In review"
 IN_FLIGHT = ("In progress", IN_REVIEW)
-# Where dispatch picks from. `Ready` is work already committed to; anything whose
-# decision the issue itself would be is a proposal, and lands in `Backlog` to wait,
-# triaged or not, for the user to promote it — `create-gh-issue` draws the line, and
-# triage alone starts nothing.
+# Where dispatch picks from. `Ready` is work already committed to and startable bugs;
+# everything else is a proposal, and lands in `Backlog` to wait, triaged or not, for the
+# user to promote it — `create-gh-issue` draws the line.
 POOL = "Ready"
 PARKED = "Backlog"
 CLAIM_RE = re.compile(r"started (?:as (?:herdr )?agent|in a claude code session)", re.I)
@@ -1415,8 +1414,8 @@ def cmd_release(a):
 
 
 def make_ready(repo, number, project_id, fields, item_id, added):
-    """Move an item into the dispatch pool: work already committed to at filing, or a
-    proposal the user promotes. The callers pass that decision on as `--ready`.
+    """Move an item into the dispatch pool: committed work, a startable bug, or a proposal
+    the user promotes. The callers pass that decision on as `--ready`.
 
     The add-workflow sets Backlog on an item the moment it joins the board, and it runs
     after the add returns — so a Ready written straight after the add is the one the
@@ -3639,11 +3638,10 @@ def cmd_triage(a):
     for field, value in values:
         print(f"SET\t{a.repo}#{a.number}\t{field}={value}")
     if a.ready:
-        # The one part of the Ready gate a machine can read. Status is meant to say the
-        # work is already committed to, but "I am sure this finding is real" reads as
-        # that to an agent that just measured it, and the pool fills with work nobody
-        # scheduled. A P3 is by its own rubric fine if it sits, so it can never be
-        # committed; the rest is left to the caller's reading.
+        # The one part of the Ready gate a machine can read. "I am sure this finding is
+        # real" reads as commitment to an agent that just measured it, and the pool fills
+        # with work nobody scheduled. A P3 is by its own rubric fine if it sits, so it can
+        # never be committed or a startable bug; the rest is left to the caller's reading.
         if a.priority == "P3":
             print(f"NOT READY\t{a.repo}#{a.number}\tP3 is never committed work: left in "
                   f"{PARKED}. `hoopit-board ready` if the user has said otherwise.",

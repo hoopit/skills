@@ -71,9 +71,12 @@ sets out to confirm a premise confirms it. `git merge-base --is-ancestor <sha>
 origin/<production-branch>`, after a fetch, settles "is the fix already out there"; a grep for the
 symbol settles "does this path still exist".
 
-Premise false, path gone, already shipped → close (step 5). Otherwise carry on
-with what the code actually does, which may be a different issue from the one
-filed. Say so if it is.
+A `Bug` ships only once reproduced, and working out how is yours: a failing test, a
+production row, a Sentry event, or the code path read through to the wrong outcome.
+
+Premise false, path gone, already shipped, or a `Bug` still not reproduced → close
+(step 5). Otherwise carry on with what the code actually does, which may be a different
+issue from the one filed. Say so if it is.
 
 ## 3. Price the fix
 
@@ -135,6 +138,7 @@ Close only on something you can print:
 | Bucket | What has to be shown |
 |---|---|
 | **Premise false** | The code does not do what the issue says it does. |
+| **Not reproduced** | Each check you ran on a `Bug`, and what it returned. |
 | **Already handled** | A merged PR covers it, or an open issue does — close `--duplicate-of` that one. |
 | **No reach** | The path has not executed in 90 days and nothing schedules it. Measured, not assumed. |
 | **Cost outruns the harm** | The fix carries one of step 3's expensive items and the measured harm is cosmetic, or a handful of rows a year, with a residual that does not compound. |

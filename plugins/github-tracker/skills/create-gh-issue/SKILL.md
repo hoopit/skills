@@ -27,7 +27,7 @@ other tracker. Decide each candidate yourself.
 
 - **File** what you are fairly sure is worth recording: the work follows from something
   you established — the item the task itself needs, a follow-up the shipped change leaves
-  behind, a verification still to run, a confirmed bug, a wrong premise measured against
+  behind, a verification still to run, a bug, confirmed or suspected, a wrong premise measured against
   prod, a finding that would otherwise be lost. "This is broken and nobody has recorded
   it" files itself. A refactor, a cleanup or a nice-to-have you would argue for files too,
   as a proposal in `Backlog`.
@@ -194,22 +194,27 @@ Torn between two levels, take the lower — except a production symptom, which
 floors at `P1`.
 
 **Status** — `--ready` puts the issue in the pool the dispatcher, where one runs,
-dispatches from, and that pool is for work already **committed** to: the decision is
-taken and only the doing is left. Where filing the issue *is* the decision, it is a
-**proposal**, and it waits in Backlog for the user to promote it.
+dispatches from. It holds work already **committed** to, and any **startable bug**: a
+`Bug` at `P0`–`P2`, `XS`–`M`, `Unattended`. Everything else is a **proposal**, and waits
+in Backlog for the user to promote it.
 
-The test: *if I did not file this, would something already agreed-to be left undone?*
-No — then Backlog.
+The test: *is it a startable bug, or would something already agreed-to be left undone if
+I did not file this?* No to both — then Backlog.
 
 | | |
 |---|---|
-| `Ready` | Committed: the item this task needs, work a shipped change is incomplete without, a verification it owes, a `P0` or `P1` defect, anything the user asked for. |
-| `Backlog` | Default. Everything else — a `P2` or `P3` bug, a cleanup, a finding worth keeping. |
+| `Ready` | A startable bug. Committed work: the item this task needs, work a shipped change is incomplete without, a verification it owes, anything the user asked for. |
+| `Backlog` | Default. Everything else — a `P3` or `L` bug, a bug that needs a decision, a cleanup, a finding worth keeping. |
 
-A finding a run turns up is a proposal however certain you are of it: the run was
-dispatched to do something else. That it would otherwise be lost is what makes it worth
-**filing**, never what makes it Ready — Backlog loses nothing. A `P3` is refused
+A startable bug goes in Ready proven or not, whoever turned it up: write what you saw and
+where, and `assess-issue` works out how to test it.
+
+Any other finding a run turns up is a proposal however certain you are of it. That it
+would otherwise be lost makes it worth **filing**, never Ready. A `P3` is refused
 `--ready` outright; `hoopit-board ready` is the override.
+
+Triage promotes a startable bug only in the pass that sets the field making it one, so one
+the user moves back to Backlog stays there.
 
 **Effort**
 

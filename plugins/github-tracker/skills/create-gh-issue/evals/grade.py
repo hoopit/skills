@@ -7,7 +7,7 @@ frontmatter, which reaches here as EVAL_EXPECT_<NAME>:
     expect_issues       how many `gh issue create` calls the run should make: `1`, or `1-2`
     expect_types        comma-separated types every created issue may carry
     expect_gate         a PR number a live `Gate: deployed` line must name, or `none`
-    expect_status       `backlog`: no created issue is moved to Ready
+    expect_status       `bar`: a created Bug is in Ready exactly when it is a startable bug
     expect_no_parent    `1`: no `sub_issues` write
     expect_names        text every created issue's body must contain
     expect_reads        an issue number some gh call must read
@@ -179,12 +179,17 @@ if "gate" in E:
                  for g in every)
         out("PASS" if ok else "FAIL", "deploy_gate", "" if ok else f"live gates {every or 'none'}; want one naming #{pr}")
 
-if E.get("status") == "backlog":
-    if not creates:
-        out("SKIP", "left_in_backlog", "nothing created")
+if E.get("status") == "bar":
+    def startable(n):
+        f = triage_flags(n)
+        return (f.get("--priority") in ("P0", "P1", "P2") and f.get("--effort") in ("XS", "S", "M")
+                and (f.get("--autonomy") or "").strip("'\"") == "Unattended")
+    bugs = [n for n in numbers if (types[n] or "").strip("'\"") == "Bug"]
+    wrong = [n for n in bugs if bool(triage_flags(n).get("--ready") or triage_flags(n).get("ready-cmd")) != startable(n)]
+    if not bugs:
+        out("FAIL", "bug_status_follows_bar", "no Bug created")
     else:
-        ready = [n for n in numbers if triage_flags(n).get("--ready") or triage_flags(n).get("ready-cmd")]
-        out("FAIL" if ready else "PASS", "left_in_backlog", f"#{ready[0]} moved to Ready" if ready else "")
+        out("FAIL" if wrong else "PASS", "bug_status_follows_bar", f"#{wrong[0]}: {triage_flags(wrong[0])}" if wrong else "")
 
 if E.get("no_parent") == "1":
     subs = [" ".join(c["argv"]) for c in calls if c["tool"] == "gh" and any("sub_issues" in a for a in c["argv"])

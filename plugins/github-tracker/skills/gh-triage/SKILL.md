@@ -14,10 +14,10 @@ the dispatcher, where one runs, consumes. This run's whole output is triage — 
 set, holds lifted, decisions named — written onto the issues themselves, where the agent
 that eventually works them will read it.
 
-Triage starts nothing. The dispatcher picks from **Ready** alone, and what sits in
-**Backlog** is a proposal — filed there because its worth was the judgement — so it
-moves only on the user's say-so: `hoopit-board ready <repo> <n>`. Step 4 offers the
-list.
+The dispatcher picks from **Ready** alone. A startable bug moves there in the pass that
+sets the field making it one (`triage-sweep` step 2). Every other item in **Backlog** is a
+proposal — filed there because its worth was the judgement — so it moves only on the
+user's say-so: `hoopit-board ready <repo> <n>`. Step 4 offers the list.
 
 Three passes, in order: **sweep**, **holds**, **grill**. The later ones cost more per item,
 so an item that settles early never reaches a question.
@@ -87,7 +87,7 @@ its body.
 
 ## 4. Report the triage
 
-- Fields filled, with the values.
+- Fields filled, with the values, and each startable bug moved to Ready.
 - Items retired in the collapse — each with the evidence that retired it. This is
   the number that matters: a retired item is a slot an unattended run fills from then on
   with nobody present.
@@ -139,7 +139,8 @@ An issue's frontier empties, and then:
    answer alone does not carry. This is what the eventual agent reads.
 2. Fold what changed the issue's shape into the body — a new constraint, a ruled-out
    option — so the body still describes the work.
-3. `hoopit-board triage <repo> <n> --autonomy Unattended`.
+3. `hoopit-board triage <repo> <n> --autonomy Unattended`, with `--ready` where that makes
+   it a startable bug (`create-gh-issue`, Status).
 4. Open the next issue.
 
 **With nobody there to answer**, the ping still goes out and the issue keeps its
@@ -240,7 +241,7 @@ gh api -X POST repos/<repo>/issues/<n>/comments -F body=@<file>
 hoopit-board triage <repo> <n> --autonomy Unattended --tested
 ```
 
-A survivor takes `--tested` alone, once its comment and `## The decision` section are on the
+Add `--ready` where that makes it a startable bug (`create-gh-issue`, Status). A survivor takes `--tested` alone, once its comment and `## The decision` section are on the
 issue. The comment is the durable half — it stops the next pass re-deriving the same thing, and
 it is what lets the user overturn a wrong call in one click.
 

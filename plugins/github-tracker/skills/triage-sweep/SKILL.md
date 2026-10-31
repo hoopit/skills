@@ -9,8 +9,8 @@ Board: the board in your `hoopit-board` config — `hoopit-board config` prints 
 
 Nobody is present, so every call here is yours or stays open on the issue. The sweep sets
 fields, names footprints, links dependencies, retires false decisions and stamps. Status
-stays as it is, and grilling stays with `gh-triage`, which runs these same steps as its first
-part.
+moves only for a startable bug (step 2), and grilling stays with `gh-triage`, which runs
+these same steps as its first part.
 
 ## 1. List
 
@@ -40,6 +40,9 @@ An item already in Ready becomes startable the moment it reads `Unattended`, so 
 value to the rubric's test: decided and reachable. Where a dispatcher runs with a dispatch
 ladder configured, Effort also picks the model; either way the rubric prices the hunt along
 with the fix, and this is the one pass that reads the issue closely enough to see the hunt.
+
+Where a value you set makes the item a **startable bug** (`create-gh-issue`, Status), add
+`--ready`. An item whose fields you leave as they are keeps its Status.
 
 The three non-`Unattended` values owe the body a section:
 
@@ -148,4 +151,5 @@ hoopit-board triage <repo> <n> --tested
 
 ## 7. Report
 
-One line per item: its values, the paths added, the links set, its verdict. Then what stays due.
+One line per item: its values, any move to Ready, the paths added, the links set, its verdict.
+Then what stays due.
