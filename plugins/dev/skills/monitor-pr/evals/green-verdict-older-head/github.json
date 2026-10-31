@@ -1,0 +1,113 @@
+{
+  "pr": {
+    "title": "GH-90880: Drop the dead TYPE_CHECKING block from the flag prune task",
+    "body": "<!-- agent-merge-briefing:start -->\n<!-- merge-briefing head={HEAD} challenge=ran -->\n## 🤖 Merge briefing · {HEAD}\n\n- **Wrong:** `featureflags/tasks.py` kept an empty `if TYPE_CHECKING: pass`.\n- **Change:** the block and its import go.\n- **Warranted: yes** — 1 file, what #90880 asks for.\n- **Decisions:** none recorded.\n- **Merge risk: low** — no behaviour change.\n- **Lane: auto** — small, unguarded, gate passed.\n- **Look first:** nothing.\n- **Also:** challenge ran, 0 findings weighed.\n\n**Recommendation: merge** — green, challenged, nothing owed.\n<!-- agent-merge-briefing:end -->\n\n## Summary\n\n`featureflags/tasks.py` imported `TYPE_CHECKING` only for an empty `if TYPE_CHECKING: pass`. Both go. No behaviour change.\n\ncloses #90880\n\n## Test plan\n\n- `ruff check featureflags/` is clean.\n",
+    "draft": false,
+    "labels": []
+  },
+  "checks": [
+    {
+      "name": "lint",
+      "conclusion": "success"
+    },
+    {
+      "name": "migrations-check",
+      "conclusion": "success"
+    },
+    {
+      "name": "merge-briefing-check",
+      "conclusion": "success"
+    }
+  ],
+  "statuses": [
+    {
+      "context": "ci/circleci: test",
+      "state": "success",
+      "description": "Your tests passed on CircleCI!"
+    },
+    {
+      "context": "codex-review",
+      "state": "success",
+      "description": "No issues found"
+    },
+    {
+      "context": "backend-approval",
+      "state": "success",
+      "description": "Author is on @hoopit/backend"
+    },
+    {
+      "context": "backend-review-verdict",
+      "state": "success",
+      "description": "pass: a small, covered change",
+      "target_url": "https://github.com/hoopit/api/actions/runs/777001"
+    }
+  ],
+  "issues": {
+    "90880": {
+      "title": "featureflags: drop the dead TYPE_CHECKING block from the prune task"
+    }
+  },
+  "closing_issues": [
+    90880
+  ],
+  "issue_comments": [
+    {
+      "id": 4100001,
+      "user": {
+        "login": "coderabbitai[bot]"
+      },
+      "created_at": "2026-10-02T01:00:00Z",
+      "body": "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\n## Walkthrough\n\nThe unused `TYPE_CHECKING` import and its empty block are removed.\n\n<!-- final_review_risk_coverage {\"coveredCommitId\":\"{CURRENT_HEAD}\"} -->\n<!-- end of auto-generated comment: summarize by coderabbit.ai -->"
+    }
+  ],
+  "required_checks": [
+    "ci/circleci: test"
+  ],
+  "judgement_config": true,
+  "new_head_statuses": [
+    {
+      "context": "ci/circleci: test",
+      "state": "success",
+      "description": "Your tests passed on CircleCI!"
+    },
+    {
+      "context": "codex-review",
+      "state": "success",
+      "description": "No issues found"
+    },
+    {
+      "context": "backend-approval",
+      "state": "success",
+      "description": "Author is on @hoopit/backend"
+    }
+  ],
+  "new_head_checks": [
+    {
+      "name": "lint",
+      "conclusion": "success"
+    },
+    {
+      "name": "migrations-check",
+      "conclusion": "success"
+    },
+    {
+      "name": "merge-briefing-check",
+      "conclusion": "success"
+    }
+  ],
+  "threads": [
+    {
+      "id": "PRRT_kwDOEvalOld1",
+      "path": "featureflags/tasks.py",
+      "line": 1,
+      "comments": [
+        {
+          "id": 2400201,
+          "author": "coderabbitai[bot]",
+          "created_at": "2026-10-02T01:40:00Z",
+          "body": "_🧹 Nitpick (assertive)_\n\n**The module has no docstring, and its siblings do.**\n\n```suggestion\n\"\"\"Celery tasks that prune Jira-backed feature flags.\"\"\"\n\nfrom __future__ import annotations\n```\n\n<!-- This is an auto-generated reply by CodeRabbit -->"
+        }
+      ]
+    }
+  ]
+}

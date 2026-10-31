@@ -1,0 +1,61 @@
+{
+  "pr": {
+    "title": "GH-90880: Drop the dead TYPE_CHECKING block from the flag prune task",
+    "body": "## Summary\n\n`featureflags/tasks.py` imported `TYPE_CHECKING` only for an empty `if TYPE_CHECKING: pass`. Both go. No behaviour change.\n\ncloses #90880\n\n## Test plan\n\n- `ruff check featureflags/` is clean.\n",
+    "draft": true,
+    "labels": []
+  },
+  "checks": [
+    {
+      "name": "lint",
+      "conclusion": "success"
+    },
+    {
+      "name": "migrations-check",
+      "conclusion": "success"
+    },
+    {
+      "name": "merge-briefing-check",
+      "conclusion": "success"
+    }
+  ],
+  "statuses": [
+    {
+      "context": "ci/circleci: test",
+      "state": "success",
+      "description": "Your tests passed on CircleCI!"
+    },
+    {
+      "context": "codex-review",
+      "state": "success",
+      "description": "No issues found"
+    },
+    {
+      "context": "backend-approval",
+      "state": "success",
+      "description": "Author is on @hoopit/backend"
+    }
+  ],
+  "issues": {
+    "90880": {
+      "title": "featureflags: drop the dead TYPE_CHECKING block from the prune task"
+    }
+  },
+  "closing_issues": [
+    90880
+  ],
+  "issue_comments": [
+    {
+      "id": 4100001,
+      "user": {
+        "login": "coderabbitai[bot]"
+      },
+      "created_at": "2026-10-02T01:00:00Z",
+      "body": "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\n## Walkthrough\n\nThe unused `TYPE_CHECKING` import and its empty block are removed.\n\n<!-- final_review_risk_coverage {\"coveredCommitId\":\"{HEAD}\"} -->\n<!-- end of auto-generated comment: summarize by coderabbit.ai -->"
+    }
+  ],
+  "required_checks": [
+    "ci/circleci: test"
+  ],
+  "judgement_config": true
+}

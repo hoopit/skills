@@ -75,16 +75,56 @@ gh pr ready <PR> --repo <OWNER_REPO>
 The merge is the user's call: ask, and recommend it. Under `--unattended`,
 [UNATTENDED.md](UNATTENDED.md) says when the session leaves instead of asking. A user can hand that call over for
 their own PRs, and only one way: a standing instruction in their global `~/.claude/CLAUDE.md`
-to merge without asking when the lane is `auto`. A caller, `--unattended` or an answer about
-another PR never hands it over. With that instruction, skip the question and merge as *Merge
-it* does below when all of these hold for this head:
+to merge without asking when the lane is `auto`. It holds under `--unattended` as it does
+attended. A caller or an answer about another PR never hands it over. With that instruction,
+skip the question and merge as *Merge it* does below when all of these hold for this head:
 
 - the briefing's **Lane** reads `auto`, which already requires a recommendation to merge;
+- **Jev's verdict** (below) is a pass, or the repo has no judgement;
 - the PR's author is the user: `.user.login` on the PR equals `gh api user --jq .login`;
 - no approval and no run is owed (below).
 
 Anything short of that asks as usual. A merge taken this way says so: the landing's report
-opens with it and the lane line. It sends no notification.
+opens with it, the Lane line and the verdict beside it. It sends no notification.
+
+**Jev's verdict.** `team-review` judges a head once its `merge-briefing` status passes, so a
+verdict exists only after the hand-off; a head left a draft has none, and its question says
+so. After the hand-off, ask whether the repo has a judgement. A read that fails any other way
+answers `yes`, the side that holds:
+
+```bash
+if out=$(gh api "repos/<OWNER_REPO>/contents/.github/review-judgement.json?ref=<default branch>" --silent 2>&1); then echo JUDGED=yes
+elif printf '%s' "$out" | grep -q 'HTTP 404'; then echo JUDGED=no
+else echo JUDGED=yes; fi
+```
+
+`JUDGED=no` has no verdict to wait for, and the Lane decides alone. With `JUDGED=yes`, wait in
+the background for one on this head. The status sits on the commit it judged, so a verdict on
+an earlier head never answers this read:
+
+```bash
+for i in $(seq 30); do
+  v=$(gh api repos/<OWNER_REPO>/commits/<head sha>/status --jq '[.statuses[] | select(.context | endswith("-review-verdict")) | .description][0] // empty')
+  [ -n "$v" ] && break; sleep 10
+done; echo "verdict=${v:-none}"
+```
+
+The status's state is always `success`, so read only the description, `<outcome>: <reason>`:
+the outcome is the text before the first colon, and the run at the status's `target_url` holds
+the reason in full. Only `pass` is a pass. `hold`, `no-verdict`, any other outcome, and `none`
+at the end of the wait are all a **hold**. A hold changes no recommendation: it says a person
+should read the PR, and the merge question is that read. Name the verdict beside the Lane in
+the merge question, then:
+
+- **The author is an approver**: the `<team>-approval` status reads `Author is on @…`, or the
+  repo posts none. The PR is left for the owner's own review: the merge question attended, a
+  ready PR under `--unattended` ([UNATTENDED.md](UNATTENDED.md)).
+- **Anyone else**: `team-review` has asked the team. Name that in the merge question, as an
+  approval owed (below), and request nobody.
+
+A pass from an author outside the team merges only where the waiver is on, which reads as
+`<team>-approval` at `success`. Without the waiver the approval is still owed, and the read
+below stops the merge.
 
 **An approval owed.** A `GREEN` waits on nobody's review, but the merge can, in two ways,
 both of which come only after the hand-off: a repo on the shared team-review gate requires
@@ -155,12 +195,22 @@ done; echo "merge-briefing=${s:-missing}"
 ```
 
 Then merge, never with `--admin`: GitHub's own refusal is what guards a head the check
-fails. A refusal, or a status that never reached `success`, goes to the user with the
-status's description; a bypass is theirs.
+fails, and `--match-head-commit` makes it refuse a head that moved past the one you read. A
+refusal, or a status that never reached `success`, goes to the user with the status's
+description; a bypass is theirs.
+
+A merge on the standing instruction with `JUDGED=yes` takes its verdict here, once, in the
+same command as the merge. Every briefing success judges again and samples the model afresh,
+and a description edit brings one, so the same head's verdict can change and only this read
+counts. Anything but `pass` here is a hold: leave the PR unmerged and take the path above.
 
 ```bash
-gh pr merge <PR> --repo <OWNER_REPO> --<squash|merge|rebase>
+v=$(gh api repos/<OWNER_REPO>/commits/<head sha>/status --jq '[.statuses[] | select(.context | endswith("-review-verdict")) | .description][0] // empty')
+echo "verdict=${v:-none}"
+[ "${v%%:*}" = pass ] && gh pr merge <PR> --repo <OWNER_REPO> --<squash|merge|rebase> --match-head-commit <head sha>
 ```
+
+Every other merge runs the last line alone, without the test.
 
 Leave the monitor running either way: on a merge it sees `PR_CLOSED state=MERGED` next
 poll and Step 4a lands it, and on *keep watching* a PR that moves again still has a watch.
